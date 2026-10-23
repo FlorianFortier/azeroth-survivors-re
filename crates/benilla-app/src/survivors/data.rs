@@ -2018,3 +2018,281 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef]) -> Vec<EnemyDef> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    //! The tables' invariants and the run's curves. Pure data: no app, no game files.
+
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn ability_keys_are_unique() {
+        let mut seen = HashSet::new();
+        for a in ABILITIES {
+            assert!(seen.insert(a.key), "ability {:?} is defined twice", a.key);
+        }
+    }
+
+    #[test]
+    fn passive_keys_are_unique() {
+        let mut seen = HashSet::new();
+        for p in PASSIVES {
+            assert!(seen.insert(p.key), "passive {:?} is defined twice", p.key);
+        }
+    }
+
+    /// `ability` panics on a missing key, at the menu or on the first card deal: catch it here.
+    #[test]
+    fn every_class_names_existing_abilities() {
+        for c in CLASSES {
+            assert!(
+                ABILITIES.iter().any(|a| a.key == c.start),
+                "{}: start ability {:?} is not in ABILITIES",
+                c.name,
+                c.start
+            );
+            for key in c.pool {
+                assert!(
+                    ABILITIES.iter().any(|a| a.key == *key),
+                    "{}: pool ability {key:?} is not in ABILITIES",
+                    c.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_class_starts_with_an_ability_from_its_own_pool() {
+        for c in CLASSES {
+            assert!(
+                c.pool.contains(&c.start),
+                "{}: start {:?} is not in its pool",
+                c.name,
+                c.start
+            );
+        }
+    }
+
+    #[test]
+    fn class_pools_have_no_duplicates() {
+        for c in CLASSES {
+            let set: HashSet<_> = c.pool.iter().collect();
+            assert_eq!(
+                set.len(),
+                c.pool.len(),
+                "{}: duplicate ability in pool",
+                c.name
+            );
+        }
+    }
+
+    #[test]
+    fn every_class_has_looks_and_a_weapon() {
+        for c in CLASSES {
+            assert!(!c.looks.is_empty(), "{}: no looks", c.name);
+            assert!(!c.weapons.is_empty(), "{}: no weapon", c.name);
+            assert!(
+                c.sheath == 1 || c.sheath == 2,
+                "{}: sheath {}",
+                c.name,
+                c.sheath
+            );
+        }
+    }
+
+    #[test]
+    fn abilities_have_sane_numbers() {
+        for a in ABILITIES {
+            assert!(a.cooldown > 0.0, "{}: cooldown {}", a.key, a.cooldown);
+            assert!(a.count >= 1, "{}: count {}", a.key, a.count);
+            for (what, v) in [
+                ("damage", a.damage),
+                ("dot", a.dot),
+                ("range", a.range),
+                ("radius", a.radius),
+                ("duration", a.duration),
+            ] {
+                assert!(v.is_finite() && v >= 0.0, "{}: {what} {v}", a.key);
+            }
+            if a.kind == Kind::Totem {
+                assert!(
+                    a.totem.0 != 0 && a.totem.1 != 0,
+                    "{}: totem without display or spell",
+                    a.key
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn passives_grow_by_a_positive_step() {
+        for p in PASSIVES {
+            assert!(p.per_level > 0.0, "{}: per_level {}", p.key, p.per_level);
+        }
+    }
+
+    /// `spawn_enemies` indexes `[lo, lo + 1, lo + 2]` from `wave_pool`: a roster shorter than
+    /// three would read out of bounds.
+    #[test]
+    fn every_zone_roster_has_at_least_three_tiers_and_a_boss() {
+        for (i, m) in MAPS.iter().enumerate() {
+            let r = roster(i);
+            assert!(
+                r.enemies.len() >= 3,
+                "{}: {} tiers",
+                m.name,
+                r.enemies.len()
+            );
+            assert!(!r.bosses.is_empty(), "{}: no boss", m.name);
+        }
+    }
+
+    /// A boss comes every `BOSS_EVERY_SECS` until `VICTORY_SECS`; a shorter list leaves the end of
+    /// the run without one (the spawner clamps, so it is a pacing bug, not a crash).
+    #[test]
+    fn every_zone_has_a_boss_for_each_slot_of_the_run() {
+        let slots = (VICTORY_SECS / BOSS_EVERY_SECS) as usize;
+        for (i, m) in MAPS.iter().enumerate() {
+            let n = roster(i).bosses.len();
+            assert!(n >= slots, "{}: {n} bosses for {slots} slots", m.name);
+        }
+    }
+
+    #[test]
+    fn rosters_have_positive_numbers() {
+        for (i, m) in MAPS.iter().enumerate() {
+            let r = roster(i);
+            for e in r.enemies.iter().chain(&r.bosses) {
+                assert!(e.hp > 0.0, "{} / {}: hp {}", m.name, e.name, e.hp);
+                assert!(e.speed > 0.0, "{} / {}: speed {}", m.name, e.name, e.speed);
+                assert!(
+                    e.damage > 0.0,
+                    "{} / {}: damage {}",
+                    m.name,
+                    e.name,
+                    e.damage
+                );
+                assert!(e.scale > 0.0, "{} / {}: scale {}", m.name, e.name, e.scale);
+                assert!(e.xp > 0, "{} / {}: no xp", m.name, e.name);
+            }
+        }
+    }
+
+    /// `ladder` reads off the running peak, so no later tier is softer than an earlier one.
+    #[test]
+    fn laddered_rosters_never_get_softer() {
+        for (i, m) in MAPS.iter().enumerate() {
+            if m.foes.is_empty() {
+                continue;
+            }
+            let r = roster(i);
+            for list in [&r.enemies, &r.bosses] {
+                for w in list.windows(2) {
+                    assert!(
+                        w[1].hp >= w[0].hp && w[1].damage >= w[0].damage && w[1].xp >= w[0].xp,
+                        "{}: {} is softer than {}",
+                        m.name,
+                        w[1].name,
+                        w[0].name
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ladder_spans_the_tuned_ladder_end_to_end() {
+        let foes = [
+            foe("a", 1, 1, 1.0, 1.0),
+            foe("b", 2, 2, 1.0, 1.0),
+            foe("c", 3, 3, 1.0, 1.0),
+        ];
+        let out = ladder(&foes, ENEMIES);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].hp, ENEMIES[0].hp);
+        let peak = ENEMIES.iter().map(|e| e.hp).fold(0.0f32, f32::max);
+        assert_eq!(out[2].hp, peak);
+        // A single foe takes the first rung rather than dividing by zero.
+        let one = ladder(&foes[..1], ENEMIES);
+        assert_eq!(one[0].hp, ENEMIES[0].hp);
+    }
+
+    #[test]
+    fn roster_clamps_an_out_of_range_map() {
+        let last = roster(MAPS.len() - 1) as *const Roster;
+        assert_eq!(roster(MAPS.len() + 10) as *const Roster, last);
+    }
+
+    #[test]
+    fn wave_pool_stays_in_bounds_and_only_climbs() {
+        for (i, _) in MAPS.iter().enumerate() {
+            let tiers = roster(i).enemies.len();
+            let mut prev = 0;
+            let mut t = 0.0;
+            while t <= VICTORY_SECS * 1.5 {
+                let pool = wave_pool(t, tiers);
+                assert!(pool[2] < tiers, "t={t}: {pool:?} out of {tiers}");
+                assert!(
+                    pool[0] >= prev,
+                    "t={t}: pool went back from {prev} to {}",
+                    pool[0]
+                );
+                prev = pool[0];
+                t += 1.0;
+            }
+        }
+    }
+
+    #[test]
+    fn wave_pool_opens_on_the_weakest_and_ends_on_the_strongest() {
+        assert_eq!(wave_pool(0.0, 30), [0, 1, 2]);
+        assert_eq!(wave_pool(VICTORY_SECS, 30), [27, 28, 29]);
+    }
+
+    #[test]
+    fn crowd_grows_and_caps() {
+        assert_eq!(target_alive(0.0), 14);
+        assert_eq!(target_alive(VICTORY_SECS * 10.0), 220);
+        let mut prev = 0;
+        for s in 0..=900 {
+            let n = target_alive(s as f32);
+            assert!(n >= prev && n <= 220);
+            prev = n;
+        }
+    }
+
+    #[test]
+    fn enemy_scaling_starts_at_one_and_ends_where_tuned() {
+        assert_eq!(hp_scale(0.0), 1.0);
+        assert_eq!(damage_scale(0.0), 1.0);
+        assert!((hp_scale(VICTORY_SECS) - 1.75).abs() < 1e-5);
+        assert!((damage_scale(VICTORY_SECS) - 1.9).abs() < 1e-5);
+        // A negative clock (never expected) does not shrink enemies below their base.
+        assert_eq!(hp_scale(-10.0), 1.0);
+    }
+
+    #[test]
+    fn xp_curve_is_positive_and_never_drops() {
+        assert_eq!(xp_to_next(1), 5.0);
+        let mut prev = 0.0;
+        for level in 1..=100 {
+            let xp = xp_to_next(level);
+            assert!(xp > 0.0, "level {level}: {xp}");
+            assert!(xp >= prev, "level {level}: {xp} after {prev}");
+            prev = xp;
+        }
+        // The steps where the slope changes.
+        assert_eq!(xp_to_next(19), 185.0);
+        assert_eq!(xp_to_next(20), 195.0);
+        assert_eq!(xp_to_next(39), 442.0);
+        assert_eq!(xp_to_next(40), 455.0);
+    }
+
+    #[test]
+    fn boss_schedule_fits_inside_the_run() {
+        // The last boss lands before the bell, with time to fight it.
+        let last = (VICTORY_SECS / BOSS_EVERY_SECS).floor() * BOSS_EVERY_SECS;
+        assert!(last < VICTORY_SECS);
+    }
+}
