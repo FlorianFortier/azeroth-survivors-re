@@ -1,8 +1,12 @@
 //! Warcraft Survivors: a top-down survival mode on the benilla world, started by
-//! [`crate::run_survivors`]. There is no server: the hero, the enemies and the spells are local
+//! [`crate::run_survivors`]. There is no WoW server: the hero, the enemies and the spells are local
 //! entities dressed by the same attach, animation and spell-visual systems a streamed unit gets,
 //! on a battleground picked at the menu ([`data::MAPS`]), with the player controller and FrameXML
 //! off ([`crate::run_mode::CaptureMode`]).
+//!
+//! Alone, this machine plays the run. In multiplayer ([`net`]) the lobby's host plays it for every
+//! hero and streams it to the guests the way a WoW server streams a world; each guest steers its
+//! own hero and sends it back.
 
 mod abilities;
 mod auto;
@@ -15,6 +19,8 @@ mod hud;
 mod menu;
 mod minimap;
 mod mobility;
+mod net;
+mod sync;
 mod units;
 
 use benilla_world::schedule::WorldStage;
@@ -49,9 +55,13 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<enemies::Spawner>()
             .init_resource::<hud::Offer>()
             .init_resource::<cards::PendingPick>()
+            .init_resource::<Session>()
+            .init_resource::<sync::LocalPicks>()
+            .init_resource::<mobility::MobilityQueue>()
             .add_message::<abilities::Hit>()
             .add_message::<enemies::Loot>()
             .add_plugins(bevy::ui_render::UiMaterialPlugin::<hud::SweepUiMaterial>::default())
+            .add_plugins(net::plugin)
             .add_systems(Startup, hud::setup_hud)
             .add_systems(Update, hero::daylight)
             .add_systems(
@@ -67,7 +77,14 @@ impl Plugin for SurvivorsPlugin {
             )
             .add_systems(
                 Update,
+                sync::begin_run
+                    .after(WorldStage::Input)
+                    .before(mobility::apply_mobility),
+            )
+            .add_systems(
+                Update,
                 (
+                    mobility::apply_mobility,
                     enemies::spawn_enemies,
                     enemies::move_enemies,
                     abilities::cast_abilities,
@@ -79,10 +96,11 @@ impl Plugin for SurvivorsPlugin {
                     hero::hero_vitals,
                 )
                     .chain()
+                    .in_set(SimSet)
                     .after(WorldStage::Input)
-                    .run_if(in_state(Phase::Playing))
-                    // Entering a battleground raises its loading screen: the run waits behind it.
-                    .run_if(|l: Res<crate::loading_screen::LoadingScreen>| !l.covering()),
+                    // Solo in play; with others, through anyone's menu or cards. Entering a
+                    // battleground raises its loading screen: the run waits behind it.
+                    .run_if(sim_active),
             )
             .add_systems(
                 Update,
@@ -128,11 +146,23 @@ impl Plugin for SurvivorsPlugin {
                     .chain()
                     .after(hud::show_panels),
             )
+            // The frame's last word: picks land, the view catches up, then the phase follows it.
+            .add_systems(
+                PostUpdate,
+                (
+                    sync::apply_local_picks,
+                    sync::sync_view,
+                    hero::level_up_gate,
+                    hero::run_outcome,
+                )
+                    .chain(),
+            )
             .add_systems(OnEnter(Phase::Playing), unpause)
             .add_systems(OnEnter(Phase::LevelUp), (pause, hud::roll_offer))
             .add_systems(OnEnter(Phase::Paused), pause)
             .add_systems(OnEnter(Phase::GameOver), unpause)
-            .add_systems(OnEnter(Phase::Menu), (unpause, reset_run));
+            .add_systems(OnEnter(Phase::Menu), (unpause, reset_run))
+            .add_systems(OnEnter(Phase::Lobby), (unpause, reset_run));
         if let Some(auto) = auto::from_env() {
             app.insert_resource(auto)
                 .add_systems(
@@ -153,7 +183,13 @@ pub(super) enum Phase {
     LevelUp,
     Paused,
     GameOver,
+    /// A multiplayer lobby: its members, its rules, readying up.
+    Lobby,
 }
+
+/// The systems that play the run's rules.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct SimSet;
 
 /// Everything spawned for a run, despawned when the next begins.
 #[derive(Component)]
@@ -190,7 +226,80 @@ impl Selection {
     }
 }
 
+/// Who plays the run on this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(super) enum Mode {
+    /// Alone: this machine simulates, nothing on the network.
+    #[default]
+    Solo,
+    /// The lobby's host: this machine simulates and streams the run to the others.
+    Host,
+    /// A guest: the host's run is copied here; this machine moves its own hero only.
+    Client,
+}
+
+/// A seat in a multiplayer run, as the lobby had it when the run started.
+#[derive(Clone, Debug)]
+pub(super) struct Seat {
+    pub slot: u8,
+    pub name: String,
+    pub class: usize,
+    pub display: u32,
+    pub race: u8,
+    pub sex: u8,
+}
+
+/// The run's mode, its rules, and the table it is played at.
+#[derive(Resource, Default)]
+pub(super) struct Session {
+    pub mode: Mode,
+    /// This machine's seat.
+    pub slot: u8,
+    pub rules: data::Rules,
+    /// Every seat, the local one included; empty in solo.
+    pub seats: Vec<Seat>,
+    /// This machine sits in a multiplayer lobby: the menu's Enter goes back to it rather than
+    /// starting a solo run.
+    pub in_lobby: bool,
+}
+
+impl Session {
+    pub fn multiplayer(&self) -> bool {
+        self.mode != Mode::Solo
+    }
+    /// This machine plays the run's rules (solo or host), rather than copying them.
+    pub fn simulates(&self) -> bool {
+        self.mode != Mode::Client
+    }
+    pub fn name_of(&self, slot: u8) -> &str {
+        self.seats
+            .iter()
+            .find(|s| s.slot == slot)
+            .map_or("", |s| s.name.as_str())
+    }
+}
+
+/// The local player steers their hero: in play, and in multiplayer also while choosing a card,
+/// since the run does not stop for one player's level-up.
+pub(super) fn controls_active(phase: Phase, session: &Session) -> bool {
+    phase == Phase::Playing || (session.multiplayer() && phase == Phase::LevelUp)
+}
+
+/// The run's rules advance: solo only in play; with others, through anyone's level-up or menu.
+fn sim_active(
+    phase: Res<State<Phase>>,
+    session: Res<Session>,
+    run: Res<Run>,
+    loading: Res<crate::loading_screen::LoadingScreen>,
+) -> bool {
+    let phase = *phase.get();
+    let live = phase == Phase::Playing
+        || (session.multiplayer() && matches!(phase, Phase::LevelUp | Phase::Paused));
+    session.simulates() && live && run.begun && !run.waiting && !loading.covering()
+}
+
 /// An ability the hero has, with its own cooldown.
+#[derive(Clone)]
 pub(super) struct Owned {
     pub def: &'static AbilityDef,
     pub level: u8,
@@ -236,12 +345,12 @@ pub(super) const BASE_HP: f32 = 120.0;
 pub(super) const BASE_SPEED: f32 = 7.0;
 pub(super) const BASE_MAGNET: f32 = 4.5;
 
-/// One run's state.
-#[derive(Resource)]
-pub(super) struct Run {
+/// One hero's run: the numbers the simulation plays on. Every hero in a run carries its own as a
+/// [`HeroState`]; the local player's is mirrored into [`Run`] for the HUD.
+#[derive(Clone)]
+pub(super) struct Vitals {
     pub class: &'static ClassDef,
     pub race: u8,
-    pub elapsed: f32,
     pub kills: u32,
     pub level: u32,
     pub xp: f32,
@@ -256,28 +365,27 @@ pub(super) struct Run {
     pub thorns_spell: u32,
     pub heal_rate: f32,
     pub heal_t: f32,
-    /// The class mobility's cooldown and running effect.
+    /// The class mobility's cooldown and running effect. Owned by the machine that moves the
+    /// hero: the simulation only reads it.
     mobile: mobility::MobilityState,
     pub pending_levels: u32,
-    pub bosses: u32,
-    pub rings: u32,
-    pub won: bool,
     /// Seconds since the hero fell, while the death plays out.
     pub dead_t: Option<f32>,
-    pub next_guid: u64,
+    /// Seconds an ally has stood over this fallen hero.
+    pub revive_t: f32,
     pub damage_done: f64,
     /// Bumped whenever abilities or passives change, so the HUD rebuilds the icon rows once.
     pub version: u32,
-    /// A centre-screen announcement and its seconds left.
-    pub banner: Option<(String, f32)>,
+    /// Level-up cards applied to this hero, so a client knows which of its picks the host's
+    /// numbers include.
+    pub picks: u32,
 }
 
-impl Default for Run {
+impl Default for Vitals {
     fn default() -> Self {
         Self {
             class: &data::CLASSES[0],
             race: 0,
-            elapsed: 0.0,
             kills: 0,
             level: 1,
             xp: 0.0,
@@ -294,19 +402,33 @@ impl Default for Run {
             heal_t: 0.0,
             mobile: mobility::MobilityState::default(),
             pending_levels: 0,
-            bosses: 0,
-            rings: 0,
-            won: false,
             dead_t: None,
-            next_guid: 1,
+            revive_t: 0.0,
             damage_done: 0.0,
             version: 0,
-            banner: None,
+            picks: 0,
         }
     }
 }
 
-impl Run {
+impl Vitals {
+    /// A fresh hero of `class`: its starting ability and full health.
+    pub fn new(class: &'static ClassDef, race: u8) -> Self {
+        let mut v = Self {
+            class,
+            race,
+            ..Self::default()
+        };
+        v.abilities.push(Owned {
+            def: data::ability(class.start),
+            level: 1,
+            cd: 0.5,
+        });
+        v.hp = v.stats().max_hp;
+        v.version += 1;
+        v
+    }
+
     pub fn stats(&self) -> Stats {
         let mut s = Stats {
             might: 1.0,
@@ -344,6 +466,96 @@ impl Run {
         s
     }
 
+    pub fn alive(&self) -> bool {
+        self.dead_t.is_none()
+    }
+}
+
+/// One hero in the run, on its unit: its seat at the table and its numbers.
+#[derive(Component)]
+pub(super) struct HeroState {
+    pub slot: u8,
+    pub v: Vitals,
+}
+
+impl std::ops::Deref for HeroState {
+    type Target = Vitals;
+    fn deref(&self) -> &Vitals {
+        &self.v
+    }
+}
+
+impl std::ops::DerefMut for HeroState {
+    fn deref_mut(&mut self) -> &mut Vitals {
+        &mut self.v
+    }
+}
+
+/// The hero this machine moves: the camera follows it and WASD drives it.
+#[derive(Component)]
+pub(super) struct LocalHero;
+
+/// Something the horde is made of, on the host's enemies and a client's copies of them alike:
+/// what aim, the minimap and the mobility spells look for.
+#[derive(Component)]
+pub(super) struct Hostile;
+
+/// A pickup whose model loops are held still.
+#[derive(Component)]
+pub(super) struct Pickup;
+
+/// The run: its shared clock and announcements, and the local hero's numbers as [`Run::me`].
+/// `Run` derefs to `me`, so the HUD reads the local hero as `run.hp`, `run.level` and so on.
+#[derive(Resource)]
+pub(super) struct Run {
+    pub me: Vitals,
+    pub elapsed: f32,
+    pub bosses: u32,
+    pub rings: u32,
+    pub won: bool,
+    /// Every hero has fallen and stayed down.
+    pub lost: bool,
+    pub next_guid: u64,
+    /// A centre-screen announcement and its seconds left.
+    pub banner: Option<(String, f32)>,
+    /// The run's heroes exist and carry their numbers; false between [`hud::start_run`] and the
+    /// first frame of play, when [`begin_run`] seats them.
+    pub begun: bool,
+    /// Multiplayer: still waiting for every player to load the zone. The clock holds.
+    pub waiting: bool,
+}
+
+impl Default for Run {
+    fn default() -> Self {
+        Self {
+            me: Vitals::default(),
+            elapsed: 0.0,
+            bosses: 0,
+            rings: 0,
+            won: false,
+            lost: false,
+            next_guid: 1,
+            banner: None,
+            begun: false,
+            waiting: false,
+        }
+    }
+}
+
+impl std::ops::Deref for Run {
+    type Target = Vitals;
+    fn deref(&self) -> &Vitals {
+        &self.me
+    }
+}
+
+impl std::ops::DerefMut for Run {
+    fn deref_mut(&mut self) -> &mut Vitals {
+        &mut self.me
+    }
+}
+
+impl Run {
     pub fn guid(&mut self) -> u64 {
         self.next_guid += 1;
         self.next_guid
@@ -365,6 +577,10 @@ impl Default for Rng {
 }
 
 impl Rng {
+    pub fn seeded(seed: u64) -> Self {
+        Self(seed | 1)
+    }
+
     pub fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x >> 12;
@@ -385,8 +601,11 @@ impl Rng {
     }
 }
 
-fn pause(mut time: ResMut<Time<Virtual>>) {
-    time.pause();
+/// A level-up or the menu stops the clock alone; with others the run goes on.
+fn pause(session: Res<Session>, mut time: ResMut<Time<Virtual>>) {
+    if !session.multiplayer() {
+        time.pause();
+    }
 }
 
 fn unpause(mut time: ResMut<Time<Virtual>>) {
@@ -401,6 +620,8 @@ fn reset_run(
     mut pending: ResMut<abilities::PendingHits>,
     mut spawner: ResMut<enemies::Spawner>,
     mut selection: ResMut<Selection>,
+    mut picks: ResMut<sync::LocalPicks>,
+    mut mobility: ResMut<mobility::MobilityQueue>,
 ) {
     for e in &spawned {
         commands.entity(e).despawn();
@@ -413,6 +634,8 @@ fn reset_run(
     };
     pending.0.clear();
     *spawner = enemies::Spawner::default();
+    picks.0.clear();
+    mobility.0.clear();
     // The preview hero is respawned for the look still picked.
     selection.version += 1;
 }

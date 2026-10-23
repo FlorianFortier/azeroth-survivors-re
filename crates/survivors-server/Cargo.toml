@@ -1,0 +1,24 @@
+[package]
+name = "survivors-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Azeroth Survivors' self-hosted lobby server: lobbies joined by code, and the relay that carries a run between its host and players. Needs no game data."
+
+[lints]
+workspace = true
+
+# Never built for wasm32: a native server. `wenilla-host` mounts its router at `/lobby`, and its
+# own binary serves the lobby alone, for a box that hosts lobbies but no game files.
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+survivors-net = { path = "../survivors-net" }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+tokio-tungstenite = "0.30"

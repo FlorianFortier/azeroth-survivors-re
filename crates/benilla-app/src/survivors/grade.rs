@@ -81,8 +81,13 @@ fn attach(
     }
 }
 
-fn toggle(keys: Res<ButtonInput<KeyCode>>, mut on: ResMut<GradeOn>) {
-    if keys.just_pressed(KeyCode::KeyG) {
+fn toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    phase: Res<State<super::Phase>>,
+    mut on: ResMut<GradeOn>,
+) {
+    // On the lobby screen G is a letter in a name.
+    if *phase.get() != super::Phase::Lobby && keys.just_pressed(KeyCode::KeyG) {
         on.0 = !on.0;
     }
 }

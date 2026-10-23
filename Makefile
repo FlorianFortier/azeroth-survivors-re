@@ -5,7 +5,7 @@ DATA_DIR := wow-data
 DATA     := $(DATA_DIR)/Data
 WASM     := web/dist/wenilla_bg.wasm
 
-.PHONY: help build start native fetch-data toolchain wasm clean
+.PHONY: help build start native lobby fetch-data toolchain wasm clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -24,6 +24,9 @@ build: fetch-data toolchain wasm ## Fetch data + install toolchain + build the w
 start: ## Serve the game at http://127.0.0.1:8090 (run `make build` first)
 	@test -f $(WASM) || { echo "  not built yet — run: make build"; exit 1; }
 	cargo run --release -p wenilla-host -- --www web/dist --data $(DATA)
+
+lobby: ## Run a standalone multiplayer lobby server on :7777 (no game data needed)
+	cargo run --release -p survivors-server -- --bind 0.0.0.0:7777
 
 native: fetch-data ## Build + run the native desktop version
 	WOW_DATA=$(DATA) cargo run --release -p warcraft-survivors

@@ -56,6 +56,8 @@ benilla-protocol = { path = "../benilla-protocol" }
 benilla-world = { path = "../benilla-world", default-features = false }
 # The CVar diff persisted in `benilla-config/config.toml`.
 serde = { version = "1", features = ["derive"] }
+# Survivors multiplayer: the lobby protocol and the run's replication messages (dependency-free).
+survivors-net = { path = "../survivors-net" }
 toml = "0.8"
 # Collision for our kinematic character controller; 0.6 targets Bevy 0.18, 0.7 moves to 0.19.
 avian3d = "0.6"
@@ -81,6 +83,9 @@ rand = "0.8"
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x. Native-only:
 # arboard has no wasm32 backend (`textinput/clipboard.rs` falls back to no pasteboard there).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The survivors lobby's WebSocket on the desktop: blocking, on its own thread (`survivors::net::socket`).
+# Plain `ws://` only; the browser build uses the page's own `WebSocket`, `wss://` included.
+tungstenite = "0.30"
 arboard = "3"
 
 # Wayland clipboard over the standard `wl_data_device`; arboard's speaks `wlr-data-control`,
@@ -138,7 +143,15 @@ web-sys = { version = "0.3", features = [
     "AudioBuffer",
     "BaseAudioContext",
     "OfflineAudioContext",
+    # The survivors lobby's WebSocket (`survivors::net::socket`).
+    "BinaryType",
+    "CloseEvent",
+    "Event",
+    "MessageEvent",
+    "WebSocket",
 ] }
+# Lets the lobby socket's `Rc` state sit in a Bevy resource on the one browser thread.
+send_wrapper = "0.6"
 
 # Off macOS the device layer's last hop runs over cpal (`sound::output::cpal`). macOS goes direct:
 # there cpal cannot report or rebuild on a lost default device and drops the IO-cycle timestamp.

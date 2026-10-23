@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use super::data::{self, ClassDef};
 use super::units::{self, flat, wow_to_bevy, yaw_toward, Fx, Marks, UnitSpec};
-use super::{Phase, Run, Selection};
+use super::{controls_active, HeroState, LocalHero, Phase, Run, Selection, Session, Vitals};
 use crate::creature_anim::{move_flags, MovementState};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
@@ -149,7 +149,7 @@ pub(super) struct AimPoint(pub(super) Option<Vec3>);
 pub(super) fn aim_cursor(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cams: Query<(&Camera, &Transform), With<WorldCamera>>,
-    hero: Query<&Transform, (With<Hero>, Without<WorldCamera>)>,
+    hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
     world: WorldPoint,
     mut aim: ResMut<AimPoint>,
 ) {
@@ -189,6 +189,7 @@ pub(super) fn drive_hero(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     phase: Res<State<Phase>>,
+    session: Res<Session>,
     run: Res<Run>,
     selection: Res<Selection>,
     rig: Res<CamRig>,
@@ -196,18 +197,21 @@ pub(super) fn drive_hero(
     world: WorldPoint,
     auto: Option<Res<super::auto::Auto>>,
     mut player: ResMut<crate::player::Player>,
-    mut hero: Query<(&mut Transform, &mut MovementState, &mut Hero)>,
+    mut hero: Query<(&mut Transform, &mut MovementState, &mut Hero), With<LocalHero>>,
 ) {
+    // Steering, on a hero still standing and before the run's last word.
+    let steering = controls_active(*phase.get(), &session)
+        && run.begun
+        && run.dead_t.is_none()
+        && !run.won
+        && !run.lost;
     let focus = match hero.single_mut() {
         Ok((mut tf, mut mv, mut hm)) => {
             let dt = time.delta_secs();
             let mut dir = Vec3::ZERO;
-            if let Some(auto) = auto
-                .as_deref()
-                .filter(|_| *phase.get() == Phase::Playing && run.dead_t.is_none())
-            {
+            if let Some(auto) = auto.as_deref().filter(|_| steering) {
                 dir = super::auto::steer(auto);
-            } else if *phase.get() == Phase::Playing && run.dead_t.is_none() {
+            } else if steering {
                 if keys.any_pressed([KeyCode::KeyW, KeyCode::ArrowUp]) {
                     dir.z -= 1.0;
                 }
@@ -229,14 +233,11 @@ pub(super) fn drive_hero(
             let mut pos = tf.translation;
             // Locked, the hero faces the cursor and WASD moves him under it, so he backpedals and
             // strafes as a player does; unlocked (or driven), he faces where he runs.
-            let face = (rig.mode == CamMode::Fixed
-                && auto.is_none()
-                && *phase.get() == Phase::Playing
-                && run.dead_t.is_none())
-            .then(|| aim.0.map(|a| flat(a - pos)))
-            .flatten()
-            .filter(|d| d.length() > 0.5)
-            .map(|d| d.normalize());
+            let face = (rig.mode == CamMode::Fixed && auto.is_none() && steering)
+                .then(|| aim.0.map(|a| flat(a - pos)))
+                .flatten()
+                .filter(|d| d.length() > 0.5)
+                .map(|d| d.normalize());
             if let Some(look) = face {
                 let target = Quat::from_rotation_y(yaw_toward(look));
                 tf.rotation = tf.rotation.slerp(target, (dt * 20.0).min(1.0));
@@ -270,7 +271,7 @@ pub(super) fn drive_hero(
                 pos.z = held.z;
             }
             let ground = world.terrain_height_under(pos).unwrap_or(pos.y);
-            let playing = *phase.get() == Phase::Playing && run.dead_t.is_none();
+            let playing = steering;
             // Space hops: lift off the terrain, then gravity brings the hero back down.
             if playing && keys.just_pressed(KeyCode::Space) && hm.vy == 0.0 && hm.air == 0.0 {
                 hm.vy = JUMP_SPEED;
@@ -325,12 +326,13 @@ pub(super) fn place_camera(
     keys: Res<ButtonInput<KeyCode>>,
     player: Res<crate::player::Player>,
     world: WorldPoint,
-    hero: Query<&Transform, (With<Hero>, Without<WorldCamera>)>,
+    hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
     mut cams: Query<&mut Transform, With<WorldCamera>>,
 ) {
     // `C` unlocks the camera to swing and tilt; locking it again snaps back to the top-down view,
     // so world-relative WASD lines up with the screen again.
-    if keys.just_pressed(KeyCode::KeyC) {
+    // On the lobby screen C is a letter in a name.
+    if *phase.get() != Phase::Lobby && keys.just_pressed(KeyCode::KeyC) {
         rig.mode = match rig.mode {
             CamMode::Fixed => CamMode::Orbit,
             CamMode::Orbit => {
@@ -351,7 +353,7 @@ pub(super) fn place_camera(
         };
         rig.dist = (rig.dist * (1.0 - 0.12 * notches).clamp(0.5, 1.5)).clamp(ZOOM_MIN, ZOOM_MAX);
     }
-    let (eye, look) = if *phase.get() == Phase::Menu {
+    let (eye, look) = if matches!(phase.get(), Phase::Menu | Phase::Lobby) {
         rig.orbit += time.delta_secs() * 0.2;
         let d = 7.0;
         (
@@ -383,89 +385,172 @@ pub(super) fn place_camera(
 
 /// Damage the hero takes from one blow, after immunity, armour and the shield; returns what got
 /// through.
-pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> f32 {
-    if run.immune_t > 0.0 || run.dead_t.is_some() {
+pub(super) fn hurt_hero(hero: &mut Vitals, raw: f32) -> f32 {
+    if hero.immune_t > 0.0 || hero.dead_t.is_some() {
         return 0.0;
     }
-    let mut dmg = (raw - run.stats().armor).max(1.0);
-    if run.shield_t > 0.0 && run.shield > 0.0 {
-        let absorbed = dmg.min(run.shield);
-        run.shield -= absorbed;
+    let mut dmg = (raw - hero.stats().armor).max(1.0);
+    if hero.shield_t > 0.0 && hero.shield > 0.0 {
+        let absorbed = dmg.min(hero.shield);
+        hero.shield -= absorbed;
         dmg -= absorbed;
     }
-    run.hp -= dmg;
+    hero.hp -= dmg;
     dmg
 }
 
-/// The clock, regeneration, the timed buffs and their visuals, death and victory.
+/// How close an ally must stand over a fallen hero to bring them back, and for how long.
+pub(super) const REVIVE_REACH: f32 = 3.0;
+pub(super) const REVIVE_SECS: f32 = 4.0;
+/// Seconds a fallen hero lies before the run counts them out, when no one can revive them.
+const DOWN_SECS: f32 = 3.0;
+
+/// The clock, every hero's regeneration, timed buffs and their visuals, death, revives, and the
+/// run's outcome.
+#[allow(clippy::type_complexity)]
 pub(super) fn hero_vitals(
     time: Res<Time>,
+    session: Res<Session>,
     mut run: ResMut<Run>,
-    mut next: ResMut<NextState<Phase>>,
-    mut hero: Query<(Entity, &Guid, &mut ObjectStore, &mut Marks), With<Hero>>,
+    mut heroes: Query<
+        (
+            Entity,
+            &Guid,
+            &Transform,
+            &mut ObjectStore,
+            &mut Marks,
+            &mut HeroState,
+        ),
+        With<Hero>,
+    >,
     mut fields: MessageWriter<FieldChanged>,
     mut fx: Fx,
 ) {
     let dt = time.delta_secs();
-    let stats = run.stats();
-    let Ok((entity, guid, mut store, mut marks)) = hero.single_mut() else {
-        return;
-    };
-    if let Some(t) = run.dead_t.as_mut() {
-        *t += dt;
-        if *t > 3.0 {
-            next.set(Phase::GameOver);
-        }
-        return;
-    }
+    let rules = session.rules;
     run.elapsed += dt;
-    let r = &mut *run;
-    for t in [&mut r.shield_t, &mut r.immune_t, &mut r.thorns_t] {
-        *t = (*t - dt).max(0.0);
-    }
-    let mut heal = stats.regen * dt;
-    if run.heal_t > 0.0 {
-        heal += run.heal_rate * dt.min(run.heal_t);
-        run.heal_t = (run.heal_t - dt).max(0.0);
-    }
-    run.hp = (run.hp + heal).min(stats.max_hp);
+    let standing: Vec<Vec3> = heroes
+        .iter()
+        .filter(|h| h.5.alive())
+        .map(|h| h.2.translation)
+        .collect();
 
-    // The buffs show as their own state kits: the shield bubble, the immunity glow, the orbs.
-    let mut shown: Vec<u32> = Vec::new();
-    if run.shield_t > 0.0 && run.shield > 0.0 {
-        shown.push(17);
-    }
-    if run.immune_t > 0.0 {
-        shown.push(642);
-    }
-    if run.thorns_t > 0.0 {
-        shown.push(run.thorns_spell);
-    }
-    if run.heal_t > 0.0 {
-        shown.push(774);
-    }
-    for owned in &run.abilities {
-        if owned.def.key == "lightning_shield" {
-            shown.push(owned.def.spell);
+    for (entity, guid, tf, mut store, mut marks, mut hero) in &mut heroes {
+        let h = &mut hero.v;
+        if let Some(t) = h.dead_t.as_mut() {
+            *t += dt;
+            let helped = rules.revive
+                && standing
+                    .iter()
+                    .any(|p| reach(*p, tf.translation) <= REVIVE_REACH);
+            h.revive_t = if helped {
+                h.revive_t + dt
+            } else {
+                (h.revive_t - dt).max(0.0)
+            };
+            if h.revive_t >= REVIVE_SECS {
+                h.dead_t = None;
+                h.revive_t = 0.0;
+                h.hp = h.stats().max_hp * 0.5;
+                h.immune_t = 2.0;
+                units::revive_unit(&mut store);
+                fx.cast(entity, 2006, &[entity], None);
+            }
+            continue;
+        }
+        for t in [&mut h.shield_t, &mut h.immune_t, &mut h.thorns_t] {
+            *t = (*t - dt).max(0.0);
+        }
+        let stats = h.stats();
+        let mut heal = stats.regen * dt;
+        if h.heal_t > 0.0 {
+            heal += h.heal_rate * dt.min(h.heal_t);
+            h.heal_t = (h.heal_t - dt).max(0.0);
+        }
+        h.hp = (h.hp + heal).min(stats.max_hp);
+
+        // The buffs show as their own state kits: the shield bubble, the immunity glow, the orbs.
+        let mut shown: Vec<u32> = Vec::new();
+        if h.shield_t > 0.0 && h.shield > 0.0 {
+            shown.push(17);
+        }
+        if h.immune_t > 0.0 {
+            shown.push(642);
+        }
+        if h.thorns_t > 0.0 {
+            shown.push(h.thorns_spell);
+        }
+        if h.heal_t > 0.0 {
+            shown.push(774);
+        }
+        for owned in &h.abilities {
+            if owned.def.key == "lightning_shield" {
+                shown.push(owned.def.spell);
+            }
+        }
+        if h.passives.iter().any(|(p, _)| p.key == "renew") {
+            shown.push(139);
+        }
+        marks.set(&shown);
+        marks.flush(entity, guid.0, &mut store, &mut fields);
+
+        if h.hp <= 0.0 {
+            h.hp = 0.0;
+            h.dead_t = Some(0.0);
+            h.revive_t = 0.0;
+            units::kill_unit(&mut store);
+            marks.clear();
+            marks.flush(entity, guid.0, &mut store, &mut fields);
         }
     }
-    if run.passives.iter().any(|(p, _)| p.key == "renew") {
-        shown.push(139);
-    }
-    marks.set(&shown);
-    marks.flush(entity, guid.0, &mut store, &mut fields);
 
-    if run.hp <= 0.0 {
-        run.hp = 0.0;
-        run.dead_t = Some(0.0);
-        units::kill_unit(&mut store);
-        marks.clear();
-        marks.flush(entity, guid.0, &mut store, &mut fields);
-    } else if run.elapsed >= data::VICTORY_SECS {
+    if run.won || run.lost || heroes.is_empty() {
+        return;
+    }
+    if run.elapsed >= rules.duration {
         run.won = true;
         // A last flourish before the results.
-        fx.cast(entity, 642, &[entity], None);
+        for (entity, .., hero) in &heroes {
+            if hero.alive() {
+                fx.cast(entity, 642, &[entity], None);
+            }
+        }
+    } else if heroes
+        .iter()
+        .all(|h| h.5.dead_t.is_some_and(|t| t > DOWN_SECS))
+    {
+        run.lost = true;
+    }
+}
+
+/// The run's last word sends everyone to the results.
+pub(super) fn run_outcome(
+    run: Res<Run>,
+    phase: Res<State<Phase>>,
+    mut next: ResMut<NextState<Phase>>,
+) {
+    if (run.won || run.lost)
+        && run.begun
+        && matches!(phase.get(), Phase::Playing | Phase::LevelUp | Phase::Paused)
+    {
         next.set(Phase::GameOver);
+    }
+}
+
+/// Levels banked on the local hero open the cards.
+pub(super) fn level_up_gate(
+    run: Res<Run>,
+    phase: Res<State<Phase>>,
+    mut next: ResMut<NextState<Phase>>,
+) {
+    if *phase.get() == Phase::Playing
+        && run.begun
+        && run.pending_levels > 0
+        && run.dead_t.is_none()
+        && !run.won
+        && !run.lost
+    {
+        next.set(Phase::LevelUp);
     }
 }
 

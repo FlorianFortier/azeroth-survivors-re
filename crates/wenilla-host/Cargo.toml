@@ -13,6 +13,8 @@ description = "Native web host for the browser build: serves the wasm bundle, an
 anyhow.workspace = true
 clap.workspace = true
 benilla-formats = { path = "../benilla-formats", default-features = false }
+# The multiplayer lobby, mounted at `/lobby` beside the game.
+survivors-server = { path = "../survivors-server" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync"] }
 # Splits `axum::extract::ws::WebSocket` into independent read/write halves — it implements

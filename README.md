@@ -68,6 +68,17 @@ make start     # → open http://127.0.0.1:8090/
 
 Run `make` (or `make help`) to list every target.
 
+## Multiplayer
+
+Up to four players can run a battleground together: one hosts a lobby, the others join with its
+five-character code. The host sets the zone, the seats, the difficulty (presets, or enemy health,
+damage and crowd size one by one), the run's length, how often bosses come, shared experience,
+revives, and whether the lobby is listed publicly.
+
+`make start` already serves a lobby beside the game: players on your network open your page,
+click **Multiplayer**, and create or join. To host lobbies on the internet without exposing game
+files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
+
 ## Controls
 
 See [CONTROLS.md](CONTROLS.md). The short version: **WASD** to move, **Space** to jump, **F**

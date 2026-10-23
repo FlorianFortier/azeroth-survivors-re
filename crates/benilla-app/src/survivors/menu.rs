@@ -528,6 +528,7 @@ pub(super) fn menu_clicks(
     mut run: ResMut<Run>,
     mut rng: ResMut<Rng>,
     mut next: ResMut<NextState<Phase>>,
+    session: Res<super::Session>,
 ) {
     if *phase.get() != Phase::Menu {
         return;
@@ -556,7 +557,10 @@ pub(super) fn menu_clicks(
             }
         }
         MenuAction::Enter => {
-            if start_run(&mut run, &mut selection) {
+            // Seated in a lobby, the menu only changes the hero: Enter World goes back to it.
+            if session.in_lobby {
+                next.set(Phase::Lobby);
+            } else if start_run(&mut run, &mut selection) {
                 next.set(Phase::Playing);
             }
         }

@@ -14,7 +14,7 @@ use bevy::window::PrimaryWindow;
 use super::data::{self, AbilityDef, Effect, Kind, PassiveDef, Stat};
 use super::hero::{self, Hero};
 use super::minimap::{self, MiniMap};
-use super::{Owned, Phase, Rng, Run, Selection, Stats};
+use super::{Owned, Phase, Rng, Run, Selection, Stats, Vitals};
 
 const GOLD: Color = Color::srgb(1.0, 0.82, 0.0);
 /// The mobility button's edge, an action button's 36 units.
@@ -861,13 +861,15 @@ pub(super) fn setup_hud(
 pub(super) fn menu_preview(
     mut commands: Commands,
     phase: Res<State<Phase>>,
+    session: Res<super::Session>,
     selection: Res<Selection>,
     mut run: ResMut<Run>,
     heroes: Query<Entity, With<Hero>>,
     world: benilla_world::world_point::WorldPoint,
     mut shown: Local<Option<(usize, u32, usize)>>,
 ) {
-    if *phase.get() != Phase::Menu {
+    // A guest's run hero is the host's to send: no preview once its run has begun.
+    if !matches!(phase.get(), Phase::Menu | Phase::Lobby) || session.mode == super::Mode::Client {
         return;
     }
     let want = selection
@@ -889,7 +891,7 @@ pub(super) fn menu_preview(
         pos.y = h;
     }
     let serial = run.guid();
-    hero::spawn_hero(
+    let e = hero::spawn_hero(
         &mut commands,
         &data::CLASSES[class],
         display,
@@ -898,8 +900,11 @@ pub(super) fn menu_preview(
         serial,
         pos,
     );
+    commands.entity(e).insert(super::LocalHero);
 }
 
+/// A run begins with the hero picked at the menu: the view takes its fresh numbers, and the run's
+/// heroes are seated on the first frame of play ([`super::sync::begin_run`]).
 pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
     let (Some(class), Some(&(_, race, _))) = (
         selection.class_def(),
@@ -911,18 +916,10 @@ pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
     selection.stage = selection.map;
     let next_guid = run.next_guid;
     *run = Run {
-        class,
-        race,
+        me: Vitals::new(class, race),
         next_guid,
         ..Run::default()
     };
-    run.abilities.push(Owned {
-        def: data::ability(class.start),
-        level: 1,
-        cd: 0.5,
-    });
-    run.hp = run.stats().max_hp;
-    run.version += 1;
     true
 }
 
@@ -982,10 +979,14 @@ pub(super) fn pick(
     offer: &mut Offer,
     rng: &mut Rng,
     next: &mut NextState<Phase>,
+    picks: &mut super::sync::LocalPicks,
 ) {
     let Some(&choice) = offer.choices.get(i) else {
         return;
     };
+    // The run applies it to the hero itself; the view shows it now.
+    picks.0.push(super::sync::to_wire(choice, run));
+    run.picks += 1;
     match choice {
         Choice::NewAbility(def) => run.abilities.push(Owned {
             def,
@@ -1032,6 +1033,7 @@ pub(super) fn buttons(
     mut next: ResMut<NextState<Phase>>,
     mut exit: MessageWriter<AppExit>,
     phase: Res<State<Phase>>,
+    session: Res<super::Session>,
 ) {
     for (interaction, action, base, mut bg) in &mut presses {
         match interaction {
@@ -1041,7 +1043,9 @@ pub(super) fn buttons(
                 bg.0 = BUTTON_HOT;
                 match (*action, *phase.get()) {
                     (UiAction::Resume, Phase::Paused) => next.set(Phase::Playing),
-                    (UiAction::MainMenu, Phase::Paused | Phase::GameOver) => next.set(Phase::Menu),
+                    (UiAction::MainMenu, Phase::GameOver) => next.set(after_run(&session)),
+                    // Mid-run, the pause menu's way out leaves a multiplayer lobby too.
+                    (UiAction::MainMenu, Phase::Paused) => next.set(Phase::Menu),
                     (UiAction::Quit, Phase::Paused | Phase::GameOver) => {
                         exit.write(AppExit::Success);
                     }
@@ -1052,17 +1056,32 @@ pub(super) fn buttons(
     }
 }
 
+/// Where the results lead: the menu alone, the lobby with others.
+fn after_run(session: &super::Session) -> Phase {
+    if session.multiplayer() {
+        Phase::Lobby
+    } else {
+        Phase::Menu
+    }
+}
+
 pub(super) fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     phase: Res<State<Phase>>,
+    session: Res<super::Session>,
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
 ) {
     match phase.get() {
         Phase::Menu => {
-            if keys.just_pressed(KeyCode::Enter) && start_run(&mut run, &mut selection) {
-                next.set(Phase::Playing);
+            if keys.just_pressed(KeyCode::Enter) {
+                // Seated in a lobby, the menu only changes the hero: Enter goes back to it.
+                if session.in_lobby {
+                    next.set(Phase::Lobby);
+                } else if start_run(&mut run, &mut selection) {
+                    next.set(Phase::Playing);
+                }
             }
         }
         Phase::Playing => {
@@ -1075,10 +1094,11 @@ pub(super) fn keys(
                 next.set(Phase::Playing);
             }
         }
-        Phase::LevelUp => {}
+        // The lobby screen reads its own keys (`net::ui`).
+        Phase::LevelUp | Phase::Lobby => {}
         Phase::GameOver => {
             if keys.just_pressed(KeyCode::Enter) {
-                next.set(Phase::Menu);
+                next.set(after_run(&session));
             }
         }
     }
@@ -1515,7 +1535,7 @@ const PLATE_NUDGE: f32 = 2.0;
 pub(super) fn hero_plate(
     run: Res<Run>,
     ui_scale: Res<UiScale>,
-    hero: Query<&Transform, With<Hero>>,
+    hero: Query<&Transform, With<super::LocalHero>>,
     cams: Query<(&Camera, &Transform), With<WorldCamera>>,
     mut nodes: ParamSet<(
         Query<(&mut Node, &mut Visibility), With<HpFrame>>,
@@ -2218,7 +2238,10 @@ pub(super) fn show_panels(
         set(root, p == Phase::Menu);
     }
     for root in &mut roots.p1() {
-        set(root, p != Phase::Menu && p != Phase::GameOver);
+        set(
+            root,
+            !matches!(p, Phase::Menu | Phase::GameOver | Phase::Lobby),
+        );
     }
     for root in &mut roots.p2() {
         set(root, p == Phase::LevelUp);
