@@ -50,7 +50,7 @@ minutes. **No server, no login, no account** — fully offline and self-containe
 ## Play it
 
 ```bash
-git clone https://github.com/OutThisLife/azeroth-survivors-re
+git clone https://github.com/FlorianFortier/azeroth-survivors-re
 cd azeroth-survivors-re
 make build     # fetch game data + install toolchain + build the wasm (~5.5 GB download)
 make start     # → open http://127.0.0.1:8090/

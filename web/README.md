@@ -22,7 +22,9 @@ behind a seam the native build already had:
 - On the build machine: stable Rust, `rustup`, ~10 GB of `target/`; `scripts/web-setup.sh`
   fetches the rest (the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` at the exact
   version `Cargo.lock` pins, wasi-sdk into `tools/wasi-sdk/`). No sudo.
-- To *serve*: a 1.12.1 (build 5875) `Data/` directory and a reachable realmd (3724) + mangosd (8085).
+- To *serve*: a 1.12.1 (build 5875) `Data/` directory (`make fetch-data` puts one in `wow-data/`).
+  The survivors mode needs nothing else; the client's online mode also needs a reachable realmd
+  (3724) + mangosd (8085).
 
 ## Build and run
 
@@ -40,23 +42,19 @@ cargo run --release -p wenilla-host -- --www web/dist --data /path/to/WoW/Data -
 anyone who can reach the socket, with no login, so it binds to `127.0.0.1` by default and must
 not be exposed on the open internet — the files are Blizzard's, and whoever serves them is
 distributing them. A private network you control (a `tailscale serve` front, a LAN) is fine
-for your own testing (`--bind 0.0.0.0:8090` logs a warning); hosting for other players is
-[`wenilla-realm`](../crates/wenilla-realm/README.md), which puts the same routers behind a
-session cookie. The page derives `ws://`/`wss://` from its own origin, so any https front works.
+for your own testing (`--bind 0.0.0.0:8090` logs a warning). This repository has no
+multi-user hosting: upstream wenilla's `wenilla-realm` service (github.com/Arnesen/wenilla-realm)
+is not part of it. The page derives `ws://`/`wss://` from its own origin, so any https front works.
 
-Each tab is a full independent client with its own upstream connection; players need their
-own accounts (a second login on one account kicks the first, as in the real client).
+The survivors mode is offline and never opens `/ws/*`; the relay is kept from wenilla for the
+client's online mode, where each tab is a full independent client with its own upstream
+connection and its own account.
 
 ## Things to know
 
-- **Hosting behind a login** — `crates/wenilla-realm` wraps this host's routers behind a session
-  cookie (the wasm, `/data/*` and `/ws/*` all need it; same-origin requests carry the cookie by
-  themselves), renders its own play page that fetches the player's hidden game credentials over
-  the session and hands them to the client through `window.__wenilla_env`, and adds an admin
-  panel for the server. The packaged one-VM deployment is github.com/Arnesen/wenilla-realm.
 - **Sound** starts on the first click or key in the page — browsers suspend every AudioContext
   until a user gesture; `index.html` resumes it then.
-- **Full screen** — the "full screen" button on both pages (`web/platform.js`) is not just
+- **Full screen** — the "full screen" button (`web/platform.js`) is not just
   `requestFullscreen`: in full screen it also takes a Keyboard Lock on `Escape`, `Tab` and
   `KeyW`, so Esc opens the game menu instead of leaving full screen, Tab cycles targets instead
   of walking browser focus, and Ctrl+W doesn't close the tab mid-pull. Chrome then exits on a
@@ -237,7 +235,7 @@ On that, `wenilla.notify` shows desktop notifications for a rule set the page ma
 disconnect (from `state`). They show only while the tab is hidden or unfocused
 (`wenilla.notify.always = true` overrides), collapse by `tag`, focus the tab on click, and
 badge the title. `enable()` asks the browser once and has to run from a user gesture — the
-🔔 button, on both pages. Notifications need a secure context, which WebGPU already requires.
+🔔 button. Notifications need a secure context, which WebGPU already requires.
 
 ### Policy, hosting, limits
 
@@ -247,9 +245,7 @@ already synthesize key events on the canvas and edit the saved variables in `loc
 The bridge adds convenience, not reach. Whether *automation* is welcome on a realm is the
 operator's call: a hosting page opts a session out with `bridge: '0'` in `window.__wenilla_env`
 (read once at boot, and it beats any `?bridge=` a player passes; `?bridge=0` does the same for one
-session on either page). `wenilla-realm`'s play page loads `bridge.js` like the dev page does, 🔔
-included, and sets no `bridge` key: automation is on for every player until the operator adds
-`bridge: '0'` to the `__wenilla_env` object `play.html` builds.
+session).
 
 Handlers run **synchronously on the single wasm thread**: keep `onFrame` cheap (the snapshot
 is built and handed over inside the frame) and push heavy work to a Worker. `'*'` relays every

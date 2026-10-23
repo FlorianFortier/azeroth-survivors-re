@@ -72,3 +72,6 @@ jobs:
         run: |
           cargo test -p benilla-world --lib rig_anim::compose --no-default-features
           cargo test -p benilla-world --lib web_budget --no-default-features
+      # The survivors mode's tables and balance curves: pure data, no game files.
+      - name: survivors tables and balance
+        run: cargo test -p benilla-app --lib survivors::data --no-default-features
