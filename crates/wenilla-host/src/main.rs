@@ -60,6 +60,10 @@ async fn main() -> Result<()> {
             cli.upstream.clone(),
             wenilla_host::ALLOWED_PORTS,
         ))
+        // The multiplayer lobby, so the page that serves the game also hosts its lobbies.
+        .merge(survivors_server::router(
+            survivors_server::LobbyServer::new(survivors_server::Config::default()),
+        ))
         .merge(wenilla_host::static_site::router(&cli.www));
 
     let listener = tokio::net::TcpListener::bind(&cli.bind)
@@ -69,8 +73,8 @@ async fn main() -> Result<()> {
         tracing::warn!(
             bind = %cli.bind,
             "wenilla-host is a local testing tool: /data serves your game files to anyone who \
-             can reach this address, with no login. Do not expose it on the open internet — use \
-             wenilla-realm to host players."
+             can reach this address, with no login. Keep it on a network you trust; to host \
+             lobbies on the open internet, run survivors-server, which serves no game files."
         );
     }
     tracing::info!(bind = %cli.bind, www = %cli.www.display(), upstream = %cli.upstream, "wenilla-host listening");

@@ -404,6 +404,7 @@ pub(super) fn animate_cards(
     mut shines: Query<(&CardShine, &mut Node)>,
     mut rays: Query<&mut UiTransform, (With<Rays>, Without<Card>)>,
     mut pending: ResMut<PendingPick>,
+    mut picks: ResMut<super::sync::LocalPicks>,
     mut run: ResMut<Run>,
     mut offer: ResMut<Offer>,
     mut rng: ResMut<Rng>,
@@ -499,7 +500,7 @@ pub(super) fn animate_cards(
         if *t >= PICK_SECS {
             let i = *i;
             pending.0 = None;
-            hud::pick(i, &mut run, &mut offer, &mut rng, &mut next);
+            hud::pick(i, &mut run, &mut offer, &mut rng, &mut next, &mut picks);
         }
     }
 }

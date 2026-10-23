@@ -624,12 +624,15 @@ dependencies = [
  "raw-window-handle",
  "regex",
  "rtrb",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha1 0.10.6",
  "smithay-clipboard",
+ "survivors-net",
  "symphonia",
  "toml",
+ "tungstenite 0.30.0",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -6541,6 +6544,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "survivors-net"
+version = "0.2.0"
+
+[[package]]
+name = "survivors-server"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "futures-util",
+ "survivors-net",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "svg_fmt"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7750,6 +7772,7 @@ dependencies = [
  "futures-util",
  "percent-encoding",
  "serde_json",
+ "survivors-server",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tower",

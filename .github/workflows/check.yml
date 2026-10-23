@@ -47,6 +47,8 @@ jobs:
         run: node --test web/tests/*.test.mjs
       - name: host cache and relay regressions
         run: cargo test -p wenilla-host
+      - name: multiplayer protocol, lobby hub and lobby server
+        run: cargo test -p survivors-net -p survivors-server
       - name: UI listener ordering and mutation
         run: |
           cargo test -p benilla-ui --lib script::tests::events
@@ -72,6 +74,7 @@ jobs:
         run: |
           cargo test -p benilla-world --lib rig_anim::compose --no-default-features
           cargo test -p benilla-world --lib web_budget --no-default-features
-      # The survivors mode's tables and balance curves: pure data, no game files.
-      - name: survivors tables and balance
-        run: cargo test -p benilla-app --lib survivors::data --no-default-features
+      # The survivors mode without game files: its tables and balance curves, the level-up cards'
+      # checks, and a host's run rebuilt on a guest, headless.
+      - name: survivors tables, cards and multiplayer replication
+        run: cargo test -p benilla-app --lib survivors --no-default-features

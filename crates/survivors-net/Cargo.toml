@@ -1,0 +1,13 @@
+[package]
+name = "survivors-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Azeroth Survivors multiplayer: the wire protocol, the lobby settings and the lobby hub's state machine. No I/O, no Bevy: the server and the game both build on it."
+
+[lints]
+workspace = true
+
+# Deliberately dependency-free: it is linked into the wasm client, the native client and the
+# server, and its codec is a few dozen lines rather than a serde format crate in all three.
+[dependencies]

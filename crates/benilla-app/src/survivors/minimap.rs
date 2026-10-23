@@ -19,11 +19,13 @@ use benilla_formats::{tile_to_world, world_to_tile, MinimapTranslate};
 use benilla_world::world_map::CurrentMap;
 use benilla_world::world_point::WorldPoint;
 
-use super::enemies::Enemy;
 use super::hero::Hero;
 use super::hud::UiArt;
+use super::units::is_dead;
 use super::Run;
+use super::{Hostile, LocalHero};
 use crate::area::AreaTableRes;
+use crate::net::ObjectStore;
 
 /// The composite's edge in texels; the 140-unit widget is ~200 px at 1080p.
 const SIDE: usize = 192;
@@ -360,8 +362,9 @@ pub(super) fn compose(
     catalog: Option<Res<MapCatalogRes>>,
     current: Option<Res<CurrentMap>>,
     phase: Res<State<super::Phase>>,
-    hero: Query<&Transform, With<Hero>>,
-    enemies: Query<(&Transform, &Enemy)>,
+    hero: Query<&Transform, With<LocalHero>>,
+    allies: Query<&Transform, (With<Hero>, Without<LocalHero>)>,
+    enemies: Query<(&Transform, &ObjectStore), With<Hostile>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     if *phase.get() == super::Phase::Menu || !map.shown {
@@ -504,8 +507,8 @@ pub(super) fn compose(
     if let Some(icons) = &art.icons {
         let size = DOT_PX * scale;
         let [l, r, t, b] = TRACKED_UNIT_CELL;
-        for (tf, enemy) in &enemies {
-            if enemy.dead {
+        for (tf, store) in &enemies {
+            if is_dead(store) {
                 continue;
             }
             let off = Vec2::new(tf.translation.x - p.x, tf.translation.z - p.z);
@@ -519,6 +522,28 @@ pub(super) fn compose(
                 Some(icons.sample(x, y))
             });
         }
+    }
+
+    // The other heroes: a round party-blue dot each, over the horde.
+    let ally = DOT_PX * scale * 1.3;
+    for tf in &allies {
+        let off = Vec2::new(tf.translation.x - p.x, tf.translation.z - p.z);
+        if off.length() > radius {
+            continue;
+        }
+        blit(buf, center + off / yd_per_px, ally, |q| {
+            let d = q.length() / (ally / 2.0);
+            (d <= 1.0).then_some([
+                90.0,
+                170.0,
+                255.0,
+                if d > 0.75 {
+                    255.0 * (1.0 - d) * 4.0
+                } else {
+                    255.0
+                },
+            ])
+        });
     }
 
     if let Some(image) = images.get_mut(&map.image) {

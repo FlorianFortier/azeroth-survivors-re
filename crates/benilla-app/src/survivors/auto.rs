@@ -156,6 +156,7 @@ pub(super) fn drive(
     mut run: ResMut<Run>,
     mut offer: ResMut<Offer>,
     mut rng: ResMut<Rng>,
+    mut picks: ResMut<super::sync::LocalPicks>,
     loading: Res<crate::loading_screen::LoadingScreen>,
     heroes: Query<(), With<Hero>>,
     enemies: Query<&Enemy>,
@@ -216,7 +217,7 @@ pub(super) fn drive(
             if auto.wait > 1.6 {
                 let n = offer.len().max(1);
                 let i = (rng.range(0.0, n as f32) as usize).min(n - 1);
-                hud::pick(i, &mut run, &mut offer, &mut rng, &mut next);
+                hud::pick(i, &mut run, &mut offer, &mut rng, &mut next, &mut picks);
                 auto.wait = 0.0;
             }
         }

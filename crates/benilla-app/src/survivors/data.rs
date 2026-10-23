@@ -1312,34 +1312,127 @@ pub(crate) const BOSS_EVERY_SECS: f32 = 135.0;
 /// Experience per gem: every level of the curve comes at the run's pace.
 pub(crate) const XP_RATE: f32 = 2.0;
 
-/// How far through the run, 0 at the start and 1 at [`VICTORY_SECS`].
+/// The most enemies alive at once, whatever the density: past it the frame budget, not the
+/// challenge, is what grows.
+pub(crate) const HARD_CROWD_CAP: usize = 400;
+
+/// A run's tunable rules: the solo defaults, or a lobby's settings for its number of heroes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Rules {
+    /// Survive this long to win.
+    pub duration: f32,
+    pub boss_every: f32,
+    /// Multipliers on enemy health, enemy damage and the crowd's size.
+    pub health: f32,
+    pub damage: f32,
+    pub density: f32,
+    /// Health and crowd grow with the heroes in the run.
+    pub scale_with_heroes: bool,
+    pub heroes: u32,
+    /// Experience any hero picks up goes to every hero.
+    pub shared_xp: bool,
+    /// An ally standing over a fallen hero brings them back.
+    pub revive: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Self::SOLO
+    }
+}
+
+impl Rules {
+    pub const SOLO: Self = Self {
+        duration: VICTORY_SECS,
+        boss_every: BOSS_EVERY_SECS,
+        health: 1.0,
+        damage: 1.0,
+        density: 1.0,
+        scale_with_heroes: true,
+        heroes: 1,
+        shared_xp: true,
+        revive: false,
+    };
+
+    /// How far through the run, 0 at the start and 1 at the bell.
+    pub fn progress(&self, elapsed: f32) -> f32 {
+        (elapsed / self.duration.max(1.0)).max(0.0)
+    }
+
+    fn extra_heroes(&self) -> f32 {
+        if self.scale_with_heroes {
+            self.heroes.saturating_sub(1) as f32
+        } else {
+            0.0
+        }
+    }
+
+    /// The pool of roster indices at a point in the run, from a roster `tiers` long.
+    pub fn wave_pool(&self, elapsed: f32, tiers: usize) -> [usize; 3] {
+        // The roster spread over thirty steps of the run, the last three from step 28: on The
+        // Barrens' thirty tiers, one newer every step.
+        let step = (self.progress(elapsed) * 30.0) as usize;
+        let span = tiers.saturating_sub(3);
+        let lo = (step.saturating_sub(1) * span / 27).min(span);
+        [lo, lo + 1, lo + 2]
+    }
+
+    /// How many enemies the spawner keeps alive at a point in the run.
+    pub fn target_alive(&self, elapsed: f32) -> usize {
+        let crowd = self.density * (1.0 + 0.35 * self.extra_heroes());
+        let solo = (14.0 + self.progress(elapsed) * 225.0).min(220.0);
+        ((solo * crowd) as usize).clamp(1, HARD_CROWD_CAP)
+    }
+
+    /// Enemy health grows on top of the tiers, so a late kill takes several spells.
+    pub fn hp_scale(&self, elapsed: f32) -> f32 {
+        (1.0 + self.progress(elapsed) * 0.75) * self.health * (1.0 + 0.5 * self.extra_heroes())
+    }
+
+    /// Enemy damage grows the same way.
+    pub fn damage_scale(&self, elapsed: f32) -> f32 {
+        (1.0 + self.progress(elapsed) * 0.9) * self.damage
+    }
+
+    /// Bosses due by `elapsed`: one every `boss_every`, none at or after the bell.
+    pub fn bosses_due(&self, elapsed: f32) -> u32 {
+        let every = self.boss_every.max(1.0);
+        let last = ((self.duration - 1.0) / every).floor().max(0.0) as u32;
+        ((elapsed / every) as u32).min(last)
+    }
+
+    /// The `n`th boss (from 0) of a roster, and the health multiplier its lap earns: a run with
+    /// more boss slots than the roster has bosses goes round again, tougher each lap.
+    pub fn boss<'a>(&self, roster: &'a Roster, n: u32) -> (&'a EnemyDef, f32) {
+        let len = roster.bosses.len().max(1) as u32;
+        let lap = n / len;
+        (&roster.bosses[(n % len) as usize], 1.0 + 0.6 * lap as f32)
+    }
+}
+
+/// How far through a solo run, 0 at the start and 1 at [`VICTORY_SECS`].
 pub(crate) fn progress(elapsed: f32) -> f32 {
-    (elapsed / VICTORY_SECS).max(0.0)
+    Rules::SOLO.progress(elapsed)
 }
 
-/// The pool of roster indices at a point in the run, from a roster `tiers` long.
+/// [`Rules::wave_pool`] under the solo rules.
 pub(crate) fn wave_pool(elapsed: f32, tiers: usize) -> [usize; 3] {
-    // The roster spread over thirty steps of the run, the last three from step 28: on The
-    // Barrens' thirty tiers, one newer every step.
-    let step = (progress(elapsed) * 30.0) as usize;
-    let span = tiers.saturating_sub(3);
-    let lo = (step.saturating_sub(1) * span / 27).min(span);
-    [lo, lo + 1, lo + 2]
+    Rules::SOLO.wave_pool(elapsed, tiers)
 }
 
-/// How many enemies the spawner keeps alive at a point in the run.
+/// [`Rules::target_alive`] under the solo rules.
 pub(crate) fn target_alive(elapsed: f32) -> usize {
-    ((14.0 + progress(elapsed) * 225.0) as usize).min(220)
+    Rules::SOLO.target_alive(elapsed)
 }
 
-/// Enemy health grows on top of the tiers, so a late kill takes several spells.
+/// [`Rules::hp_scale`] under the solo rules.
 pub(crate) fn hp_scale(elapsed: f32) -> f32 {
-    1.0 + progress(elapsed) * 0.75
+    Rules::SOLO.hp_scale(elapsed)
 }
 
-/// Enemy damage grows the same way.
+/// [`Rules::damage_scale`] under the solo rules.
 pub(crate) fn damage_scale(elapsed: f32) -> f32 {
-    1.0 + progress(elapsed) * 0.9
+    Rules::SOLO.damage_scale(elapsed)
 }
 
 /// The experience to go from `level` to the next: Vampire Survivors' curve, cheap early.
@@ -2287,6 +2380,76 @@ mod tests {
         assert_eq!(xp_to_next(20), 195.0);
         assert_eq!(xp_to_next(39), 442.0);
         assert_eq!(xp_to_next(40), 455.0);
+    }
+
+    #[test]
+    fn solo_rules_keep_the_original_curves() {
+        let r = Rules::SOLO;
+        for s in (0..=1200).step_by(15) {
+            let t = s as f32;
+            assert_eq!(
+                r.target_alive(t),
+                ((14.0 + (t / VICTORY_SECS) * 225.0) as usize).min(220)
+            );
+            assert_eq!(r.hp_scale(t), 1.0 + (t / VICTORY_SECS) * 0.75);
+            assert_eq!(
+                r.bosses_due(t),
+                ((t / BOSS_EVERY_SECS) as u32).min(BOSSES.len() as u32)
+            );
+        }
+    }
+
+    #[test]
+    fn more_heroes_mean_a_tougher_bigger_horde() {
+        let solo = Rules::SOLO;
+        let four = Rules {
+            heroes: 4,
+            ..Rules::SOLO
+        };
+        assert!(four.hp_scale(100.0) > solo.hp_scale(100.0));
+        assert!(four.target_alive(100.0) > solo.target_alive(100.0));
+        let flat = Rules {
+            scale_with_heroes: false,
+            ..four
+        };
+        assert_eq!(flat.hp_scale(100.0), solo.hp_scale(100.0));
+        assert_eq!(flat.target_alive(100.0), solo.target_alive(100.0));
+    }
+
+    #[test]
+    fn the_crowd_never_passes_the_hard_cap() {
+        let r = Rules {
+            density: 4.0,
+            heroes: 4,
+            ..Rules::SOLO
+        };
+        assert_eq!(r.target_alive(r.duration), HARD_CROWD_CAP);
+        let sparse = Rules {
+            density: 0.25,
+            ..Rules::SOLO
+        };
+        assert!(sparse.target_alive(0.0) >= 1);
+    }
+
+    #[test]
+    fn custom_durations_scale_the_run_and_its_bosses() {
+        let long = Rules {
+            duration: 1800.0,
+            boss_every: 60.0,
+            ..Rules::SOLO
+        };
+        // Progress runs against the custom clock.
+        assert!((long.progress(900.0) - 0.5).abs() < 1e-6);
+        // No boss lands on the bell itself.
+        assert_eq!(long.bosses_due(1800.0), 29);
+        // More slots than bosses: the roster goes round again, tougher.
+        let r = roster(0);
+        let n = r.bosses.len() as u32;
+        let (first, m0) = long.boss(r, 0);
+        let (again, m1) = long.boss(r, n);
+        assert_eq!(first.name, again.name);
+        assert_eq!(m0, 1.0);
+        assert!(m1 > m0);
     }
 
     #[test]

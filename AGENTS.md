@@ -17,9 +17,12 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-app/src/survivors/data.rs` | the game's tables and balance curves (classes, abilities, passives, zones, waves) | ours |
 | `crates/benilla-*` | the client: formats, world, UI, protocol, app | upstream's, plus our `#[cfg]`-gated carries |
 | `crates/benilla-app/src/webbridge/` | the JavaScript bridge, wasm side | wenilla's |
+| `crates/benilla-app/src/survivors/net/` | multiplayer, game side: socket, host stream, guest copy, lobby screen | ours |
+| `crates/survivors-net` | multiplayer protocol, lobby settings, the lobby hub's state machine. No I/O, no deps | ours |
+| `crates/survivors-server` | the lobby server (`make lobby`); its router is mounted by `wenilla-host` at `/lobby` | ours |
 | `crates/warcraft-survivors` | the native launcher (`make native`) | ours |
 | `crates/wenilla` | the wasm entry crate (`#[wasm_bindgen(start)]`), boots the survivors mode | ours |
-| `crates/wenilla-host` | local dev server: static files and `/data/*`. Loopback only. | wenilla's |
+| `crates/wenilla-host` | local dev server: static files, `/data/*`, and the lobby at `/lobby`. Loopback by default. | wenilla's |
 | `web/` | the page side: `index.html`, `boot.js`, `platform.js`, `bridge.js`, `examples/`, `wasi_stubs.js` | wenilla's |
 | `scripts/fetch-data.sh` | downloads the 1.12.1 client and extracts its MPQs into `wow-data/` | ours |
 | `scripts/web-setup.sh`, `scripts/web-build.sh` | toolchain and build for the wasm | wenilla's |
@@ -40,7 +43,9 @@ scripts/web-build.sh        # → web/dist (WebGPU build). WEB_DEBUG=1 keeps sym
 cargo check --target wasm32-unknown-unknown -p wenilla --no-default-features --features webgpu
                             # the wasm build without linking; what check.yml runs
 cargo check --workspace --all-targets      # native (Debian/Ubuntu: libasound2-dev libudev-dev)
-cargo test -p benilla-app --lib survivors::data  # the game's table and balance tests; no game data needed
+cargo test -p benilla-app --lib survivors  # tables, balance, cards, host→guest replication; no game data
+cargo test -p survivors-net -p survivors-server  # multiplayer protocol, lobby rules, server end to end
+make lobby                  # a standalone lobby server on :7777
 cargo test --workspace                     # ~320 tests need a 1.12.1 patch chain and fail without one
 ```
 
@@ -75,6 +80,13 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   by `check.yml` or your own `cargo check --target wasm32…`.
 - **`ring_reaction` returns 0..7**; every consumer adds `+ 1` for the Lua 1..8 scale.
 
+- **Multiplayer: the host plays, guests copy.** Only solo and the host run `SimSet`; a guest
+  builds the host's units in `net/client.rs` and moves only its own hero. Anything that changes
+  the run goes through the simulation (`HeroState`), never straight into `Run`, which is only the
+  local hero's view. Visuals go through `units::Fx`, which the host also logs for its guests.
+- **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
+  `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
+
 ## Where to look when
 
 | symptom | look at |
@@ -83,6 +95,7 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
 | `survivors: no ability "…"` at boot | a class's `start`/`pool` names a key missing from `ABILITIES`; `cargo test -p benilla-app --lib survivors::data` |
 | wasm-bindgen glue errors at load | version drift: rerun `scripts/web-setup.sh` |
 | an upstream merge broke only the wasm build | `cargo check --target wasm32…`; the `cvars.rs` struct-vs-tuple case is the pattern |
+| a guest sees nothing move, or units pile up | `net/host.rs`'s `stream` and `net/client.rs`'s `receive`; `GET /lobby/health` for the server |
 | `make build` fails at the download | the archive.org item moved: `make build WOW_DATA_URL=…`, see the README |
 | no sound in the browser | the page resumes the AudioContext on the first gesture; the per-target mixer backend is the carry in `sound/mixer.rs` |
 | short stalls in the browser on the first play of a sound | the SFX carry (`sound/kit/deferred.rs`, the glue and cinematic arms of `sound/glue.rs`/`sound/cinematic.rs`), wasm-only |

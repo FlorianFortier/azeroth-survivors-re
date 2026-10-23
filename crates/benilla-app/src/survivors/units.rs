@@ -153,6 +153,21 @@ pub(super) fn kill_unit(store: &mut ObjectStore) {
         .merge(ObjectFields::from_pairs(&[(FIELD_HEALTH, 0)]));
 }
 
+/// Health back: the animation selector lets the corpse pose go and the unit stands.
+pub(super) fn revive_unit(store: &mut ObjectStore) {
+    store
+        .0
+        .merge(ObjectFields::from_pairs(&[(FIELD_HEALTH, 100)]));
+}
+
+/// Whether a unit's health field reads zero: a corpse.
+pub(super) fn is_dead(store: &ObjectStore) -> bool {
+    store
+        .0
+        .raw_fields()
+        .any(|(i, v)| i == FIELD_HEALTH && v == 0)
+}
+
 /// A dynamic object, as a ground spell's server would place it: the dest-effect systems arm the
 /// spell's area visuals on it.
 pub(super) fn spawn_area_object(
@@ -296,6 +311,36 @@ impl Marks {
     }
 }
 
+/// One visual [`Fx`] played, as the host streams it to its players.
+#[derive(Clone, Debug)]
+pub(super) enum FxEvent {
+    Cast {
+        caster: Entity,
+        spell: u32,
+        hits: Vec<Entity>,
+        dest: Option<Vec3>,
+    },
+    Impact {
+        target: Entity,
+        spell: u32,
+    },
+    Swing {
+        attacker: Entity,
+        victim: Entity,
+        damage: f32,
+    },
+    Number {
+        anchor: Entity,
+        amount: f32,
+        crit: bool,
+        color: u32,
+    },
+}
+
+/// Present while a host has players to stream to: every [`Fx`] played lands here too.
+#[derive(Resource, Default)]
+pub(super) struct FxLog(pub Vec<FxEvent>);
+
 /// The messages that make a local cast look like a server's.
 #[derive(SystemParam)]
 pub(super) struct Fx<'w> {
@@ -304,6 +349,7 @@ pub(super) struct Fx<'w> {
     gos: MessageWriter<'w, SpellGoTargets>,
     swings: MessageWriter<'w, SwingMessage>,
     text: MessageWriter<'w, CombatTextSpawn>,
+    log: Option<ResMut<'w, FxLog>>,
 }
 
 /// More impacts than this per cast only cost frames.
@@ -312,6 +358,14 @@ const MAX_VISUAL_HITS: usize = 12;
 impl Fx<'_> {
     /// `SMSG_SPELL_GO`: the cast kit on the caster, and a missile or an impact at each hit.
     pub fn cast(&mut self, caster: Entity, spell: u32, hits: &[Entity], dest: Option<Vec3>) {
+        if let Some(log) = self.log.as_deref_mut() {
+            log.0.push(FxEvent::Cast {
+                caster,
+                spell,
+                hits: hits.iter().copied().take(MAX_VISUAL_HITS).collect(),
+                dest,
+            });
+        }
         let seq = self.seq.next();
         self.casts.write(CastEvent {
             entity: caster,
@@ -332,6 +386,9 @@ impl Fx<'_> {
 
     /// Only the spell's impact kit, on `target`: no cast animation on anyone.
     pub fn impact(&mut self, target: Entity, spell: u32) {
+        if let Some(log) = self.log.as_deref_mut() {
+            log.0.push(FxEvent::Impact { target, spell });
+        }
         let seq = self.seq.next();
         self.casts.write(CastEvent {
             entity: target,
@@ -345,6 +402,13 @@ impl Fx<'_> {
 
     /// A melee swing: the attack animation, the victim's flinch, blood and the hit sound.
     pub fn swing(&mut self, attacker: Entity, victim: Entity, damage: f32) {
+        if let Some(log) = self.log.as_deref_mut() {
+            log.0.push(FxEvent::Swing {
+                attacker,
+                victim,
+                damage,
+            });
+        }
         let seq = self.seq.next();
         self.swings.write(SwingMessage {
             attacker,
@@ -359,6 +423,14 @@ impl Fx<'_> {
 
     /// A floating number over `anchor`, 0xAARRGGBB.
     pub fn number(&mut self, anchor: Entity, amount: f32, crit: bool, color: u32) {
+        if let Some(log) = self.log.as_deref_mut() {
+            log.0.push(FxEvent::Number {
+                anchor,
+                amount,
+                crit,
+                color,
+            });
+        }
         let shown = amount.round().max(1.0) as i64;
         self.text.write(CombatTextSpawn {
             anchor,

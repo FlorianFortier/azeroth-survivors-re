@@ -8,10 +8,10 @@ use benilla_world::world_point::WorldPoint;
 use bevy::prelude::*;
 
 use super::abilities::Hit;
-use super::data::{self, EnemyDef};
+use super::data::{self, EnemyDef, Rules};
 use super::hero::{self, Hero, HERO_RADIUS};
 use super::units::{self, flat, yaw_toward, Fx, Marks, UnitSpec, COLOR_HURT};
-use super::{Phase, Rng, Run, Selection};
+use super::{HeroState, Hostile, Pickup, Rng, Run, Selection, Session};
 use crate::creature_anim::{move_flags, MovementState};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
@@ -38,6 +38,8 @@ pub(super) struct Enemy {
 }
 
 pub(super) struct Dot {
+    /// The hero who laid it, credited with its ticks.
+    pub owner: Entity,
     pub dps: f32,
     pub left: f32,
     pub tick: f32,
@@ -69,7 +71,8 @@ pub(super) enum GemKind {
 #[derive(Component)]
 pub(super) struct Gem {
     kind: GemKind,
-    pulled: bool,
+    /// The hero whose magnet caught it, once one has.
+    pulled: Option<Entity>,
     speed: f32,
 }
 
@@ -93,15 +96,18 @@ fn radius_for(def: &EnemyDef) -> f32 {
     (if def.big { 1.3 } else { 0.6 }) * def.scale
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_enemy(
     commands: &mut Commands,
     run: &mut Run,
+    rules: &Rules,
     def: &'static EnemyDef,
     pos: Vec3,
     hero: Vec3,
     boss: bool,
+    toughness: f32,
 ) {
-    let scale = data::hp_scale(run.elapsed);
+    let scale = rules.hp_scale(run.elapsed) * toughness;
     let serial = run.guid();
     let e = units::spawn_unit(
         commands,
@@ -125,7 +131,7 @@ fn spawn_enemy(
             hp,
             max_hp: hp,
             speed: def.speed,
-            damage: def.damage * data::damage_scale(run.elapsed),
+            damage: def.damage * rules.damage_scale(run.elapsed),
             radius: radius_for(def),
             xp: def.xp,
             boss,
@@ -141,6 +147,7 @@ fn spawn_enemy(
             dead: false,
         },
         Marks::debuffs(),
+        Hostile,
     ));
 }
 
@@ -149,8 +156,9 @@ fn ground(world: &WorldPoint, mut p: Vec3, fallback: f32) -> Vec3 {
     p
 }
 
-/// Keep the horde topped up on a ring outside the view, with the bosses and the encircling waves
-/// on the clock.
+/// Keep the horde topped up on a ring outside the view of a standing hero, with the bosses and
+/// the encircling waves on the clock.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_enemies(
     mut commands: Commands,
     time: Res<Time>,
@@ -158,47 +166,67 @@ pub(super) fn spawn_enemies(
     mut rng: ResMut<Rng>,
     mut spawner: ResMut<Spawner>,
     selection: Res<Selection>,
-    hero: Query<&Transform, With<Hero>>,
+    session: Res<Session>,
+    heroes: Query<(&Transform, &HeroState), With<Hero>>,
     enemies: Query<&Enemy>,
     world: WorldPoint,
 ) {
-    let Ok(h) = hero.single() else { return };
-    if run.dead_t.is_some() {
+    let anchors: Vec<Vec3> = heroes
+        .iter()
+        .filter(|(_, h)| h.alive())
+        .map(|(t, _)| t.translation)
+        .collect();
+    if anchors.is_empty() {
         return;
     }
-    let hpos = h.translation;
+    let rules = session.rules;
+    let anchor = |rng: &mut Rng| anchors[rng.index(anchors.len())];
     let elapsed = run.elapsed;
     let roster = data::roster(selection.map);
-    let pool = data::wave_pool(elapsed, roster.enemies.len());
+    let pool = rules.wave_pool(elapsed, roster.enemies.len());
 
-    let due_bosses = ((elapsed / data::BOSS_EVERY_SECS) as u32).min(roster.bosses.len() as u32);
+    let due_bosses = rules.bosses_due(elapsed);
     while run.bosses < due_bosses {
-        let def = &roster.bosses[run.bosses as usize];
+        let (def, toughness) = rules.boss(roster, run.bosses);
+        let hpos = anchor(&mut rng);
         let a = rng.range(0.0, std::f32::consts::TAU);
         let pos = ground(
             &world,
             hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 30.0,
             hpos.y,
         );
-        spawn_enemy(&mut commands, &mut run, def, pos, hpos, true);
+        spawn_enemy(
+            &mut commands,
+            &mut run,
+            &rules,
+            def,
+            pos,
+            hpos,
+            true,
+            toughness,
+        );
         run.bosses += 1;
         run.banner = Some((format!("{} approaches!", def.name), 4.0));
     }
 
-    // Half way between bosses, a closing ring of the moment's weakest.
-    let due_rings = ((elapsed + data::BOSS_EVERY_SECS / 2.0) / data::BOSS_EVERY_SECS) as u32;
+    // Half way between bosses, a closing ring of the moment's weakest around every standing hero.
+    let due_rings = ((elapsed + rules.boss_every / 2.0) / rules.boss_every.max(1.0)) as u32;
     if run.rings < due_rings {
         run.rings = due_rings;
         let def = &roster.enemies[pool[0]];
-        let n = 28 + (data::progress(elapsed) * 60.0) as usize;
-        for i in 0..n {
-            let a = i as f32 / n as f32 * std::f32::consts::TAU;
-            let pos = ground(
-                &world,
-                hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 26.0,
-                hpos.y,
-            );
-            spawn_enemy(&mut commands, &mut run, def, pos, hpos, false);
+        let n = ((28 + (rules.progress(elapsed) * 60.0) as usize) as f32 * rules.density).max(8.0)
+            as usize;
+        let n = (n / anchors.len()).max(8);
+        for &hpos in &anchors {
+            for i in 0..n {
+                let a = i as f32 / n as f32 * std::f32::consts::TAU;
+                let pos = ground(
+                    &world,
+                    hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 26.0,
+                    hpos.y,
+                );
+                spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, 1.0);
+            }
         }
         run.banner = Some(("They're surrounding you!".into(), 3.0));
     }
@@ -209,28 +237,38 @@ pub(super) fn spawn_enemies(
     }
     spawner.timer = 0.12;
     let alive = enemies.iter().filter(|e| !e.dead).count();
-    let target = data::target_alive(elapsed);
+    let target = rules.target_alive(elapsed);
     if alive >= target {
         return;
     }
-    let n = (((target - alive) as f32) / 6.0).ceil().min(4.0) as usize;
+    let n = (((target - alive) as f32) / 6.0)
+        .ceil()
+        .min(4.0 * anchors.len() as f32) as usize;
     for _ in 0..n {
         let def = &roster.enemies[pool[rng.index(pool.len())]];
+        let hpos = anchor(&mut rng);
         let a = rng.range(0.0, std::f32::consts::TAU);
         let r = rng.range(34.0, 42.0);
         let pos = ground(&world, hpos + Vec3::new(a.cos(), 0.0, a.sin()) * r, hpos.y);
-        spawn_enemy(&mut commands, &mut run, def, pos, hpos, false);
+        spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, 1.0);
     }
 }
 
-/// The chase: straight at the hero, pushed apart from each other, stopped by crowd control, and
-/// swinging when in reach.
+/// A hero the horde can see: where, and whether a Fade hides them from all but bosses.
+#[derive(Clone, Copy)]
+struct Quarry {
+    e: Entity,
+    pos: Vec3,
+    vanished: bool,
+}
+
+/// The chase: straight at the nearest hero in sight, pushed apart from each other, stopped by
+/// crowd control, and swinging at whoever is in reach.
 #[allow(clippy::type_complexity)]
 pub(super) fn move_enemies(
     time: Res<Time>,
-    mut run: ResMut<Run>,
     world: WorldPoint,
-    hero: Query<(Entity, &Transform), (With<Hero>, Without<Enemy>)>,
+    mut heroes: Query<(Entity, &Transform, &mut HeroState), (With<Hero>, Without<Enemy>)>,
     mut enemies: Query<(Entity, &mut Transform, &mut Enemy, &mut MovementState), Without<Hero>>,
     mut fx: Fx,
     mut hits: MessageWriter<Hit>,
@@ -239,11 +277,15 @@ pub(super) fn move_enemies(
     if dt <= 0.0 {
         return;
     }
-    let Ok((hero_e, htf)) = hero.single() else {
-        return;
-    };
-    let hpos = htf.translation;
-    let hero_down = run.dead_t.is_some();
+    let quarry: Vec<Quarry> = heroes
+        .iter()
+        .filter(|(_, _, h)| h.alive())
+        .map(|(e, t, h)| Quarry {
+            e,
+            pos: t.translation,
+            vanished: h.mobile.vanish_t > 0.0,
+        })
+        .collect();
 
     // Separation over a coarse grid: only neighbours in the same or adjacent cells push.
     const CELL: f32 = 3.0;
@@ -311,23 +353,37 @@ pub(super) fn move_enemies(
             e.weaken = 1.0;
         }
         let pos = tf.translation;
-        let to_hero = flat(hpos - pos);
-        let dist = to_hero.length();
+        let near = |q: &&Quarry| flat(q.pos - pos).length();
+        // The nearest standing hero at all, and the nearest this enemy can see.
+        let nearest = quarry.iter().min_by(|a, b| near(a).total_cmp(&near(b)));
+        let seen = quarry
+            .iter()
+            .filter(|q| e.boss || !q.vanished)
+            .min_by(|a, b| near(a).total_cmp(&near(b)));
 
-        // Strays far behind are brought back in front, as the reference genre does.
-        if dist > 75.0 {
-            let back = hpos + to_hero.normalize_or_zero() * 38.0;
-            tf.translation = ground(&world, back, hpos.y);
-            continue;
+        // Strays far from every hero are brought back in front of the nearest, as the reference
+        // genre does.
+        if let Some(n) = nearest {
+            let to = flat(n.pos - pos);
+            if to.length() > 75.0 {
+                let back = n.pos + to.normalize_or_zero() * 38.0;
+                tf.translation = ground(&world, back, n.pos.y);
+                continue;
+            }
         }
 
-        // Under Fade the horde has lost the hero: it mills where it stands.
-        let lost = run.mobile.vanish_t > 0.0 && !e.boss;
-        let held = e.stun_t > 0.0 || e.root_t > 0.0 || lost;
-        let contact = dist <= HERO_RADIUS + e.radius + 0.35;
+        // Under Fade, or with every hero down, the horde mills where it stands.
+        let held = e.stun_t > 0.0 || e.root_t > 0.0 || seen.is_none();
+        let (to_hero, contact) = match seen {
+            Some(q) => {
+                let to = flat(q.pos - pos);
+                (to, to.length() <= HERO_RADIUS + e.radius + 0.35)
+            }
+            None => (Vec3::ZERO, false),
+        };
         let mut step = Vec3::ZERO;
         let mut speed = 0.0;
-        if !held && !hero_down {
+        if !held {
             let dir = if e.fear_t > 0.0 {
                 -to_hero.normalize_or_zero()
             } else {
@@ -354,22 +410,25 @@ pub(super) fn move_enemies(
             mv.flags = 0;
         }
 
-        if contact
-            && !lost
-            && e.stun_t <= 0.0
-            && e.fear_t <= 0.0
-            && e.attack_cd <= 0.0
-            && !hero_down
-        {
+        let Some(q) = seen else { continue };
+        if contact && e.stun_t <= 0.0 && e.fear_t <= 0.0 && e.attack_cd <= 0.0 {
+            let Ok((hero_e, _, mut hero)) = heroes.get_mut(q.e) else {
+                continue;
+            };
             e.attack_cd = if e.boss { 1.0 } else { 1.3 };
             let raw = e.damage * e.weaken;
-            let taken = hero::hurt_hero(&mut run, raw);
+            let taken = hero::hurt_hero(&mut hero.v, raw);
             fx.swing(ent, hero_e, taken);
             if taken > 0.0 {
                 fx.number(hero_e, taken, false, COLOR_HURT);
             }
-            if run.thorns_t > 0.0 {
-                hits.write(Hit::direct(ent, run.thorns * run.stats().might, false));
+            if hero.thorns_t > 0.0 {
+                hits.write(Hit::direct(
+                    hero_e,
+                    ent,
+                    hero.thorns * hero.stats().might,
+                    false,
+                ));
             }
         }
     }
@@ -441,69 +500,111 @@ pub(super) fn drop_loot(
 fn spawn_gem(commands: &mut Commands, serial: u64, pos: Vec3, kind: GemKind) {
     let (display, scale) = look_for(kind);
     let e = units::spawn_object(commands, serial, display, scale, pos + Vec3::Y * 0.5);
-    commands.entity(e).insert(Gem {
-        kind,
-        pulled: false,
-        speed: 6.0,
-    });
+    commands.entity(e).insert((
+        Gem {
+            kind,
+            pulled: None,
+            speed: 6.0,
+        },
+        Pickup,
+    ));
 }
 
-/// Gems in the magnet's reach fly to the hero; levels bank as they land.
+/// Gems in a standing hero's magnet fly to that hero; experience is shared or kept by the rules,
+/// and levels bank as it lands.
+#[allow(clippy::type_complexity)]
 pub(super) fn collect_gems(
     mut commands: Commands,
     time: Res<Time>,
     mut run: ResMut<Run>,
-    mut next: ResMut<NextState<Phase>>,
-    hero: Query<&Transform, (With<Hero>, Without<Gem>)>,
+    session: Res<Session>,
+    mut heroes: Query<(Entity, &Transform, &mut HeroState), (With<Hero>, Without<Gem>)>,
     mut gems: Query<(Entity, &mut Transform, &mut Gem)>,
 ) {
-    let Ok(h) = hero.single() else { return };
-    if run.dead_t.is_some() {
+    let dt = time.delta_secs();
+    let catchers: Vec<(Entity, Vec3, f32)> = heroes
+        .iter()
+        .filter(|(_, _, h)| h.alive())
+        .map(|(e, t, h)| (e, t.translation, h.stats().magnet))
+        .collect();
+    if catchers.is_empty() {
         return;
     }
-    let dt = time.delta_secs();
-    let stats = run.stats();
-    let target = h.translation + Vec3::Y * 1.0;
+    let mut banked: Vec<(Entity, GemKind)> = Vec::new();
     for (e, mut tf, mut g) in &mut gems {
+        if g.pulled.is_none() {
+            g.pulled = catchers
+                .iter()
+                .filter(|(_, p, magnet)| flat(*p - tf.translation).length() <= *magnet)
+                .min_by(|a, b| {
+                    flat(a.1 - tf.translation)
+                        .length()
+                        .total_cmp(&flat(b.1 - tf.translation).length())
+                })
+                .map(|c| c.0);
+        }
+        let Some(to) = g.pulled else { continue };
+        // The catcher fell or left: the gem waits for the next magnet.
+        let Some(&(_, at, _)) = catchers.iter().find(|c| c.0 == to) else {
+            g.pulled = None;
+            g.speed = 6.0;
+            continue;
+        };
+        let target = at + Vec3::Y * 1.0;
         let d = target - tf.translation;
         let dist = d.length();
-        if !g.pulled && flat(d).length() <= stats.magnet {
-            g.pulled = true;
-        }
-        if !g.pulled {
-            continue;
-        }
         if dist < 0.9 {
-            match g.kind {
-                GemKind::Xp(xp) => run.xp += xp as f32 * data::XP_RATE * stats.growth,
-                GemKind::Heal(hp) => run.hp = (run.hp + hp).min(stats.max_hp),
-            }
+            banked.push((to, g.kind));
             commands.entity(e).despawn();
             continue;
         }
         g.speed += 30.0 * dt;
         tf.translation += d / dist * (g.speed * dt).min(dist);
     }
-    while run.xp >= data::xp_to_next(run.level) {
-        run.xp -= data::xp_to_next(run.level);
-        run.level += 1;
-        run.pending_levels += 1;
-        if run.level == super::mobility::LEARN_LEVEL {
-            if let Some(m) = super::mobility::for_class(run.class.id) {
-                run.banner = Some((format!("You have learned {}! Press F.", m.name), 4.0));
+
+    for (catcher, kind) in banked {
+        match kind {
+            GemKind::Xp(xp) => {
+                for (e, _, mut h) in &mut heroes {
+                    if e == catcher || (session.rules.shared_xp && h.alive()) {
+                        let growth = h.stats().growth;
+                        h.xp += xp as f32 * data::XP_RATE * growth;
+                    }
+                }
+            }
+            GemKind::Heal(hp) => {
+                if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
+                    let max = h.stats().max_hp;
+                    h.hp = (h.hp + hp).min(max);
+                }
             }
         }
     }
-    if run.pending_levels > 0 {
-        next.set(Phase::LevelUp);
+
+    let mut learned: Option<String> = None;
+    for (_, _, mut h) in &mut heroes {
+        while h.xp >= data::xp_to_next(h.level) {
+            let need = data::xp_to_next(h.level);
+            h.xp -= need;
+            h.level += 1;
+            h.pending_levels += 1;
+            if h.level == super::mobility::LEARN_LEVEL && h.slot == session.slot {
+                if let Some(m) = super::mobility::for_class(h.class.id) {
+                    learned = Some(format!("You have learned {}! Press F.", m.name));
+                }
+            }
+        }
+    }
+    if let Some(text) = learned {
+        run.banner = Some((text, 4.0));
     }
 }
 
 /// Pickups hang still: a wisp's own loop (its circling motes and their trails) stops on its first
 /// frame, clip and global sequences alike, as soon as the model attaches.
 pub(super) fn still_gems(
-    mut players: Query<&mut AnimationPlayer, (With<Gem>, Added<AnimationPlayer>)>,
-    mut drives: Query<&mut GlobalSeqDrive, (With<Gem>, Added<GlobalSeqDrive>)>,
+    mut players: Query<&mut AnimationPlayer, (With<Pickup>, Added<AnimationPlayer>)>,
+    mut drives: Query<&mut GlobalSeqDrive, (With<Pickup>, Added<GlobalSeqDrive>)>,
 ) {
     for mut player in &mut players {
         for (_, active) in player.playing_animations_mut() {
