@@ -1724,6 +1724,10 @@ pub(super) fn refresh_results(
         "The horde was too much this time."
     }
     .to_string();
+    let gold = data::run_gold(run.kills, run.bosses, run.won, run.stats().gold);
+    if gold > 0 {
+        stats_line.push_str(&format!("\nGold earned: {gold}"));
+    }
     // What was found comes home either way.
     if !run.loot.is_empty() {
         let names: Vec<&str> = run.loot.iter().map(|i| i.name.as_str()).collect();

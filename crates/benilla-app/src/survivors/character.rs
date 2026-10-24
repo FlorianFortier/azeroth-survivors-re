@@ -43,6 +43,7 @@ pub(super) fn plugin(app: &mut App) {
             refresh_equipment,
             show_pages,
             refresh_collection,
+            refresh_talents,
             refresh_armory,
             refresh_zone_list,
             refresh_bottom_bar,
@@ -70,8 +71,9 @@ struct ScreenRoot;
 /// The pages the screen shows in its columns' place: the tabs built so far, and the Armory.
 const CHARACTER: usize = 0;
 const COLLECTION: usize = 1;
+const TALENTS: usize = 4;
 const ARMORY: usize = 100;
-const BUILT_TABS: [usize; 2] = [CHARACTER, COLLECTION];
+const BUILT_TABS: [usize; 3] = [CHARACTER, COLLECTION, TALENTS];
 
 /// The page shown.
 #[derive(Resource, Default)]
@@ -90,6 +92,8 @@ struct CollectionBody;
 struct ArmoryBody;
 #[derive(Component)]
 struct CollectionBar;
+#[derive(Component)]
+struct TalentsBody;
 
 /// The class column's body, rebuilt when the pick changes.
 #[derive(Component)]
@@ -116,6 +120,12 @@ enum ScreenAction {
     Unwear(usize),
     /// Back to the Character tab.
     Back,
+    /// Learn a rank: tree and talent, by index in the class's trees.
+    Learn(usize, usize),
+    /// Train a talent point with gold.
+    TrainPoint,
+    /// Take back every point the class has spent.
+    ResetTalents,
     Zone(usize),
     Enter,
     Coop,
@@ -192,7 +202,7 @@ fn build_screen(
                 }
             }
             // The Collection tab and the Armory, shown in the columns' place.
-            for (page, marker) in [(COLLECTION, 0u8), (ARMORY, 1)] {
+            for (page, marker) in [(COLLECTION, 0u8), (ARMORY, 1), (TALENTS, 2)] {
                 root.spawn((
                     PageRoot(page),
                     Node {
@@ -207,7 +217,11 @@ fn build_screen(
                     kit::panel(
                         pg,
                         f,
-                        Some(if marker == 0 { "Collection" } else { "Armory" }),
+                        Some(match marker {
+                            0 => "Collection",
+                            1 => "Armory",
+                            _ => "Talents",
+                        }),
                         Node {
                             width: Val::Percent(100.0),
                             min_height: Val::Px(0.0),
@@ -227,11 +241,11 @@ fn build_screen(
                                         row_gap: Val::Px(8.0),
                                         ..default()
                                     });
-                                    if marker == 0 {
-                                        e.insert(CollectionBody);
-                                    } else {
-                                        e.insert(ArmoryBody);
-                                    }
+                                    match marker {
+                                        0 => e.insert(CollectionBody),
+                                        1 => e.insert(ArmoryBody),
+                                        _ => e.insert(TalentsBody),
+                                    };
                                 },
                             );
                         },
@@ -350,6 +364,7 @@ fn clicks(
     buttons: Query<(Entity, &ScreenAction)>,
     creatures: Option<Res<crate::entities::Creatures>>,
     catalog: Option<Res<crate::entities::CharCreate>>,
+    talents: Option<Res<crate::ui_talent::Talents>>,
     session: Res<super::Session>,
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
@@ -372,6 +387,46 @@ fn clicks(
             }
         }
         ScreenAction::Armory => page.0 = ARMORY,
+        ScreenAction::TrainPoint => {
+            store.edit(|p| {
+                p.train_point();
+            });
+        }
+        ScreenAction::ResetTalents => {
+            if let Some(class) = selection.class_def() {
+                store.edit(|p| {
+                    p.talents.remove(class.name);
+                });
+            }
+        }
+        ScreenAction::Learn(ti, ki) => {
+            let (Some(class), Some((race, _)), Some(t)) = (
+                selection.class_def(),
+                menu::current_look(&selection),
+                talents.as_deref(),
+            ) else {
+                return;
+            };
+            let trees = super::talents::trees(&t.catalog, race, class.id);
+            let Some(tree) = trees.get(ti).copied() else {
+                return;
+            };
+            let Some(talent) = tree.talents.get(ki) else {
+                return;
+            };
+            let points = store.profile.talent_points;
+            let mut spent = store
+                .profile
+                .talents
+                .get(class.name)
+                .cloned()
+                .unwrap_or_default();
+            if super::talents::learn(&mut spent, &trees, &tree, talent, points) {
+                store.edit(|p| {
+                    p.talents.insert(class.name.to_string(), spent);
+                });
+            }
+        }
         ScreenAction::Back => page.0 = CHARACTER,
         ScreenAction::Wear(i) => {
             if let Some(item) = data::ITEMS.get(i) {
@@ -468,7 +523,7 @@ struct ClassView {
     class: Option<usize>,
     race: u8,
     spells_ready: bool,
-    bonuses: usize,
+    bonuses: String,
     open: usize,
 }
 
@@ -480,6 +535,7 @@ fn refresh_class_column(
     selection: Res<Selection>,
     store: Res<ProfileStore>,
     spells: Option<Res<crate::ui_action::Spells>>,
+    talents: Option<Res<crate::ui_talent::Talents>>,
     column: Query<Entity, With<ClassColumn>>,
     mut shown: Local<Option<ClassView>>,
 ) {
@@ -490,12 +546,19 @@ fn refresh_class_column(
         .look
         .and_then(|i| selection.looks.get(i))
         .map_or(0, |l| l.1);
-    let (meta, procs) = store.profile.run_bonuses(race);
+    let (meta, procs) = match selection.class_def() {
+        Some(class) => {
+            store
+                .profile
+                .run_bonuses(race, class, talents.as_deref().map(|t| &t.catalog))
+        }
+        None => (Vec::new(), Vec::new()),
+    };
     let view = ClassView {
         class: selection.class,
         race,
         spells_ready: spells.is_some(),
-        bonuses: meta.len() + procs.len(),
+        bonuses: format!("{meta:?}{}", procs.len()),
         open: open_zones(&store),
     };
     if shown.as_ref() == Some(&view) {
@@ -706,18 +769,14 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                         kit::ButtonLook::ACTION,
                         ScreenAction::Armory,
                     );
-                    let b = kit::button(
+                    kit::button(
                         r,
                         f,
                         "Talents",
                         Some("Spend your talent points"),
                         kit::ButtonLook::ACTION,
-                        (),
+                        ScreenAction::Tab(TALENTS),
                     );
-                    r.commands().entity(b).insert((
-                        kit::Disabled(true),
-                        Tooltip::simple("Talents", "Coming soon."),
-                    ));
                 });
                 p.spawn((
                     CollectionBar,
@@ -1477,6 +1536,201 @@ fn refresh_armory(
     });
 }
 
+/// The Talents tab: gold and points, then the class's three trees, every talent at its seat with
+/// its rank; a click learns the next rank.
+#[allow(clippy::too_many_arguments)]
+fn refresh_talents(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    store: Res<ProfileStore>,
+    talents: Option<Res<crate::ui_talent::Talents>>,
+    spells: Option<Res<crate::ui_action::Spells>>,
+    body: Query<Entity, With<TalentsBody>>,
+    mut shown: Local<Option<String>>,
+) {
+    let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
+        return;
+    };
+    let class = selection.class_def();
+    let look = menu::current_look(&selection);
+    let p = &store.profile;
+    let spent = class
+        .and_then(|c| p.talents.get(c.name))
+        .cloned()
+        .unwrap_or_default();
+    let view = format!(
+        "{:?}{:?}{}{}{:?}{}{}",
+        selection.class,
+        look,
+        p.gold,
+        p.talent_points,
+        spent,
+        talents.is_some(),
+        spells.is_some()
+    );
+    if shown.as_deref() == Some(view.as_str()) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    let spells = spells.as_deref();
+    commands.entity(body).despawn_related::<Children>();
+    commands.entity(body).with_children(|b| {
+        let (Some(class), Some((race, _))) = (class, look) else {
+            b.spawn(kit::text(&f.body, "Pick a class.", 13.0, theme::DIM));
+            return;
+        };
+        let Some(catalog) = talents.as_deref().map(|t| &t.catalog) else {
+            b.spawn(kit::text(
+                &f.body,
+                "The talent tables load with the game's data.",
+                13.0,
+                theme::DIM,
+            ));
+            return;
+        };
+        let trees = super::talents::trees(catalog, race, class.id);
+        let used = super::talents::spent_total(&spent, &trees);
+        let points = p.talent_points;
+        b.spawn(Node {
+            column_gap: Val::Px(10.0),
+            align_items: AlignItems::Center,
+            flex_wrap: FlexWrap::Wrap,
+            ..default()
+        })
+        .with_children(|r| {
+            kit::button(
+                r,
+                f,
+                "Back",
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Back,
+            );
+            kit::stat_tile(r, f, "Gold", &p.gold.to_string());
+            kit::stat_tile(
+                r,
+                f,
+                "Points spent",
+                &format!("{used} of {points} (up to {})", super::talents::MAX_POINTS),
+            );
+            let cost = super::talents::point_cost(points);
+            let full = points >= super::talents::MAX_POINTS;
+            let train = kit::button(
+                r,
+                f,
+                "Train a point",
+                Some(&if full {
+                    "Every point is trained".to_string()
+                } else {
+                    format!("{cost} gold")
+                }),
+                kit::ButtonLook::ACTION,
+                ScreenAction::TrainPoint,
+            );
+            r.commands()
+                .entity(train)
+                .insert(kit::Disabled(full || p.gold < cost));
+            let reset = kit::button(
+                r,
+                f,
+                "Reset",
+                Some(class.name),
+                kit::ButtonLook::PLAIN,
+                ScreenAction::ResetTalents,
+            );
+            r.commands().entity(reset).insert((
+                kit::Disabled(used == 0),
+                Tooltip::simple("Reset", "Take back every point spent, for free."),
+            ));
+        });
+        b.spawn(kit::text(
+            &f.body,
+            "Runs earn gold; gold trains points, shared by every class. Five points in a tree \
+             open its next tier, as in WoW.",
+            12.0,
+            theme::DIM,
+        ));
+        b.spawn(Node {
+            column_gap: Val::Px(14.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        })
+        .with_children(|cols| {
+            for (ti, tree) in trees.iter().enumerate() {
+                let in_tree = super::talents::spent_in(&spent, tree);
+                kit::panel(
+                    cols,
+                    f,
+                    Some(&format!("{} ({in_tree})", tree.tab.name)),
+                    Node {
+                        width: Val::Px(250.0),
+                        ..default()
+                    },
+                    |p| {
+                        let rows = tree.talents.iter().map(|t| t.row).max().unwrap_or(0);
+                        kit::grid(p, 4, 6.0, |g| {
+                            for row in 0..=rows {
+                                for col in 0..4 {
+                                    let Some((ki, t)) = tree
+                                        .talents
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(_, t)| t.row == row && t.col == col)
+                                    else {
+                                        g.spawn(Node {
+                                            width: Val::Px(36.0),
+                                            height: Val::Px(36.0),
+                                            ..default()
+                                        });
+                                        continue;
+                                    };
+                                    let r = super::talents::rank(&spent, t);
+                                    let max = t.max_rank();
+                                    let e = kit::icon_button(
+                                        g,
+                                        f,
+                                        IconSource::Spell(t.ranks[0]),
+                                        32.0,
+                                        Some(&format!("{r}/{max}")),
+                                        r > 0,
+                                        ScreenAction::Learn(ti, ki),
+                                    );
+                                    let name = hud::spell_name(spells, t.ranks[0], "Talent");
+                                    let per = super::talents::rank_bonus(tree.tab, t);
+                                    let mut lines = vec![
+                                        TipLine::new(name, Color::WHITE).header(),
+                                        TipLine::new(format!("Rank {r}/{max}"), theme::DIM),
+                                        TipLine::new(
+                                            format!("+{} per rank", bonus_text(&per)),
+                                            theme::GREEN,
+                                        ),
+                                    ];
+                                    match super::talents::can_learn(&spent, &trees, tree, t, points)
+                                    {
+                                        Ok(()) => {
+                                            lines.push(TipLine::new("Click to learn.", theme::GOLD))
+                                        }
+                                        Err(why) => lines.push(TipLine::new(why, theme::RED)),
+                                    }
+                                    let learnable =
+                                        super::talents::can_learn(&spent, &trees, tree, t, points)
+                                            .is_ok();
+                                    g.commands().entity(e).insert((
+                                        Tooltip(lines),
+                                        kit::Disabled(r == 0 && !learnable),
+                                    ));
+                                }
+                            }
+                        });
+                    },
+                );
+            }
+        });
+    });
+}
+
 /// Minutes and seconds, "2:15".
 fn mmss(secs: f32) -> String {
     let s = secs.max(0.0).round() as u32;
@@ -1805,6 +2059,7 @@ mod tests {
             "1.5 damage blocked per hit"
         );
         assert!(BUILT_TABS.iter().all(|&t| t < TABS.len()));
+        assert_eq!(TABS[TALENTS], "Talents");
         assert!(!BUILT_TABS.contains(&ARMORY));
     }
 
