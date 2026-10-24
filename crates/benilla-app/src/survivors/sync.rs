@@ -107,6 +107,7 @@ pub(super) fn begin_run(
     session: Res<Session>,
     phase: Res<State<Phase>>,
     selection: Res<Selection>,
+    store: Res<super::profile::ProfileStore>,
     world: WorldPoint,
     local: Query<Entity, (With<Hero>, With<LocalHero>)>,
 ) {
@@ -120,6 +121,10 @@ pub(super) fn begin_run(
     let Ok(me) = local.single() else {
         return;
     };
+    // The local hero brings in what the profile has earned. A guest's hero starts bare on the
+    // host for now: carrying each player's bonuses over the wire is its own task.
+    let (meta, procs) = store.profile.run_bonuses();
+    run.me = std::mem::take(&mut run.me).with_meta(meta, &procs);
     commands.entity(me).insert(HeroState {
         slot: session.slot,
         v: run.me.clone(),

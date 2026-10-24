@@ -21,13 +21,15 @@ mod minimap;
 mod mobility;
 mod net;
 mod profile;
+mod stats;
 mod sync;
 mod units;
 
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
 
-use data::{AbilityDef, ClassDef, PassiveDef, Stat};
+use data::{AbilityDef, Bonus, ClassDef, PassiveDef, Stat};
+pub(super) use stats::Stats;
 
 /// Set by [`crate::run_survivors`] before the app builds. wasm32 has no process environment, so
 /// the flag lives here; `WOW_SURVIVORS` (`?survivors=1` / `__wenilla_env.survivors` on the web)
@@ -331,24 +333,7 @@ impl Owned {
     }
 }
 
-/// The hero's derived numbers, from the base and the passives.
-#[derive(Clone, Copy)]
-pub(super) struct Stats {
-    pub might: f32,
-    pub max_hp: f32,
-    pub speed: f32,
-    pub regen: f32,
-    pub haste: f32,
-    pub area: f32,
-    pub magnet: f32,
-    pub growth: f32,
-    pub armor: f32,
-    pub crit: f32,
-}
-
-pub(super) const BASE_HP: f32 = 120.0;
-pub(super) const BASE_SPEED: f32 = 7.0;
-pub(super) const BASE_MAGNET: f32 = 4.5;
+pub(super) const BASE_HP: f32 = Stat::MaxHp.base();
 
 /// One hero's run: the numbers the simulation plays on. Every hero in a run carries its own as a
 /// [`HeroState`]; the local player's is mirrored into [`Run`] for the HUD.
@@ -384,6 +369,12 @@ pub(super) struct Vitals {
     /// Level-up cards applied to this hero, so a client knows which of its picks the host's
     /// numbers include.
     pub picks: u32,
+    /// What the hero brings into the run from outside it: the collection, talents, racials and
+    /// gear. Set when the run begins.
+    pub meta: Vec<Bonus>,
+    /// Effects that fire on their own, and the ones running now.
+    pub procs: Vec<stats::Proc>,
+    pub timed: Vec<stats::Timed>,
 }
 
 impl Default for Vitals {
@@ -412,6 +403,9 @@ impl Default for Vitals {
             damage_done: 0.0,
             version: 0,
             picks: 0,
+            meta: Vec::new(),
+            procs: Vec::new(),
+            timed: Vec::new(),
         }
     }
 }
@@ -434,41 +428,25 @@ impl Vitals {
         v
     }
 
+    /// The hero's numbers now: the class's head start, the run's passives, what the hero
+    /// brought in, and the effects running on it.
     pub fn stats(&self) -> Stats {
-        let mut s = Stats {
-            might: 1.0,
-            max_hp: BASE_HP,
-            speed: BASE_SPEED,
-            regen: 0.0,
-            haste: 0.0,
-            area: 1.0,
-            magnet: BASE_MAGNET,
-            growth: 1.0,
-            armor: 0.0,
-            crit: 0.05,
-        };
-        // Tanky classes start tougher, cloth starts quicker.
-        match self.class.id {
-            1 | 2 => s.max_hp += 40.0,
-            7 | 11 | 3 | 4 => s.max_hp += 15.0,
-            _ => s.speed += 0.5,
-        }
-        for &(p, level) in &self.passives {
-            let v = p.per_level * f32::from(level);
-            match p.stat {
-                Stat::Might => s.might += v,
-                Stat::MaxHp => s.max_hp *= 1.0 + v,
-                Stat::Speed => s.speed *= 1.0 + v,
-                Stat::Regen => s.regen += v,
-                Stat::Haste => s.haste += v,
-                Stat::Area => s.area += v,
-                Stat::Magnet => s.magnet *= 1.0 + v,
-                Stat::Growth => s.growth += v,
-                Stat::Armor => s.armor += v,
-                Stat::Crit => s.crit += v,
-            }
-        }
-        s
+        let passives: Vec<Bonus> = self.passives.iter().map(|&(p, l)| p.bonus(l)).collect();
+        Stats::from_bonuses(
+            data::class_bonuses(self.class.id)
+                .iter()
+                .chain(&passives)
+                .chain(&self.meta)
+                .chain(self.timed.iter().flat_map(|t| t.bonuses)),
+        )
+    }
+
+    /// The hero with what it brings into the run, at full health on it.
+    pub fn with_meta(mut self, meta: Vec<Bonus>, procs: &[&'static data::ProcDef]) -> Self {
+        self.meta = meta;
+        self.procs = procs.iter().map(|d| stats::Proc::new(d)).collect();
+        self.hp = self.stats().max_hp;
+        self
     }
 
     pub fn alive(&self) -> bool {

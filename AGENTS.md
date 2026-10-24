@@ -85,6 +85,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   builds the host's units in `net/client.rs` and moves only its own hero. Anything that changes
   the run goes through the simulation (`HeroState`), never straight into `Run`, which is only the
   local hero's view. Visuals go through `units::Fx`, which the host also logs for its guests.
+- **Every stat goes through `survivors/stats.rs`.** A hero's numbers are `Vitals::stats()`:
+  the class head start, the run's passives, `Vitals::meta` (what the profile brings in:
+  collection, talents, racials, gear, through `Profile::run_bonuses`) and the running effects,
+  all as `data::Bonus`, combined `(base + Σflat) × (1 + Σpercent)`. A new source adds bonuses;
+  it never edits a stat by hand. `stats.rs`'s tests hold the old numbers fixed.
 - **The profile only grows.** A new profile field takes `#[serde(default)]`, so every older
   profile keeps loading; renaming or changing a field's meaning bumps `PROFILE_VERSION`. Classes,
   zones and items are stored by name, never by table index.

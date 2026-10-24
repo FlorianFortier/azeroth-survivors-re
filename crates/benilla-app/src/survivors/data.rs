@@ -890,7 +890,7 @@ pub(crate) const MAX_PASSIVE_LEVEL: u8 = 5;
 pub(crate) const MAX_ABILITIES: usize = 6;
 pub(crate) const MAX_PASSIVES: usize = 6;
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum Stat {
     Might,
     MaxHp,
@@ -902,6 +902,98 @@ pub(crate) enum Stat {
     Growth,
     Armor,
     Crit,
+    /// The fraction of every hit taken that is ignored, after armour; capped at
+    /// [`MAX_DAMAGE_REDUCTION`].
+    DamageReduction,
+    /// The multiplier on gold picked up.
+    Gold,
+}
+
+impl Stat {
+    pub const ALL: [Stat; 12] = [
+        Stat::Might,
+        Stat::MaxHp,
+        Stat::Speed,
+        Stat::Regen,
+        Stat::Haste,
+        Stat::Area,
+        Stat::Magnet,
+        Stat::Growth,
+        Stat::Armor,
+        Stat::Crit,
+        Stat::DamageReduction,
+        Stat::Gold,
+    ];
+
+    /// A hero's number for this stat before any bonus.
+    pub const fn base(self) -> f32 {
+        match self {
+            Stat::Might | Stat::Area | Stat::Growth | Stat::Gold => 1.0,
+            Stat::MaxHp => 120.0,
+            Stat::Speed => 7.0,
+            Stat::Magnet => 4.5,
+            Stat::Crit => 0.05,
+            Stat::Regen | Stat::Haste | Stat::Armor | Stat::DamageReduction => 0.0,
+        }
+    }
+}
+
+/// The most of a hit damage reduction can ignore.
+pub(crate) const MAX_DAMAGE_REDUCTION: f32 = 0.75;
+
+/// How a bonus adds to a stat: every flat amount is summed onto the base, then the sum of every
+/// percent multiplies it — `(base + Σflat) × (1 + Σpercent)`. A stat that is itself a fraction
+/// (crit, haste, damage reduction) takes flat fractions: +1 % crit is `Flat(0.01)`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Amount {
+    Flat(f32),
+    Percent(f32),
+}
+
+/// One bonus to one stat, from whatever source: a passive's rank, the class, the collection, a
+/// talent, a racial, a piece of gear, a running effect.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Bonus {
+    pub stat: Stat,
+    pub amount: Amount,
+}
+
+impl Bonus {
+    pub const fn flat(stat: Stat, v: f32) -> Self {
+        Self {
+            stat,
+            amount: Amount::Flat(v),
+        }
+    }
+    pub const fn pct(stat: Stat, v: f32) -> Self {
+        Self {
+            stat,
+            amount: Amount::Percent(v),
+        }
+    }
+}
+
+/// An effect that fires on its own every `every` seconds and grants `bonuses` for `duration`
+/// (a racial like Berserking, a talent, a set bonus); `spell` names its icon and its visual on
+/// the hero.
+pub(crate) struct ProcDef {
+    pub key: &'static str,
+    pub spell: u32,
+    pub every: f32,
+    pub duration: f32,
+    pub bonuses: &'static [Bonus],
+}
+
+/// The class's own head start: tanky classes tougher, cloth quicker.
+pub(crate) fn class_bonuses(class_id: u8) -> &'static [Bonus] {
+    const TANKY: &[Bonus] = &[Bonus::flat(Stat::MaxHp, 40.0)];
+    const MAIL: &[Bonus] = &[Bonus::flat(Stat::MaxHp, 15.0)];
+    const CLOTH: &[Bonus] = &[Bonus::flat(Stat::Speed, 0.5)];
+    match class_id {
+        1 | 2 => TANKY,
+        7 | 11 | 3 | 4 => MAIL,
+        _ => CLOTH,
+    }
 }
 
 pub(crate) struct PassiveDef {
@@ -911,6 +1003,18 @@ pub(crate) struct PassiveDef {
     pub spell: u32,
     pub stat: Stat,
     pub per_level: f32,
+}
+
+impl PassiveDef {
+    /// The passive at `level`: health, speed and pickup range grow by a percent of themselves,
+    /// every other stat by its own amount.
+    pub fn bonus(&self, level: u8) -> Bonus {
+        let v = self.per_level * f32::from(level);
+        match self.stat {
+            Stat::MaxHp | Stat::Speed | Stat::Magnet => Bonus::pct(self.stat, v),
+            _ => Bonus::flat(self.stat, v),
+        }
+    }
 }
 
 pub(crate) static PASSIVES: &[PassiveDef] = &[
