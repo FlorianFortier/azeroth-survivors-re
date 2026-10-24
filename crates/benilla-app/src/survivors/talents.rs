@@ -129,10 +129,7 @@ pub(super) fn rank(spent: &Spent, talent: &Talent) -> u8 {
 
 /// Points spent in one tree.
 pub(super) fn spent_in(spent: &Spent, tree: &Tree) -> u32 {
-    tree.talents
-        .iter()
-        .map(|t| u32::from(rank(spent, t)))
-        .sum()
+    tree.talents.iter().map(|t| u32::from(rank(spent, t))).sum()
 }
 
 /// Points spent in all the class's trees.
@@ -162,10 +159,7 @@ pub(super) fn can_learn(
     }
     let need = talent.row * POINTS_PER_TIER;
     if spent_in(spent, tree) < need {
-        return Err(format!(
-            "Requires {need} points in {}.",
-            tree.tab.name
-        ));
+        return Err(format!("Requires {need} points in {}.", tree.tab.name));
     }
     if talent.prereq_talent != 0 {
         if let Some(pre) = tree.talents.iter().find(|t| t.id == talent.prereq_talent) {

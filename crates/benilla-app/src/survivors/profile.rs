@@ -553,11 +553,11 @@ mod tests {
         let mut p = Profile::default();
         assert!(!p.train_point());
         let mut r = result("Elwynn Forest", true, 20, 800);
-        r.gold = 55;
+        r.gold = 45;
         p.record(&r);
-        assert_eq!(p.gold, 55);
+        assert_eq!(p.gold, 45);
         assert!(p.train_point());
-        assert_eq!((p.gold, p.talent_points), (35, 1));
+        assert_eq!((p.gold, p.talent_points), (25, 1));
         // The second costs 30: not enough.
         assert!(!p.train_point());
         p.gold = 1_000_000;
@@ -591,7 +591,10 @@ mod tests {
         // Cycling the slot: the first owned, the next, then nothing.
         p.equip_next(data::GearSlot::Head);
         assert_eq!(p.gear(), [helm]);
-        assert_eq!(p.run_bonuses(1, warrior(), None).0.len(), bare + helm.bonuses.len());
+        assert_eq!(
+            p.run_bonuses(1, warrior(), None).0.len(),
+            bare + helm.bonuses.len()
+        );
         p.equip_next(data::GearSlot::Head);
         assert_eq!(p.gear(), [other]);
         p.equip_next(data::GearSlot::Head);

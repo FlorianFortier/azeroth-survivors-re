@@ -415,7 +415,12 @@ fn clicks(
                 return;
             };
             let points = store.profile.talent_points;
-            let mut spent = store.profile.talents.get(class.name).cloned().unwrap_or_default();
+            let mut spent = store
+                .profile
+                .talents
+                .get(class.name)
+                .cloned()
+                .unwrap_or_default();
             if super::talents::learn(&mut spent, &trees, &tree, talent, points) {
                 store.edit(|p| {
                     p.talents.insert(class.name.to_string(), spent);
@@ -1595,7 +1600,14 @@ fn refresh_talents(
             ..default()
         })
         .with_children(|r| {
-            kit::button(r, f, "Back", None, kit::ButtonLook::PLAIN, ScreenAction::Back);
+            kit::button(
+                r,
+                f,
+                "Back",
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Back,
+            );
             kit::stat_tile(r, f, "Gold", &p.gold.to_string());
             kit::stat_tile(
                 r,
@@ -1685,8 +1697,7 @@ fn refresh_talents(
                                         r > 0,
                                         ScreenAction::Learn(ti, ki),
                                     );
-                                    let name =
-                                        hud::spell_name(spells, t.ranks[0], "Talent");
+                                    let name = hud::spell_name(spells, t.ranks[0], "Talent");
                                     let per = super::talents::rank_bonus(tree.tab, t);
                                     let mut lines = vec![
                                         TipLine::new(name, Color::WHITE).header(),
@@ -1696,19 +1707,20 @@ fn refresh_talents(
                                             theme::GREEN,
                                         ),
                                     ];
-                                    match super::talents::can_learn(
-                                        &spent, &trees, tree, t, points,
-                                    ) {
-                                        Ok(()) => lines
-                                            .push(TipLine::new("Click to learn.", theme::GOLD)),
+                                    match super::talents::can_learn(&spent, &trees, tree, t, points)
+                                    {
+                                        Ok(()) => {
+                                            lines.push(TipLine::new("Click to learn.", theme::GOLD))
+                                        }
                                         Err(why) => lines.push(TipLine::new(why, theme::RED)),
                                     }
                                     let learnable =
                                         super::talents::can_learn(&spent, &trees, tree, t, points)
                                             .is_ok();
-                                    g.commands()
-                                        .entity(e)
-                                        .insert((Tooltip(lines), kit::Disabled(r == 0 && !learnable)));
+                                    g.commands().entity(e).insert((
+                                        Tooltip(lines),
+                                        kit::Disabled(r == 0 && !learnable),
+                                    ));
                                 }
                             }
                         });
