@@ -632,7 +632,9 @@ pub(super) fn hurt_hero(hero: &mut Vitals, raw: f32) -> f32 {
     if hero.immune_t > 0.0 || hero.dead_t.is_some() {
         return 0.0;
     }
-    let mut dmg = (raw - hero.stats().armor).max(1.0);
+    let stats = hero.stats();
+    // Armour takes a fixed amount off, then damage reduction a share of the rest.
+    let mut dmg = (raw - stats.armor).max(1.0) * (1.0 - stats.damage_reduction);
     if hero.shield_t > 0.0 && hero.shield > 0.0 {
         let absorbed = dmg.min(hero.shield);
         hero.shield -= absorbed;
@@ -704,6 +706,12 @@ pub(super) fn hero_vitals(
         for t in [&mut h.shield_t, &mut h.immune_t, &mut h.thorns_t] {
             *t = (*t - dt).max(0.0);
         }
+        // Effects that fire on their own: their visual plays on the hero as they do.
+        for def in super::stats::tick_effects(&mut h.procs, &mut h.timed, dt) {
+            if def.spell != 0 {
+                fx.cast(entity, def.spell, &[entity], None);
+            }
+        }
         let stats = h.stats();
         let mut heal = stats.regen * dt;
         if h.heal_t > 0.0 {
@@ -733,6 +741,11 @@ pub(super) fn hero_vitals(
         }
         if h.passives.iter().any(|(p, _)| p.key == "renew") {
             shown.push(139);
+        }
+        for t in &h.timed {
+            if t.spell != 0 && !shown.contains(&t.spell) {
+                shown.push(t.spell);
+            }
         }
         marks.set(&shown);
         marks.flush(entity, guid.0, &mut store, &mut fields);
@@ -855,6 +868,39 @@ mod tests {
         let (eye, look) = chase_eye(&rig, Vec3::ZERO, hill);
         assert!(eye.z <= 3.5, "the camera stays in front of the hill: {eye}");
         assert!(eye.distance(look) < rig.dist);
+    }
+
+    #[test]
+    fn armour_then_damage_reduction_soften_a_hit() {
+        use crate::survivors::data::{Bonus, Stat};
+        let class = &data::CLASSES[0];
+        let mut v = Vitals::new(class, 1).with_meta(
+            vec![
+                Bonus::flat(Stat::Armor, 4.0),
+                Bonus::flat(Stat::DamageReduction, 0.25),
+            ],
+            &[],
+        );
+        let hp = v.hp;
+        let taken = hurt_hero(&mut v, 20.0);
+        assert!((taken - (20.0 - 4.0) * 0.75).abs() < 1e-5, "{taken}");
+        assert!((v.hp - (hp - taken)).abs() < 1e-5);
+        // Reduction never goes past its cap.
+        let mut tank =
+            Vitals::new(class, 1).with_meta(vec![Bonus::flat(Stat::DamageReduction, 5.0)], &[]);
+        let taken = hurt_hero(&mut tank, 100.0);
+        assert!((taken - 100.0 * (1.0 - data::MAX_DAMAGE_REDUCTION)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn what_a_hero_brings_in_counts_from_the_first_frame() {
+        use crate::survivors::data::{Bonus, Stat};
+        let class = &data::CLASSES[0];
+        let bare = Vitals::new(class, 1);
+        let geared = Vitals::new(class, 1).with_meta(vec![Bonus::flat(Stat::MaxHp, 25.0)], &[]);
+        assert_eq!(geared.stats().max_hp, bare.stats().max_hp + 25.0);
+        // ...and it starts at that full health.
+        assert_eq!(geared.hp, geared.stats().max_hp);
     }
 
     #[test]

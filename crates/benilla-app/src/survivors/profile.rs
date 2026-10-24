@@ -132,6 +132,13 @@ impl Profile {
         z.best_kills = z.best_kills.max(r.kills);
     }
 
+    /// What the profile brings into a run, for the hero picked: the bonuses that hold all run
+    /// and the effects that fire on their own. The collection, talents, racials and gear each add
+    /// theirs here as they land; today the profile brings nothing yet.
+    pub fn run_bonuses(&self) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
+        (Vec::new(), Vec::new())
+    }
+
     /// The pick file the profile replaced: `class race sex zone`, all indices.
     pub fn from_old_pick(text: &str) -> Option<Self> {
         let v: Vec<usize> = text

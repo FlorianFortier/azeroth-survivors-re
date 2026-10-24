@@ -1969,6 +1969,8 @@ fn stat_label(stat: Stat) -> &'static str {
         Stat::Growth => "Experience gained",
         Stat::Armor => "Damage blocked per hit",
         Stat::Crit => "Critical strike chance",
+        Stat::DamageReduction => "Damage reduction",
+        Stat::Gold => "Gold found",
     }
 }
 
@@ -1987,6 +1989,8 @@ fn passive_text(stat: Stat, v: f32) -> String {
             "Increases your chance to critically strike for double damage by {}.",
             pct(v)
         ),
+        Stat::DamageReduction => format!("Reduces all damage you take by {}.", pct(v)),
+        Stat::Gold => format!("Increases the gold you find by {}.", pct(v)),
     }
 }
 
@@ -2003,6 +2007,8 @@ fn stat_total(stat: Stat, s: &Stats) -> String {
         Stat::Growth => format!("Experience gained: {}", pct(s.growth)),
         Stat::Armor => format!("Damage blocked per hit: {}", num(s.armor)),
         Stat::Crit => format!("Critical strike chance: {}", pct(s.crit)),
+        Stat::DamageReduction => format!("Damage reduction: {}", pct(s.damage_reduction)),
+        Stat::Gold => format!("Gold found: {}", pct(s.gold)),
     }
 }
 
