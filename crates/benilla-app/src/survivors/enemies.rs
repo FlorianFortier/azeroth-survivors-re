@@ -25,6 +25,8 @@ pub(super) struct Enemy {
     pub radius: f32,
     pub xp: u32,
     pub boss: bool,
+    /// Which of the zone's bosses, from 0; its item drops when it falls.
+    pub boss_slot: Option<u8>,
     /// The zone's final boss: its fall wins the run.
     pub final_boss: bool,
     pub attack_cd: f32,
@@ -62,12 +64,16 @@ pub(super) struct Loot {
     pub pos: Vec3,
     pub xp: u32,
     pub boss: bool,
+    /// A boss's slot in the zone, for the item it drops.
+    pub boss_slot: Option<u8>,
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum GemKind {
     Xp(u32),
     Heal(f32),
+    /// A piece of gear: whoever catches it keeps it.
+    Item(&'static data::ItemDef),
 }
 
 #[derive(Component)]
@@ -82,6 +88,9 @@ pub(super) struct Gem {
 /// bigger tiers rarer, and a turkey leg for health.
 fn look_for(kind: GemKind) -> (u32, f32) {
     match kind {
+        // A wisp twice the size, purple for the epic and legendary, green below.
+        GemKind::Item(i) if i.rarity >= data::Rarity::Epic => (1307, 2.6),
+        GemKind::Item(_) => (1267, 2.2),
         // `TurkeyLeg.mdx`.
         GemKind::Heal(_) => (114, 2.5),
         // `BFD_WispSmallPurple.mdx`.
@@ -106,7 +115,7 @@ fn spawn_enemy(
     def: &'static EnemyDef,
     pos: Vec3,
     hero: Vec3,
-    boss: bool,
+    boss_slot: Option<u8>,
     final_boss: bool,
 ) {
     let scale = rules.hp_scale(run.elapsed);
@@ -136,7 +145,8 @@ fn spawn_enemy(
             damage: def.damage * rules.damage_scale(run.elapsed),
             radius: radius_for(def),
             xp: def.xp,
-            boss,
+            boss: boss_slot.is_some(),
+            boss_slot,
             final_boss,
             attack_cd: 0.5,
             slow: 1.0,
@@ -205,7 +215,7 @@ pub(super) fn spawn_enemies(
             def,
             pos,
             hpos,
-            true,
+            Some(run.bosses.min(u32::from(u8::MAX)) as u8),
             final_boss,
         );
         run.bosses += 1;
@@ -232,7 +242,7 @@ pub(super) fn spawn_enemies(
                     hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 26.0,
                     hpos.y,
                 );
-                spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, false);
+                spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, None, false);
             }
         }
         run.banner = Some(("They're surrounding you!".into(), 3.0));
@@ -257,7 +267,7 @@ pub(super) fn spawn_enemies(
         let a = rng.range(0.0, std::f32::consts::TAU);
         let r = rng.range(34.0, 42.0);
         let pos = ground(&world, hpos + Vec3::new(a.cos(), 0.0, a.sin()) * r, hpos.y);
-        spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, false);
+        spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, None, false);
     }
 }
 
@@ -483,10 +493,25 @@ pub(super) fn drop_loot(
     mut drops: MessageReader<Loot>,
     mut rng: ResMut<Rng>,
     mut run: ResMut<Run>,
+    selection: Res<Selection>,
     mut gems: Query<&mut Gem>,
 ) {
     let mut count = gems.iter().count();
     for d in drops.read() {
+        // A boss drops its own item; one of the horde, rarely, one of the zone's.
+        let item = match d.boss_slot {
+            Some(k) => data::boss_item(selection.map, usize::from(k)),
+            None => data::horde_item(selection.map, rng.f32()),
+        };
+        if let Some(item) = item {
+            spawn_gem(
+                &mut commands,
+                run.guid(),
+                d.pos - Vec3::X * 0.8,
+                GemKind::Item(item),
+            );
+            run.banner = Some((format!("{} dropped!", item.name), 4.0));
+        }
         if d.boss || rng.f32() < 0.015 {
             let heal = GemKind::Heal(if d.boss { 1000.0 } else { 30.0 });
             spawn_gem(&mut commands, run.guid(), d.pos + Vec3::X * 0.8, heal);
@@ -583,6 +608,17 @@ pub(super) fn collect_gems(
                 if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
                     let max = h.stats().max_hp;
                     h.hp = (h.hp + hp).min(max);
+                }
+            }
+            GemKind::Item(item) => {
+                if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
+                    h.loot.push(item);
+                    if h.slot == session.slot {
+                        run.banner = Some((
+                            format!("You found {} ({})", item.name, item.rarity.name()),
+                            4.0,
+                        ));
+                    }
                 }
             }
         }

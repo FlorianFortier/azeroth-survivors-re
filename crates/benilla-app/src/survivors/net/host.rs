@@ -137,6 +137,7 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
         kills: v.kills,
         picks: v.picks,
         revive_t: v.revive_t,
+        loot: v.loot.iter().map(|i| i.name.clone()).collect(),
     }
 }
 

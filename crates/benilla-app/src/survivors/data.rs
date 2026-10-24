@@ -2407,6 +2407,230 @@ pub(crate) static MAPS: &[MapDef] = &[
     },
 ];
 
+/// Where a piece of gear is worn: the ten slots of the main screen's Equipment panel.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum GearSlot {
+    Head,
+    Shoulders,
+    Chest,
+    Wrists,
+    Hands,
+    Waist,
+    Legs,
+    Feet,
+    MainHand,
+    OffHand,
+}
+
+impl GearSlot {
+    pub const ALL: [GearSlot; 10] = [
+        GearSlot::Head,
+        GearSlot::Shoulders,
+        GearSlot::Chest,
+        GearSlot::Wrists,
+        GearSlot::Hands,
+        GearSlot::Waist,
+        GearSlot::Legs,
+        GearSlot::Feet,
+        GearSlot::MainHand,
+        GearSlot::OffHand,
+    ];
+
+    /// The slot's name, as the screen and the profile write it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            GearSlot::Head => "Head",
+            GearSlot::Shoulders => "Shoulders",
+            GearSlot::Chest => "Chest",
+            GearSlot::Wrists => "Wrists",
+            GearSlot::Hands => "Hands",
+            GearSlot::Waist => "Waist",
+            GearSlot::Legs => "Legs",
+            GearSlot::Feet => "Feet",
+            GearSlot::MainHand => "Main Hand",
+            GearSlot::OffHand => "Off Hand",
+        }
+    }
+
+    /// The word an item of this slot is named with: "Hogger's Gauntlets".
+    const fn noun(self) -> &'static str {
+        match self {
+            GearSlot::Head => "Helm",
+            GearSlot::Shoulders => "Mantle",
+            GearSlot::Chest => "Chestguard",
+            GearSlot::Wrists => "Bracers",
+            GearSlot::Hands => "Gauntlets",
+            GearSlot::Waist => "Girdle",
+            GearSlot::Legs => "Legguards",
+            GearSlot::Feet => "Boots",
+            GearSlot::MainHand => "Edge",
+            GearSlot::OffHand => "Ward",
+        }
+    }
+
+    /// What the slot's gear gives at rarity 1 in the first zone; everything else scales it.
+    const fn bonus(self) -> Bonus {
+        match self {
+            GearSlot::Head => Bonus::pct(Stat::MaxHp, 0.04),
+            GearSlot::Shoulders => Bonus::flat(Stat::Area, 0.03),
+            GearSlot::Chest => Bonus::flat(Stat::Armor, 1.5),
+            GearSlot::Wrists => Bonus::flat(Stat::Haste, 0.02),
+            GearSlot::Hands => Bonus::flat(Stat::Crit, 0.01),
+            GearSlot::Waist => Bonus::pct(Stat::Magnet, 0.06),
+            GearSlot::Legs => Bonus::flat(Stat::MaxHp, 10.0),
+            GearSlot::Feet => Bonus::pct(Stat::Speed, 0.03),
+            GearSlot::MainHand => Bonus::flat(Stat::Might, 0.05),
+            GearSlot::OffHand => Bonus::flat(Stat::DamageReduction, 0.015),
+        }
+    }
+}
+
+/// An item's quality, WoW's colours.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub(crate) enum Rarity {
+    Uncommon,
+    Rare,
+    Epic,
+    Legendary,
+}
+
+impl Rarity {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Rarity::Uncommon => "Uncommon",
+            Rarity::Rare => "Rare",
+            Rarity::Epic => "Epic",
+            Rarity::Legendary => "Legendary",
+        }
+    }
+
+    /// The quality colour, `0xRRGGBB`.
+    pub const fn color(self) -> u32 {
+        match self {
+            Rarity::Uncommon => 0x1eff00,
+            Rarity::Rare => 0x0070dd,
+            Rarity::Epic => 0xa335ee,
+            Rarity::Legendary => 0xff8000,
+        }
+    }
+
+    /// The `ItemInfo` quality index (2 uncommon … 5 legendary).
+    pub const fn quality(self) -> u32 {
+        match self {
+            Rarity::Uncommon => 2,
+            Rarity::Rare => 3,
+            Rarity::Epic => 4,
+            Rarity::Legendary => 5,
+        }
+    }
+
+    const fn power(self) -> f32 {
+        match self {
+            Rarity::Uncommon => 1.0,
+            Rarity::Rare => 1.5,
+            Rarity::Epic => 2.2,
+            Rarity::Legendary => 3.2,
+        }
+    }
+}
+
+/// A piece of gear: dropped by one boss of one zone, worn in one slot, kept between runs.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ItemDef {
+    /// "Hogger's Helm": the profile stores items by it.
+    pub name: String,
+    pub slot: GearSlot,
+    pub rarity: Rarity,
+    /// The zone ([`MAPS`] index) and boss slot that drop it.
+    pub zone: usize,
+    pub boss: usize,
+    /// What wearing it brings into a run.
+    pub bonuses: Vec<Bonus>,
+}
+
+/// One in this many enemies of the horde drops one of the zone's items; a boss always drops its
+/// own.
+pub(crate) const HORDE_ITEM_ODDS: u32 = 600;
+
+/// Every item, five per zone: one per boss, in the campaign's order. The slots turn through all
+/// ten over each two zones, the bosses' items grow rarer toward the final one, and every zone's
+/// numbers grow with its place in the campaign.
+pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock::new(|| {
+    let mut out = Vec::new();
+    for (z, m) in MAPS.iter().enumerate() {
+        for (k, boss) in m.bosses.iter().enumerate() {
+            let slot = GearSlot::ALL[(z * m.bosses.len() + k) % GearSlot::ALL.len()];
+            let rarity = match k {
+                0 | 1 => Rarity::Uncommon,
+                2 | 3 => Rarity::Rare,
+                _ if z + 2 >= MAPS.len() => Rarity::Legendary,
+                _ => Rarity::Epic,
+            };
+            let scale = rarity.power() * (1.0 + 0.12 * z as f32);
+            let main = slot.bonus();
+            let mut bonuses = vec![Bonus {
+                stat: main.stat,
+                amount: match main.amount {
+                    Amount::Flat(v) => Amount::Flat(v * scale),
+                    Amount::Percent(v) => Amount::Percent(v * scale),
+                },
+            }];
+            // An epic or legendary piece mends its wearer too.
+            if rarity >= Rarity::Epic {
+                bonuses.push(Bonus::flat(Stat::Regen, 0.3 * scale));
+            }
+            out.push(ItemDef {
+                name: format!("{}'s {}", boss.name, slot.noun()),
+                slot,
+                rarity,
+                zone: z,
+                boss: k,
+                bonuses,
+            });
+        }
+    }
+    out
+});
+
+/// An item by its name.
+pub(crate) fn item(name: &str) -> Option<&'static ItemDef> {
+    ITEMS.iter().find(|i| i.name == name)
+}
+
+/// The item a zone's `boss`th boss drops.
+pub(crate) fn boss_item(zone: usize, boss: usize) -> Option<&'static ItemDef> {
+    ITEMS.iter().find(|i| i.zone == zone && i.boss == boss)
+}
+
+/// A zone's drop table: its five items, the first boss's first.
+pub(crate) fn zone_items(zone: usize) -> Vec<&'static ItemDef> {
+    ITEMS.iter().filter(|i| i.zone == zone).collect()
+}
+
+/// The item a horde kill drops from `roll` (uniform in `[0, 1)`), if any: one in
+/// [`HORDE_ITEM_ODDS`], the zone's commoner items likelier.
+pub(crate) fn horde_item(zone: usize, roll: f32) -> Option<&'static ItemDef> {
+    let odds = 1.0 / HORDE_ITEM_ODDS as f32;
+    if roll >= odds {
+        return None;
+    }
+    let table = zone_items(zone);
+    // Rescaled into the table, the rarer half of it half as likely.
+    let weights: Vec<f32> = table
+        .iter()
+        .map(|i| if i.rarity <= Rarity::Rare { 2.0 } else { 1.0 })
+        .collect();
+    let total: f32 = weights.iter().sum();
+    let mut at = roll / odds * total;
+    for (i, w) in table.iter().zip(&weights) {
+        if at < *w {
+            return Some(i);
+        }
+        at -= w;
+    }
+    table.last().copied()
+}
+
 /// A battleground's horde and bosses with their numbers.
 pub(crate) struct Roster {
     pub enemies: Vec<EnemyDef>,
@@ -3008,5 +3232,54 @@ mod tests {
         assert!(!race_classes(6).contains(&8));
         let druids: Vec<u8> = (1..=8).filter(|r| race_classes(*r).contains(&11)).collect();
         assert_eq!(druids, [4, 6]);
+    }
+
+    #[test]
+    fn sixty_items_five_per_zone_one_per_boss() {
+        assert_eq!(ITEMS.len(), 60);
+        let names: HashSet<&str> = ITEMS.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names.len(), ITEMS.len(), "item names are unique");
+        for z in 0..MAPS.len() {
+            let table = zone_items(z);
+            assert_eq!(table.len(), 5, "{}", MAPS[z].name);
+            for k in 0..5 {
+                let i = boss_item(z, k).unwrap();
+                assert_eq!(item(&i.name), Some(i));
+                assert!(i.name.starts_with(roster(z).bosses[k].name));
+            }
+        }
+        assert_eq!(boss_item(0, 4).unwrap().name, "Edwin VanCleef's Ward");
+        // Every slot comes up six times.
+        for s in GearSlot::ALL {
+            assert_eq!(ITEMS.iter().filter(|i| i.slot == s).count(), 6, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn rarer_and_later_items_give_more() {
+        for i in ITEMS.iter() {
+            assert!(!i.bonuses.is_empty());
+            assert_eq!(i.bonuses[0].stat, i.slot.bonus().stat);
+        }
+        let first = |z: usize, k: usize| match boss_item(z, k).unwrap().bonuses[0].amount {
+            Amount::Flat(v) | Amount::Percent(v) => v,
+        };
+        // The same slot two zones on is stronger.
+        assert!(first(2, 0) > first(0, 0));
+        assert_eq!(boss_item(0, 0).unwrap().rarity, Rarity::Uncommon);
+        assert_eq!(boss_item(0, 4).unwrap().rarity, Rarity::Epic);
+        assert_eq!(boss_item(11, 4).unwrap().rarity, Rarity::Legendary);
+    }
+
+    #[test]
+    fn the_horde_drops_rarely_and_only_from_the_zone() {
+        assert!(horde_item(0, 0.5).is_none());
+        let odds = 1.0 / HORDE_ITEM_ODDS as f32;
+        for k in 0..50 {
+            let roll = odds * (k as f32 / 50.0);
+            let i = horde_item(3, roll).expect("inside the odds");
+            assert_eq!(i.zone, 3);
+        }
+        assert!(horde_item(3, odds).is_none());
     }
 }

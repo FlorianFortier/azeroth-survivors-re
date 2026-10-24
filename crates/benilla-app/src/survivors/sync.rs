@@ -152,7 +152,10 @@ pub(super) fn begin_run(
                 seat.sex,
                 seat.appearance,
                 seat.display,
+                // A guest's gear crossing the wire is the co-op task's.
+                &[],
                 catalog.as_deref().map(|c| &c.0),
+                None,
             );
             let e = hero::spawn_hero(
                 &mut commands,

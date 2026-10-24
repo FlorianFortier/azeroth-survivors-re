@@ -79,6 +79,8 @@ enum ScreenAction {
     Dial(usize),
     /// Roll every appearance dial.
     RandomLook,
+    /// Wear the next item owned for one of the ten slots ([`data::GearSlot::ALL`]).
+    Equip(usize),
     Zone(usize),
     Enter,
     Coop,
@@ -328,6 +330,11 @@ fn clicks(
                 selection.map = i;
                 selection.version += 1;
                 menu::save_pick(&selection, &mut store);
+            }
+        }
+        ScreenAction::Equip(k) => {
+            if let Some(&slot) = data::GearSlot::ALL.get(k) {
+                store.edit(|p| p.equip_next(slot));
             }
         }
         ScreenAction::Coop => next.set(Phase::Lobby),
@@ -907,75 +914,160 @@ struct EquipmentView {
     class: Option<usize>,
     look: Option<(u8, u8)>,
     ready: (bool, bool),
+    worn: Vec<String>,
+    owned: usize,
 }
 
-/// The ten slots, each with what the hero wears there and its icon, or the paper doll's empty art.
+/// A piece of gear's tooltip: its name in its quality's colour, the slot, what it gives, where
+/// it drops, and how to change it.
+fn gear_tip(item: &data::ItemDef, owned: usize) -> Tooltip {
+    let mut lines = vec![
+        TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
+        TipLine::new(item.slot.name(), Color::WHITE).right(item.rarity.name(), theme::DIM),
+    ];
+    for b in &item.bonuses {
+        lines.push(TipLine::new(format!("+{}", bonus_text(b)), theme::GREEN));
+    }
+    let boss = data::roster(item.zone).bosses[item.boss].name;
+    lines.push(TipLine::new(
+        format!("Dropped by {boss}, {}", data::MAPS[item.zone].name),
+        theme::DIM,
+    ));
+    lines.push(TipLine::new(
+        if owned > 1 {
+            format!("Click for the next of your {owned}.")
+        } else {
+            "Click to take it off.".to_string()
+        },
+        theme::GOLD,
+    ));
+    Tooltip(lines)
+}
+
+/// One bonus as the tooltips word it: "4% max health", "1.5 armor".
+fn bonus_text(b: &data::Bonus) -> String {
+    use data::{Amount, Stat};
+    let what = match b.stat {
+        Stat::Might => "damage",
+        Stat::MaxHp => "max health",
+        Stat::Speed => "movement speed",
+        Stat::Regen => "health per second",
+        Stat::Haste => "cooldown recovery",
+        Stat::Area => "area of effect",
+        Stat::Magnet => "pickup range",
+        Stat::Growth => "experience",
+        Stat::Armor => "damage blocked per hit",
+        Stat::Crit => "critical strike",
+        Stat::DamageReduction => "damage reduction",
+        Stat::Gold => "gold",
+    };
+    let fraction = matches!(
+        b.stat,
+        Stat::Might | Stat::Haste | Stat::Area | Stat::Growth | Stat::Crit | Stat::DamageReduction
+    );
+    match b.amount {
+        Amount::Percent(v) => format!("{:.0}% {what}", v * 100.0),
+        Amount::Flat(v) if fraction => format!("{:.1}% {what}", v * 100.0),
+        Amount::Flat(v) => format!("{v:.1} {what}"),
+    }
+}
+
+/// The ten slots: the gear worn there with its icon (a click changes it), else the starting
+/// outfit's piece, else the paper doll's empty art.
+#[allow(clippy::too_many_arguments)]
 fn refresh_equipment(
     mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
     selection: Res<Selection>,
+    store: Res<ProfileStore>,
     catalog: Option<Res<crate::entities::CharCreate>>,
     displays: Option<Res<crate::entities::ItemDisplays>>,
     row: Query<Entity, With<EquipmentRow>>,
     mut shown: Local<Option<EquipmentView>>,
 ) {
-    let Ok(row) = row.single() else {
+    let (Some(fonts), Ok(row)) = (fonts, row.single()) else {
         return;
     };
     let look = menu::current_look(&selection);
+    let gear = store.profile.gear();
     let view = EquipmentView {
         class: selection.class,
         look,
         ready: (catalog.is_some(), displays.is_some()),
+        worn: gear.iter().map(|i| i.name.clone()).collect(),
+        owned: store.profile.inventory.len(),
     };
     if shown.as_ref() == Some(&view) {
         return;
     }
     *shown = Some(view);
-    let worn = match (selection.class_def(), look) {
-        (Some(class), Some((race, sex))) => {
-            match outfit::body(
-                class,
-                race,
-                sex,
-                selection.appearance,
-                0,
-                catalog.as_deref().map(|c| &c.0),
-            ) {
-                outfit::Body::Player { worn, .. } => worn,
-                outfit::Body::Trainer { .. } => Vec::new(),
-            }
-        }
+    let f = &*fonts;
+    let class = selection.class_def();
+    let outfit = match (class, look) {
+        (Some(class), Some((race, sex))) => match outfit::body(
+            class,
+            race,
+            sex,
+            selection.appearance,
+            0,
+            &[],
+            catalog.as_deref().map(|c| &c.0),
+            None,
+        ) {
+            outfit::Body::Player { worn, .. } => worn,
+            outfit::Body::Trainer { .. } => Vec::new(),
+        },
         _ => Vec::new(),
+    };
+    let icon_of = |display: u32| -> Option<String> {
+        displays.as_deref()?.catalog.get(display)?.icon.clone()
     };
     commands.entity(row).despawn_related::<Children>();
     commands.entity(row).with_children(|r| {
-        for (label, art, slot) in outfit::SHOWN {
-            let piece = worn.iter().find(|w| w.slot == slot);
-            let icon =
-                piece.and_then(|w| displays.as_deref()?.catalog.get(w.display)?.icon.clone());
-            let (source, tip) = match (piece, icon) {
-                (Some(_), Some(icon)) => (
-                    IconSource::Texture(icon),
-                    TipLine::new("Starting gear", theme::TEXT),
+        for (k, (label, art, slot)) in outfit::SHOWN.into_iter().enumerate() {
+            let gear_slot = data::GearSlot::ALL[k];
+            let worn_item = gear.iter().find(|i| i.slot == gear_slot).copied();
+            let owned = store.profile.owned_for(gear_slot).len();
+            let empty = format!("Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}");
+            let (icon, tip) = match worn_item {
+                Some(item) => (
+                    displays
+                        .as_deref()
+                        .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
+                        .unwrap_or(empty),
+                    gear_tip(item, owned),
                 ),
-                (Some(_), None) => (
-                    IconSource::Texture(format!("Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}")),
-                    TipLine::new("Starting gear", theme::TEXT),
-                ),
-                (None, _) => (
-                    IconSource::Texture(format!("Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}")),
-                    TipLine::new("Empty", theme::DIM),
-                ),
+                None => {
+                    let piece = outfit.iter().find(|w| w.slot == slot);
+                    let note = match (piece, owned) {
+                        (_, n) if n > 0 => TipLine::new(
+                            format!("{n} found: click to wear one."),
+                            theme::GOLD,
+                        ),
+                        (Some(_), _) => TipLine::new("Starting gear", theme::TEXT),
+                        (None, _) => TipLine::new("Empty", theme::DIM),
+                    };
+                    (
+                        piece.and_then(|w| icon_of(w.display)).unwrap_or(empty),
+                        Tooltip(vec![TipLine::new(label, Color::WHITE).header(), note]),
+                    )
+                }
             };
-            kit::icon(
+            let b = kit::icon_button(
                 r,
-                source,
+                f,
+                IconSource::Texture(icon),
                 30.0,
-                Some(Tooltip(vec![
-                    TipLine::new(label, Color::WHITE).header(),
-                    tip,
-                ])),
+                None,
+                worn_item.is_some(),
+                ScreenAction::Equip(k),
             );
+            r.commands().entity(b).insert(tip);
+            if let Some(item) = worn_item {
+                r.commands()
+                    .entity(b)
+                    .insert(BorderColor::all(hud::rgb(item.rarity.color())));
+            }
         }
     });
 }

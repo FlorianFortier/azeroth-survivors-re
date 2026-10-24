@@ -872,7 +872,9 @@ pub(super) fn menu_preview(
     heroes: Query<Entity, With<Hero>>,
     world: benilla_world::world_point::WorldPoint,
     catalog: Option<Res<crate::entities::CharCreate>>,
-    mut shown: Local<Option<(usize, u32, usize, super::outfit::Appearance, bool)>>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
+    store: Res<super::profile::ProfileStore>,
+    mut shown: Local<Option<(usize, u32, usize, super::outfit::Appearance, bool, Vec<String>)>>,
 ) {
     // A guest's run hero is the host's to send: no preview once its run has begun.
     if !matches!(phase.get(), Phase::Menu | Phase::Lobby) || session.mode == super::Mode::Client {
@@ -887,7 +889,8 @@ pub(super) fn menu_preview(
             l.0,
             selection.stage,
             selection.appearance,
-            catalog.is_some(),
+            catalog.is_some() && displays.is_some(),
+            store.profile.gear().iter().map(|i| i.name.clone()).collect(),
         )
     });
     if key == *shown && (key.is_none() || !heroes.is_empty()) {
@@ -912,7 +915,9 @@ pub(super) fn menu_preview(
         sex,
         selection.appearance,
         display,
+        &store.profile.gear(),
         catalog.as_deref().map(|c| &c.0),
+        displays.as_deref().map(|d| &d.catalog),
     );
     let e = hero::spawn_hero(&mut commands, class, &body, race, sex, serial, pos);
     commands.entity(e).insert(super::LocalHero);
@@ -1699,11 +1704,17 @@ pub(super) fn refresh_results(
     )>,
 ) {
     let secs = run.elapsed as u32;
-    let stats_line = if run.won {
+    let mut stats_line = if run.won {
         selection.map_def().victory
     } else {
         "The horde was too much this time."
-    };
+    }
+    .to_string();
+    // What was found comes home either way.
+    if !run.loot.is_empty() {
+        let names: Vec<&str> = run.loot.iter().map(|i| i.name.as_str()).collect();
+        stats_line.push_str(&format!("\nFound: {}", names.join(", ")));
+    }
     let values = [
         format!("{:02}:{:02}", secs / 60, secs % 60),
         run.level.to_string(),
@@ -1720,7 +1731,7 @@ pub(super) fn refresh_results(
     }
     if let Ok(mut t) = over_texts.p1().single_mut() {
         if **t != stats_line {
-            **t = stats_line.to_string();
+            **t = stats_line;
         }
     }
 }
