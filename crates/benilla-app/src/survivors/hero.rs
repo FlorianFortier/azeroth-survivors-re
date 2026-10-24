@@ -529,6 +529,10 @@ pub(super) fn turn_camera(
     } else {
         (ZOOM_MIN, ZOOM_MAX)
     };
+    // At the menu the wheel scrolls its lists; the camera's zoom is for the run.
+    if matches!(phase.get(), Phase::Menu | Phase::Lobby) {
+        wheel.clear();
+    }
     for w in wheel.read() {
         let notches = match w.unit {
             MouseScrollUnit::Line => w.y,

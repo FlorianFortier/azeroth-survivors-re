@@ -874,6 +874,70 @@ pub(super) fn bonus_line(
         .id()
 }
 
+// ── Scrolling ────────────────────────────────────────────────────────────────────────────────
+
+/// A column that scrolls with the mouse wheel while the pointer is over it.
+#[derive(Component)]
+pub(super) struct ScrollArea;
+
+/// Wheel lines to pixels: a notch moves about two rows.
+const SCROLL_LINE: f32 = 36.0;
+
+/// A scrolling column, filled by the caller; `node` sets its size.
+pub(super) fn scroll_area(
+    p: &mut ChildSpawnerCommands,
+    node: Node,
+    children: impl FnOnce(&mut ChildSpawnerCommands),
+) -> Entity {
+    p.spawn((
+        ScrollArea,
+        Node {
+            flex_direction: FlexDirection::Column,
+            overflow: Overflow::scroll_y(),
+            // A flex child shrinks below its content only with this; without it the area grows
+            // to fit and never scrolls.
+            min_height: Val::Px(0.0),
+            ..node
+        },
+        ScrollPosition::default(),
+        Interaction::default(),
+        bevy::ui::FocusPolicy::Pass,
+    ))
+    .with_children(children)
+    .id()
+}
+
+/// How far a scroll area may scroll, in logical pixels: its content past its own height.
+fn scroll_room(node: &ComputedNode) -> f32 {
+    ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.0)
+}
+
+fn scroll_areas(
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut areas: Query<(&Interaction, &mut ScrollPosition, &ComputedNode), With<ScrollArea>>,
+) {
+    use bevy::input::mouse::MouseScrollUnit;
+    let dy: f32 = wheel
+        .read()
+        .map(|w| match w.unit {
+            MouseScrollUnit::Line => w.y * SCROLL_LINE,
+            MouseScrollUnit::Pixel => w.y,
+        })
+        .sum();
+    if dy == 0.0 {
+        return;
+    }
+    for (i, mut pos, node) in &mut areas {
+        if *i == Interaction::None {
+            continue;
+        }
+        let y = (pos.0.y - dy).clamp(0.0, scroll_room(node));
+        if pos.0.y != y {
+            pos.0.y = y;
+        }
+    }
+}
+
 // ── Text fields ──────────────────────────────────────────────────────────────────────────────
 
 /// A one-line text field: click it to type, then Enter, Escape, Tab or a click elsewhere to
@@ -1073,6 +1137,7 @@ pub(super) fn plugin(app: &mut App) {
                 refresh_progress,
                 show_tooltips,
                 show_fields,
+                scroll_areas,
             ),
         );
     if crate::webenv::var("WOW_UI_KIT").is_some_and(|v| v != "0") {
