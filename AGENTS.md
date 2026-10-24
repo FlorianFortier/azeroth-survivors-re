@@ -17,6 +17,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-app/src/survivors/data.rs` | the game's tables and balance curves (classes, abilities, passives, zones, waves) | ours |
 | `crates/benilla-*` | the client: formats, world, UI, protocol, app | upstream's, plus our `#[cfg]`-gated carries |
 | `crates/benilla-app/src/webbridge/` | the JavaScript bridge, wasm side | wenilla's |
+| `crates/benilla-app/src/survivors/profile.rs` | the saved profile (`benilla-config/survivors-profile.toml`, `localStorage` on the web): pick, run records, and the meta-progression as it lands | ours |
 | `crates/benilla-app/src/survivors/net/` | multiplayer, game side: socket, host stream, guest copy, lobby screen | ours |
 | `crates/survivors-net` | multiplayer protocol, lobby settings, the lobby hub's state machine. No I/O, no deps | ours |
 | `crates/survivors-server` | the lobby server (`make lobby`); its router is mounted by `wenilla-host` at `/lobby` | ours |
@@ -84,6 +85,9 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   builds the host's units in `net/client.rs` and moves only its own hero. Anything that changes
   the run goes through the simulation (`HeroState`), never straight into `Run`, which is only the
   local hero's view. Visuals go through `units::Fx`, which the host also logs for its guests.
+- **The profile only grows.** A new profile field takes `#[serde(default)]`, so every older
+  profile keeps loading; renaming or changing a field's meaning bumps `PROFILE_VERSION`. Classes,
+  zones and items are stored by name, never by table index.
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
 

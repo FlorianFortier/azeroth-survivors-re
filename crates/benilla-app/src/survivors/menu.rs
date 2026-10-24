@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::ui_render::ui_material::MaterialNode;
 
 use super::hud::{looks_for, rgb, start_run, HudFont, MenuRoot};
+use super::profile::{HeroPick, ProfileStore};
 use super::{data, Phase, Rng, Run, Selection};
 use crate::char_select::race_name;
 use crate::glue::art::{class_tc, race_tc, tc_rect, GlueArt, DIM, GOLD, NAME_EDGE};
@@ -58,27 +59,26 @@ pub(super) struct RaceFace(u8);
 #[derive(Component)]
 pub(super) struct PickName;
 
-/// The saved pick, `benilla-config/survivors-pick.txt` (`localStorage` on the page):
-/// `class race sex map`, restored at the menu so a reload keeps the last hero and zone.
-fn pick_path() -> Option<std::path::PathBuf> {
-    crate::local_state::home().map(|h| h.join("survivors-pick.txt"))
-}
-
-fn save_pick(sel: &Selection) {
+/// The pick goes on the profile ([`super::profile`]), so a reload keeps the last hero and zone.
+fn save_pick(sel: &Selection, store: &mut ProfileStore) {
     let (Some(class), Some(&(_, race, sex))) = (sel.class, sel.look.and_then(|i| sel.looks.get(i)))
     else {
         return;
     };
-    if let Some(path) = pick_path() {
-        let _ =
-            crate::local_state::write_atomic(&path, &format!("{class} {race} {sex} {}", sel.map));
-    }
+    let hero = HeroPick {
+        class: data::CLASSES[class].name.to_string(),
+        race,
+        sex,
+        zone: sel.map_def().name.to_string(),
+    };
+    store.edit(|p| p.hero = hero);
 }
 
-/// Restore the saved pick once the creature data can resolve its looks; a stale or missing file
-/// leaves the default.
+/// Restore the profile's pick once the creature data can resolve its looks; a class or zone the
+/// tables no longer have leaves the default.
 pub(super) fn restore_pick(
     creatures: Option<Res<crate::entities::Creatures>>,
+    store: Res<ProfileStore>,
     mut selection: ResMut<Selection>,
     mut done: Local<bool>,
 ) {
@@ -89,24 +89,16 @@ pub(super) fn restore_pick(
         return;
     };
     *done = true;
-    let Some(text) = pick_path().and_then(|p| crate::local_state::read_to_string(&p).ok()) else {
-        return;
-    };
-    let v: Vec<usize> = text
-        .split_whitespace()
-        .filter_map(|t| t.parse().ok())
-        .collect();
-    let [class, race, sex, map] = v[..] else {
-        return;
-    };
-    if map < data::MAPS.len() {
+    let hero = &store.profile.hero;
+    let (class, map) = super::profile::pick_indices(hero);
+    if let Some(map) = map {
         selection.map = map;
         selection.stage = map;
         selection.version += 1;
     }
-    if class < data::CLASSES.len() {
+    if let Some(class) = class {
         let all = all_looks(creatures);
-        if let Some(l) = find(&all[class], Some(race as u8), Some(sex as u8)) {
+        if let Some(l) = find(&all[class], Some(hero.race), Some(hero.sex)) {
             set(&mut selection, &all, class, l);
         }
     }
@@ -529,6 +521,7 @@ pub(super) fn menu_clicks(
     mut rng: ResMut<Rng>,
     mut next: ResMut<NextState<Phase>>,
     session: Res<super::Session>,
+    mut store: ResMut<ProfileStore>,
 ) {
     if *phase.get() != Phase::Menu {
         return;
@@ -605,7 +598,7 @@ pub(super) fn menu_clicks(
             }
         }
     }
-    save_pick(&selection);
+    save_pick(&selection, &mut store);
 }
 
 /// The screen's per-frame state: the locked highlights, hover labels, which races and classes
