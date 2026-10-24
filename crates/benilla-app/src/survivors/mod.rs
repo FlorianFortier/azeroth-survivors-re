@@ -23,6 +23,7 @@ mod minimap;
 mod mobility;
 mod names;
 mod net;
+mod outfit;
 mod profile;
 mod stats;
 mod sync;
@@ -214,6 +215,8 @@ pub(super) struct Selection {
     /// `(display, race, sex)`, one per race and sex the class's trainers come in.
     pub looks: Vec<(u32, u8, u8)>,
     pub look: Option<usize>,
+    /// The appearance dials picked for the look ([`outfit::Appearance`]).
+    pub appearance: outfit::Appearance,
     /// An index into [`data::MAPS`].
     pub map: usize,
     /// The battleground the world is standing in: the last one entered (or the saved pick at
@@ -259,6 +262,7 @@ pub(super) struct Seat {
     pub display: u32,
     pub race: u8,
     pub sex: u8,
+    pub appearance: outfit::Appearance,
 }
 
 /// The run's mode, its rules, and the table it is played at.

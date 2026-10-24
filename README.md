@@ -43,6 +43,9 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   (`WOW_UNLOCK_ALL=1` or `?unlock_all=1` opens them all). Your pick, every run's record and the
   zones won are kept in a saved profile (`benilla-config/survivors-profile.toml`, or the
   browser's storage).
+- **Your hero is a player character**: the race's own body with character creation's skin, face,
+  hair, hair colour and facial hair, dressed piece by piece in the class's starting outfit and its
+  weapons, which the Equipment panel lists.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.

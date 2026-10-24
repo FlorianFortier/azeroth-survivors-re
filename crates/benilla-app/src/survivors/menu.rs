@@ -71,6 +71,7 @@ pub(super) fn save_pick(sel: &Selection, store: &mut ProfileStore) {
         sex,
         zone: sel.map_def().name.to_string(),
         name: store.profile.hero.name.clone(),
+        appearance: sel.appearance,
     };
     store.edit(|p| p.hero = hero);
 }
@@ -91,6 +92,7 @@ pub(super) fn restore_pick(
     };
     *done = true;
     let hero = &store.profile.hero;
+    selection.appearance = hero.appearance;
     let (class, map) = super::profile::pick_indices(hero);
     if let Some(map) = map {
         selection.map = map;

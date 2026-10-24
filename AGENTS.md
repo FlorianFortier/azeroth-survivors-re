@@ -18,6 +18,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-*` | the client: formats, world, UI, protocol, app | upstream's, plus our `#[cfg]`-gated carries |
 | `crates/benilla-app/src/webbridge/` | the JavaScript bridge, wasm side | wenilla's |
 | `crates/benilla-app/src/survivors/character.rs` | the main screen (title, tabs, Character tab: class column, hero column, zone column, bottom bar), built from the kit on the same `Selection` and profile as the glue menu (`menu.rs`), which it replaces; `WOW_NEW_MENU=0` (`?new_menu=0`) brings the glue menu back | ours |
+| `crates/benilla-app/src/survivors/outfit.rs` | the hero as a player character: the race's body, the five appearance dials, and the pieces it wears, dressed from item entries the mode answers itself (`outfit::template`); `WOW_HERO_BODY=trainer` brings back the class trainer's look | ours |
 | `crates/benilla-app/src/survivors/names.rs` | hero names: a random one in each race's sound, and what a typed one may hold | ours |
 | `crates/benilla-app/src/survivors/kit.rs` | the menu's UI kit: panels, headings, tabs, icon and call-to-action buttons, stat tiles, progress bars, chips, tooltips; clicks read through `KitClicks`. `WOW_UI_KIT=1` (`?ui_kit=1`) shows a gallery over the menu | ours |
 | `crates/benilla-app/src/survivors/profile.rs` | the saved profile (`benilla-config/survivors-profile.toml`, `localStorage` on the web): pick, run records, and the meta-progression as it lands | ours |
@@ -104,6 +105,9 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   (`Run::final_slain`), never on the clock. A zone opens when the one before it has a win on the
   profile (`Profile::zone_open`). A zone renamed keeps its records through
   `profile::RENAMED_ZONES`.
+- **A hero is a player, dressed from its fields.** Its worn pieces are `PLAYER_VISIBLE_ITEM_*`
+  entries with the top bit set (`outfit::entry`); every machine answers their templates from the
+  entry alone (`outfit::queue_templates`), so a guest needs nothing but the host's fields.
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
 

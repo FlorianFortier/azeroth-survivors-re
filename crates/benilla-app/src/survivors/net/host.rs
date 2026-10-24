@@ -313,6 +313,7 @@ pub(super) fn stream(
         let kind = match net_entity.kind {
             benilla_protocol::EntityKind::GameObject => ObjectKind::GameObject,
             benilla_protocol::EntityKind::DynamicObject => ObjectKind::DynamicObject,
+            benilla_protocol::EntityKind::Player => ObjectKind::Player,
             _ => ObjectKind::Unit,
         };
         let now = motion_of(guid.0, tf, mv);

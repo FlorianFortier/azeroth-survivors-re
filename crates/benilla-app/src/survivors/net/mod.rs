@@ -164,6 +164,7 @@ pub(super) fn loadout(selection: &Selection) -> Loadout {
         display,
         race,
         sex,
+        appearance: selection.appearance,
     }
 }
 
@@ -378,6 +379,7 @@ fn start_session(
             display: m.loadout.display,
             race: m.loadout.race,
             sex: m.loadout.sex,
+            appearance: m.loadout.appearance,
         })
         .collect();
     session.in_lobby = true;
@@ -502,6 +504,7 @@ mod tests {
                         display: 1,
                         race: 1,
                         sex: 0,
+                        appearance: [0; 5],
                     },
                     Seat {
                         slot: 1,
@@ -510,6 +513,7 @@ mod tests {
                         display: 2,
                         race: 2,
                         sex: 1,
+                        appearance: [0; 5],
                     },
                 ],
                 ..Session::default()

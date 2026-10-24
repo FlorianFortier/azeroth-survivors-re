@@ -108,6 +108,7 @@ pub(super) fn begin_run(
     phase: Res<State<Phase>>,
     selection: Res<Selection>,
     store: Res<super::profile::ProfileStore>,
+    catalog: Option<Res<crate::entities::CharCreate>>,
     world: WorldPoint,
     local: Query<Entity, (With<Hero>, With<LocalHero>)>,
 ) {
@@ -145,10 +146,18 @@ pub(super) fn begin_run(
             }
             let class = &data::CLASSES[seat.class.min(data::CLASSES.len() - 1)];
             let serial = run.guid();
+            let body = super::outfit::body(
+                class,
+                seat.race,
+                seat.sex,
+                seat.appearance,
+                seat.display,
+                catalog.as_deref().map(|c| &c.0),
+            );
             let e = hero::spawn_hero(
                 &mut commands,
                 class,
-                seat.display,
+                &body,
                 seat.race,
                 seat.sex,
                 serial,

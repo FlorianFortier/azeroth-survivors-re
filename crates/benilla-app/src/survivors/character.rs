@@ -18,7 +18,7 @@ use super::data::{self, ClassDef};
 use super::hud::{self, TipLine};
 use super::kit::{self, theme, FieldDone, IconSource, KitClicks, KitFonts, TextField, Tooltip};
 use super::profile::ProfileStore;
-use super::{menu, names, Owned, Phase, Rng, Run, Selection, Vitals};
+use super::{menu, names, outfit, Owned, Phase, Rng, Run, Selection, Vitals};
 
 /// The new screen replaces the glue menu; `WOW_NEW_MENU=0` (`?new_menu=0`) brings the glue menu
 /// back.
@@ -40,6 +40,7 @@ pub(super) fn plugin(app: &mut App) {
             name_edits,
             refresh_class_column,
             refresh_hero_card,
+            refresh_equipment,
             refresh_zone_list,
             refresh_bottom_bar,
             adopt_name,
@@ -74,6 +75,10 @@ enum ScreenAction {
     Race(u8),
     Sex(u8),
     RandomName,
+    /// Turn one appearance dial on by one.
+    Dial(usize),
+    /// Roll every appearance dial.
+    RandomLook,
     Zone(usize),
     Enter,
     Coop,
@@ -101,6 +106,9 @@ struct HeroLine;
 struct HeroPickers;
 #[derive(Component)]
 struct RaceSection;
+/// The Equipment panel's slot row, filled with what the hero wears.
+#[derive(Component)]
+struct EquipmentRow;
 
 fn build_screen(
     mut commands: Commands,
@@ -251,6 +259,7 @@ fn clicks(
     clicks: Res<KitClicks>,
     buttons: Query<(Entity, &ScreenAction)>,
     creatures: Option<Res<crate::entities::Creatures>>,
+    catalog: Option<Res<crate::entities::CharCreate>>,
     session: Res<super::Session>,
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
@@ -278,7 +287,33 @@ fn clicks(
                 ScreenAction::Sex(s) => menu::pick_sex(&mut selection, &all, s),
                 _ => {}
             }
+            // The dials held inside the new race and sex's ranges.
+            if let Some((race, sex)) = menu::current_look(&selection) {
+                let n = outfit::counts(catalog.as_deref().map(|c| &c.0), race, sex);
+                selection.appearance = outfit::clamp(selection.appearance, n);
+            }
             menu::save_pick(&selection, &mut store);
+        }
+        ScreenAction::Dial(_) | ScreenAction::RandomLook => {
+            let Some((race, sex)) = menu::current_look(&selection) else {
+                return;
+            };
+            let n = outfit::counts(catalog.as_deref().map(|c| &c.0), race, sex);
+            let mut a = outfit::clamp(selection.appearance, n);
+            match action {
+                ScreenAction::Dial(i) if i < a.len() => a[i] = (a[i] + 1) % n[i].max(1),
+                ScreenAction::RandomLook => {
+                    for (d, &k) in a.iter_mut().zip(&n) {
+                        *d = (rng.f32() * f32::from(k.max(1))) as u8 % k.max(1);
+                    }
+                }
+                _ => {}
+            }
+            if a != selection.appearance {
+                selection.appearance = a;
+                selection.version += 1;
+                menu::save_pick(&selection, &mut store);
+            }
         }
         ScreenAction::RandomName => {
             let race = menu::current_look(&selection).map_or(1, |l| l.0);
@@ -442,20 +477,6 @@ fn spell_tip(
     hud::ability_tip(&owned, stats, spells)
 }
 
-/// The ten slots the hero wears, with the paper doll's empty-slot art.
-const EQUIPMENT: [(&str, &str); 10] = [
-    ("Head", "Head"),
-    ("Shoulders", "Shoulder"),
-    ("Chest", "Chest"),
-    ("Wrists", "Wrists"),
-    ("Hands", "Hands"),
-    ("Waist", "Waist"),
-    ("Legs", "Legs"),
-    ("Feet", "Feet"),
-    ("Main Hand", "MainHand"),
-    ("Off Hand", "SecondaryHand"),
-];
-
 /// The Alliance's races; the rest are the Horde's.
 fn alliance(race: u8) -> bool {
     matches!(race, 1 | 3 | 4 | 7)
@@ -550,27 +571,15 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                 ..default()
             },
             |p| {
-                p.spawn(Node {
-                    column_gap: Val::Px(4.0),
-                    justify_content: JustifyContent::Center,
-                    flex_wrap: FlexWrap::Wrap,
-                    ..default()
-                })
-                .with_children(|r| {
-                    for (label, art) in EQUIPMENT {
-                        kit::icon(
-                            r,
-                            IconSource::Texture(format!(
-                                "Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}"
-                            )),
-                            30.0,
-                            Some(Tooltip(vec![
-                                TipLine::new(label, Color::WHITE).header(),
-                                TipLine::new("Empty", theme::DIM),
-                            ])),
-                        );
-                    }
-                });
+                p.spawn((
+                    EquipmentRow,
+                    Node {
+                        column_gap: Val::Px(4.0),
+                        justify_content: JustifyContent::Center,
+                        flex_wrap: FlexWrap::Wrap,
+                        ..default()
+                    },
+                ));
                 p.spawn(Node {
                     column_gap: Val::Px(8.0),
                     justify_content: JustifyContent::Center,
@@ -629,6 +638,8 @@ struct HeroView {
     class: Option<usize>,
     look: Option<(u8, u8)>,
     looks_known: bool,
+    appearance: outfit::Appearance,
+    dials_known: bool,
 }
 
 /// The parts of the hero card that follow the pick; the name too, when the profile has none yet.
@@ -638,6 +649,7 @@ fn refresh_hero_card(
     fonts: Option<Res<KitFonts>>,
     selection: Res<Selection>,
     creatures: Option<Res<crate::entities::Creatures>>,
+    catalog: Option<Res<crate::entities::CharCreate>>,
     mut store: ResMut<ProfileStore>,
     mut rng: ResMut<Rng>,
     mut name: Query<&mut TextField, With<NameField>>,
@@ -667,6 +679,8 @@ fn refresh_hero_card(
         class: selection.class,
         look,
         looks_known: creatures.is_some(),
+        appearance: selection.appearance,
+        dials_known: catalog.is_some(),
     };
     if shown.as_ref() == Some(&view) {
         return;
@@ -792,6 +806,39 @@ fn refresh_hero_card(
             );
             r.commands().entity(b).insert(kit::Selected(s == sex));
         }
+        // The appearance dials, each a click on; a dial the race has one of is left out.
+        let counts = outfit::counts(catalog.as_deref().map(|c| &c.0), race, sex);
+        let a = outfit::clamp(selection.appearance, counts);
+        r.spawn(Node {
+            width: Val::Percent(100.0),
+            ..default()
+        });
+        for (i, label) in outfit::DIALS.iter().enumerate() {
+            if counts[i] <= 1 {
+                continue;
+            }
+            let b = kit::button(
+                r,
+                f,
+                &format!("{label} {}/{}", a[i] + 1, counts[i]),
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Dial(i),
+            );
+            r.commands()
+                .entity(b)
+                .insert(Tooltip::simple(*label, "Click for the next one."));
+        }
+        if counts.iter().any(|&n| n > 1) {
+            kit::button(
+                r,
+                f,
+                "Random look",
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::RandomLook,
+            );
+        }
     });
 
     commands.entity(race_section).with_children(|r| {
@@ -852,6 +899,85 @@ fn racial_tip(def: &data::RacialDef) -> Tooltip {
         TipLine::new(kind, theme::DIM),
         TipLine::new(def.text, theme::GREEN),
     ])
+}
+
+/// What the Equipment panel shows, to rebuild it only when that changes.
+#[derive(PartialEq, Clone, Debug)]
+struct EquipmentView {
+    class: Option<usize>,
+    look: Option<(u8, u8)>,
+    ready: (bool, bool),
+}
+
+/// The ten slots, each with what the hero wears there and its icon, or the paper doll's empty art.
+fn refresh_equipment(
+    mut commands: Commands,
+    selection: Res<Selection>,
+    catalog: Option<Res<crate::entities::CharCreate>>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
+    row: Query<Entity, With<EquipmentRow>>,
+    mut shown: Local<Option<EquipmentView>>,
+) {
+    let Ok(row) = row.single() else {
+        return;
+    };
+    let look = menu::current_look(&selection);
+    let view = EquipmentView {
+        class: selection.class,
+        look,
+        ready: (catalog.is_some(), displays.is_some()),
+    };
+    if shown.as_ref() == Some(&view) {
+        return;
+    }
+    *shown = Some(view);
+    let worn = match (selection.class_def(), look) {
+        (Some(class), Some((race, sex))) => {
+            match outfit::body(
+                class,
+                race,
+                sex,
+                selection.appearance,
+                0,
+                catalog.as_deref().map(|c| &c.0),
+            ) {
+                outfit::Body::Player { worn, .. } => worn,
+                outfit::Body::Trainer { .. } => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    };
+    commands.entity(row).despawn_related::<Children>();
+    commands.entity(row).with_children(|r| {
+        for (label, art, slot) in outfit::SHOWN {
+            let piece = worn.iter().find(|w| w.slot == slot);
+            let icon =
+                piece.and_then(|w| displays.as_deref()?.catalog.get(w.display)?.icon.clone());
+            let (source, tip) = match (piece, icon) {
+                (Some(_), Some(icon)) => (
+                    IconSource::Texture(icon),
+                    TipLine::new("Starting gear", theme::TEXT),
+                ),
+                (Some(_), None) => (
+                    IconSource::Texture(format!("Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}")),
+                    TipLine::new("Starting gear", theme::TEXT),
+                ),
+                (None, _) => (
+                    IconSource::Texture(format!("Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}")),
+                    TipLine::new("Empty", theme::DIM),
+                ),
+            };
+            kit::icon(
+                r,
+                source,
+                30.0,
+                Some(Tooltip(vec![
+                    TipLine::new(label, Color::WHITE).header(),
+                    tip,
+                ])),
+            );
+        }
+    });
 }
 
 /// Minutes and seconds, "2:15".
@@ -947,7 +1073,12 @@ fn refresh_zone_list(
                 ));
                 if !open {
                     let hint = data::unlock_hint(i).unwrap_or_default();
-                    b.spawn(kit::text(&f.body, format!("Locked · {hint}"), 11.0, theme::RED));
+                    b.spawn(kit::text(
+                        &f.body,
+                        format!("Locked · {hint}"),
+                        11.0,
+                        theme::RED,
+                    ));
                     return;
                 }
                 let mut sub = map.zone.to_string();
