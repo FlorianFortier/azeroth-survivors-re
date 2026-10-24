@@ -1637,7 +1637,8 @@ const TIP_GREY: Color = Color::srgb(0.5, 0.5, 0.5);
 
 /// One tooltip line: the left text, an optional right-aligned one, the colour and font size
 /// (`GameTooltipHeaderText` 14, `GameTooltipText` 12).
-struct TipLine {
+#[derive(Clone)]
+pub(super) struct TipLine {
     left: String,
     right: Option<(String, Color)>,
     color: Color,
@@ -1645,7 +1646,7 @@ struct TipLine {
 }
 
 impl TipLine {
-    fn new(left: impl Into<String>, color: Color) -> Self {
+    pub(super) fn new(left: impl Into<String>, color: Color) -> Self {
         Self {
             left: left.into(),
             right: None,
@@ -1654,12 +1655,12 @@ impl TipLine {
         }
     }
 
-    fn right(mut self, text: impl Into<String>, color: Color) -> Self {
+    pub(super) fn right(mut self, text: impl Into<String>, color: Color) -> Self {
         self.right = Some((text.into(), color));
         self
     }
 
-    fn header(mut self) -> Self {
+    pub(super) fn header(mut self) -> Self {
         self.size = 14.0;
         self
     }
@@ -2034,7 +2035,7 @@ fn passive_tip(p: &PassiveDef, level: u8, stats: &Stats) -> Vec<TipLine> {
 
 /// The `GameTooltip` frame: `UI-Tooltip-Background` tiled under `UI-Tooltip-Border`, 16-unit edges
 /// and 5-unit insets, its lines 10 units in. Returns the frame and its line column.
-fn spawn_tooltip(
+pub(super) fn spawn_tooltip(
     commands: &mut Commands,
     assets: &mut benilla_assets::WorldAssets,
     images: &mut Assets<Image>,
@@ -2176,7 +2177,16 @@ pub(super) fn icon_tooltip(
     *shown = Some((tip, run.version));
     // Shown from the next frame, once the new lines have laid out.
     *vis = Visibility::Hidden;
-    let f = &font.0;
+    fill_tooltip(&mut commands, body, &font.0, lines);
+}
+
+/// Replace a tooltip body's lines: each a left text and, if it has one, a right-aligned one.
+pub(super) fn fill_tooltip(
+    commands: &mut Commands,
+    body: Entity,
+    f: &Handle<Font>,
+    lines: Vec<TipLine>,
+) {
     commands.entity(body).despawn_related::<Children>();
     commands.entity(body).with_children(|b| {
         for line in lines {

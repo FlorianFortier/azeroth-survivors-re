@@ -16,6 +16,7 @@ mod enemies;
 mod grade;
 mod hero;
 mod hud;
+mod kit;
 mod menu;
 mod minimap;
 mod mobility;
@@ -66,6 +67,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(bevy::ui_render::UiMaterialPlugin::<hud::SweepUiMaterial>::default())
             .add_plugins(net::plugin)
             .add_plugins(profile::plugin)
+            .add_plugins(kit::plugin)
             .add_systems(Startup, (hud::setup_hud, hero::setup_crosshair))
             .add_systems(Update, hero::daylight)
             .add_systems(
