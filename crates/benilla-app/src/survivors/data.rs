@@ -986,6 +986,308 @@ pub(crate) struct ProcDef {
     pub bonuses: &'static [Bonus],
 }
 
+/// One of a race's three racial traits: bonuses that hold all run, an effect that fires on its
+/// own, or both. `spell` names the vanilla racial's `Spell.dbc` row for icon and visual; the
+/// numbers are the mode's.
+pub(crate) struct RacialDef {
+    pub key: &'static str,
+    pub name: &'static str,
+    pub spell: u32,
+    /// What it does, as the main screen's tooltip reads it.
+    pub text: &'static str,
+    pub bonuses: &'static [Bonus],
+    pub proc: Option<&'static ProcDef>,
+}
+
+const fn racial(
+    key: &'static str,
+    name: &'static str,
+    spell: u32,
+    text: &'static str,
+    bonuses: &'static [Bonus],
+) -> RacialDef {
+    RacialDef {
+        key,
+        name,
+        spell,
+        text,
+        bonuses,
+        proc: None,
+    }
+}
+
+const fn racial_proc(
+    name: &'static str,
+    text: &'static str,
+    proc: &'static ProcDef,
+) -> RacialDef {
+    RacialDef {
+        key: proc.key,
+        name,
+        spell: proc.spell,
+        text,
+        bonuses: &[],
+        proc: Some(proc),
+    }
+}
+
+static BLOOD_FURY: ProcDef = ProcDef {
+    key: "blood_fury",
+    spell: 20572,
+    every: 40.0,
+    duration: 15.0,
+    bonuses: &[Bonus::flat(Stat::Might, 0.25)],
+};
+static STONEFORM: ProcDef = ProcDef {
+    key: "stoneform",
+    spell: 20594,
+    every: 45.0,
+    duration: 8.0,
+    bonuses: &[Bonus::flat(Stat::DamageReduction, 0.25)],
+};
+static SHADOWMELD: ProcDef = ProcDef {
+    key: "shadowmeld",
+    spell: 20580,
+    every: 40.0,
+    duration: 5.0,
+    bonuses: &[Bonus::flat(Stat::DamageReduction, 0.4)],
+};
+static WILL_OF_THE_FORSAKEN: ProcDef = ProcDef {
+    key: "will_of_the_forsaken",
+    spell: 7744,
+    every: 45.0,
+    duration: 5.0,
+    bonuses: &[Bonus::flat(Stat::DamageReduction, 0.5)],
+};
+static WAR_STOMP: ProcDef = ProcDef {
+    key: "war_stomp",
+    spell: 20549,
+    every: 30.0,
+    duration: 6.0,
+    bonuses: &[Bonus::flat(Stat::Armor, 6.0)],
+};
+static BERSERKING: ProcDef = ProcDef {
+    key: "berserking",
+    spell: 26297,
+    every: 35.0,
+    duration: 10.0,
+    bonuses: &[Bonus::flat(Stat::Haste, 0.3)],
+};
+
+/// The three racials of a race (`ChrRaces.dbc` id), after vanilla's own.
+pub(crate) fn racials(race: u8) -> &'static [RacialDef; 3] {
+    static HUMAN: [RacialDef; 3] = [
+        racial(
+            "diplomacy",
+            "Diplomacy",
+            20599,
+            "+5% gold",
+            &[Bonus::pct(Stat::Gold, 0.05)],
+        ),
+        racial(
+            "weapon_specialization",
+            "Sword and Mace Specialization",
+            20597,
+            "+4% damage",
+            &[Bonus::flat(Stat::Might, 0.04)],
+        ),
+        racial(
+            "the_human_spirit",
+            "The Human Spirit",
+            20598,
+            "+5% experience",
+            &[Bonus::flat(Stat::Growth, 0.05)],
+        ),
+    ];
+    static ORC: [RacialDef; 3] = [
+        racial_proc(
+            "Blood Fury",
+            "Every 40 sec, +25% damage for 15 sec",
+            &BLOOD_FURY,
+        ),
+        racial(
+            "hardiness",
+            "Hardiness",
+            20573,
+            "+2% damage reduction",
+            &[Bonus::flat(Stat::DamageReduction, 0.02)],
+        ),
+        racial(
+            "axe_specialization",
+            "Axe Specialization",
+            20574,
+            "+2% critical strike",
+            &[Bonus::flat(Stat::Crit, 0.02)],
+        ),
+    ];
+    static DWARF: [RacialDef; 3] = [
+        racial_proc(
+            "Stoneform",
+            "Every 45 sec, 25% less damage taken for 8 sec",
+            &STONEFORM,
+        ),
+        racial(
+            "treasure_finding",
+            "Treasure Finding",
+            2481,
+            "+5% gold",
+            &[Bonus::pct(Stat::Gold, 0.05)],
+        ),
+        racial(
+            "gun_specialization",
+            "Gun Specialization",
+            20595,
+            "+2% critical strike",
+            &[Bonus::flat(Stat::Crit, 0.02)],
+        ),
+    ];
+    static NIGHT_ELF: [RacialDef; 3] = [
+        racial_proc(
+            "Shadowmeld",
+            "Every 40 sec, 40% less damage taken for 5 sec",
+            &SHADOWMELD,
+        ),
+        racial(
+            "quickness",
+            "Quickness",
+            20582,
+            "+2% damage reduction",
+            &[Bonus::flat(Stat::DamageReduction, 0.02)],
+        ),
+        racial(
+            "wisp_spirit",
+            "Wisp Spirit",
+            20585,
+            "+5% movement speed",
+            &[Bonus::pct(Stat::Speed, 0.05)],
+        ),
+    ];
+    static UNDEAD: [RacialDef; 3] = [
+        racial_proc(
+            "Will of the Forsaken",
+            "Every 45 sec, 50% less damage taken for 5 sec",
+            &WILL_OF_THE_FORSAKEN,
+        ),
+        racial(
+            "cannibalize",
+            "Cannibalize",
+            20577,
+            "+1 health per second",
+            &[Bonus::flat(Stat::Regen, 1.0)],
+        ),
+        racial(
+            "shadow_resistance",
+            "Shadow Resistance",
+            20579,
+            "+2% damage reduction",
+            &[Bonus::flat(Stat::DamageReduction, 0.02)],
+        ),
+    ];
+    static TAUREN: [RacialDef; 3] = [
+        racial(
+            "endurance",
+            "Endurance",
+            20550,
+            "+5% max health",
+            &[Bonus::pct(Stat::MaxHp, 0.05)],
+        ),
+        racial_proc(
+            "War Stomp",
+            "Every 30 sec, +6 damage blocked per hit for 6 sec",
+            &WAR_STOMP,
+        ),
+        racial(
+            "cultivation",
+            "Cultivation",
+            20552,
+            "+8% pickup range",
+            &[Bonus::pct(Stat::Magnet, 0.08)],
+        ),
+    ];
+    static GNOME: [RacialDef; 3] = [
+        racial(
+            "expansive_mind",
+            "Expansive Mind",
+            20591,
+            "+5% experience",
+            &[Bonus::flat(Stat::Growth, 0.05)],
+        ),
+        racial(
+            "escape_artist",
+            "Escape Artist",
+            20589,
+            "+5% movement speed",
+            &[Bonus::pct(Stat::Speed, 0.05)],
+        ),
+        racial(
+            "engineering_specialization",
+            "Engineering Specialization",
+            20593,
+            "+3% area of effect",
+            &[Bonus::flat(Stat::Area, 0.03)],
+        ),
+    ];
+    static TROLL: [RacialDef; 3] = [
+        racial_proc(
+            "Berserking",
+            "Every 35 sec, cooldowns recover 30% faster for 10 sec",
+            &BERSERKING,
+        ),
+        racial(
+            "regeneration",
+            "Regeneration",
+            20555,
+            "+1.5 health per second",
+            &[Bonus::flat(Stat::Regen, 1.5)],
+        ),
+        racial(
+            "throwing_specialization",
+            "Throwing Specialization",
+            20558,
+            "+3% critical strike",
+            &[Bonus::flat(Stat::Crit, 0.03)],
+        ),
+    ];
+    match race {
+        2 => &ORC,
+        3 => &DWARF,
+        4 => &NIGHT_ELF,
+        5 => &UNDEAD,
+        6 => &TAUREN,
+        7 => &GNOME,
+        8 => &TROLL,
+        _ => &HUMAN,
+    }
+}
+
+/// What a race's racials bring into a run: the bonuses that hold all run, and the effects that
+/// fire on their own.
+pub(crate) fn racial_bonuses(race: u8) -> (Vec<Bonus>, Vec<&'static ProcDef>) {
+    let mut bonuses = Vec::new();
+    let mut procs = Vec::new();
+    for r in racials(race) {
+        bonuses.extend_from_slice(r.bonuses);
+        procs.extend(r.proc);
+    }
+    (bonuses, procs)
+}
+
+/// The classes (`ChrClasses.dbc` ids) a race could be in vanilla, for when the client's own
+/// table of looks is not loaded.
+pub(crate) fn race_classes(race: u8) -> &'static [u8] {
+    match race {
+        1 => &[1, 2, 4, 5, 8, 9],
+        2 => &[1, 3, 4, 7, 9],
+        3 => &[1, 2, 3, 4, 5],
+        4 => &[1, 3, 4, 5, 11],
+        5 => &[1, 4, 5, 8, 9],
+        6 => &[1, 3, 7, 11],
+        7 => &[1, 4, 8, 9],
+        8 => &[1, 3, 4, 5, 7, 8],
+        _ => &[],
+    }
+}
+
 /// The class's own head start: tanky classes tougher, cloth quicker.
 pub(crate) fn class_bonuses(class_id: u8) -> &'static [Bonus] {
     const TANKY: &[Bonus] = &[Bonus::flat(Stat::MaxHp, 40.0)];
@@ -2579,5 +2881,59 @@ mod tests {
         // The last boss lands before the bell, with time to fight it.
         let last = (VICTORY_SECS / BOSS_EVERY_SECS).floor() * BOSS_EVERY_SECS;
         assert!(last < VICTORY_SECS);
+    }
+
+    #[test]
+    fn every_race_has_three_distinct_racials() {
+        let mut keys = HashSet::new();
+        for race in 1..=8u8 {
+            let r = racials(race);
+            for def in r {
+                assert!(keys.insert(def.key), "racial key {} twice", def.key);
+                assert!(!def.name.is_empty() && !def.text.is_empty(), "{}", def.key);
+                assert!(def.spell != 0, "{} needs an icon", def.key);
+                assert!(
+                    !def.bonuses.is_empty() || def.proc.is_some(),
+                    "{} does nothing",
+                    def.key
+                );
+                if let Some(p) = def.proc {
+                    assert!(p.every > p.duration && p.duration > 0.0, "{}", p.key);
+                    assert!(!p.bonuses.is_empty(), "{}", p.key);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_troll_racials_read_as_the_screen_does() {
+        let r = racials(8);
+        let berserking = r[0].proc.expect("Berserking fires on its own");
+        assert_eq!((berserking.every, berserking.duration), (35.0, 10.0));
+        assert_eq!(r[1].bonuses, &[Bonus::flat(Stat::Regen, 1.5)]);
+        assert_eq!(r[2].bonuses, &[Bonus::flat(Stat::Crit, 0.03)]);
+    }
+
+    #[test]
+    fn every_race_has_classes_and_every_class_a_race() {
+        for race in 1..=8u8 {
+            let classes = race_classes(race);
+            assert!(classes.len() >= 4, "race {race}");
+            for id in classes {
+                assert!(CLASSES.iter().any(|c| c.id == *id), "race {race}: class {id}");
+            }
+        }
+        for c in CLASSES {
+            assert!(
+                (1..=8u8).any(|r| race_classes(r).contains(&c.id)),
+                "{} has no race",
+                c.name
+            );
+        }
+        // Vanilla's: no Orc paladin, no Tauren mage, Druids only for Night Elves and Tauren.
+        assert!(!race_classes(2).contains(&2));
+        assert!(!race_classes(6).contains(&8));
+        let druids: Vec<u8> = (1..=8).filter(|r| race_classes(*r).contains(&11)).collect();
+        assert_eq!(druids, [4, 6]);
     }
 }

@@ -121,9 +121,10 @@ pub(super) fn begin_run(
     let Ok(me) = local.single() else {
         return;
     };
-    // The local hero brings in what the profile has earned. A guest's hero starts bare on the
-    // host for now: carrying each player's bonuses over the wire is its own task.
-    let (meta, procs) = store.profile.run_bonuses();
+    // The local hero brings in what the profile has earned. A guest's hero gets its racials,
+    // which its race alone decides; the rest of a guest's profile crossing the wire is its own
+    // task.
+    let (meta, procs) = store.profile.run_bonuses(run.me.race);
     run.me = std::mem::take(&mut run.me).with_meta(meta, &procs);
     commands.entity(me).insert(HeroState {
         slot: session.slot,
@@ -155,7 +156,10 @@ pub(super) fn begin_run(
             );
             commands.entity(e).insert(HeroState {
                 slot: seat.slot,
-                v: Vitals::new(class, seat.race),
+                v: {
+                    let (meta, procs) = data::racial_bonuses(seat.race);
+                    Vitals::new(class, seat.race).with_meta(meta, &procs)
+                },
             });
         }
     }
