@@ -41,10 +41,10 @@ minutes. **No server, no login, no account** — fully offline and self-containe
 - **Level-up cards** that deal in, tilt toward the cursor and lift on hover. Their WoW item-quality
   colour says how strong a pick is, and each card lists exactly what changes, like
   `Damage 20 » 26` or `Targets 2 » 3`.
-- **A class movement spell on F** from level 5, aimed at the cursor: Blink, Charge, Sprint, Dash,
+- **A class movement spell on F** from level 5, aimed at the crosshair: Blink, Charge, Sprint, Dash,
   Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
-- **A camera you can free:** locked top-down by default with the hero facing the cursor. **C**
-  unlocks it to swing and tilt, and the wheel zooms from over the shoulder out to 70 yards.
+- **A third-person 3D view:** the camera hangs behind the hero, the mouse looks around and WASD
+  runs where you look. **C** switches to the classic top-down views, locked or free.
 - A light sharpen-and-colour pass over the picture (**G** toggles it).
 
 ## Play it
@@ -81,9 +81,9 @@ files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](do
 
 ## Controls
 
-See [CONTROLS.md](CONTROLS.md). The short version: **WASD** to move, **Space** to jump, **F**
-for your class's movement spell, the **mouse wheel** to zoom, **C** to unlock the camera, **Esc**
-to pause, **1/2/3** to pick a level-up card.
+See [CONTROLS.md](CONTROLS.md). The short version: the **mouse** to look, **WASD** to move,
+**Space** to jump, **F** for your class's movement spell, the **mouse wheel** to zoom, hold **Alt**
+to free the pointer, **C** to change the view, **Esc** to pause, **1/2/3** to pick a level-up card.
 
 ## The game data (not in this repo)
 

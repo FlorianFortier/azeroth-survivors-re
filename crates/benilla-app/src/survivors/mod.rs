@@ -62,15 +62,18 @@ impl Plugin for SurvivorsPlugin {
             .add_message::<enemies::Loot>()
             .add_plugins(bevy::ui_render::UiMaterialPlugin::<hud::SweepUiMaterial>::default())
             .add_plugins(net::plugin)
-            .add_systems(Startup, hud::setup_hud)
+            .add_systems(Startup, (hud::setup_hud, hero::setup_crosshair))
             .add_systems(Update, hero::daylight)
             .add_systems(
                 Update,
                 (
+                    hero::capture_cursor,
+                    hero::turn_camera,
                     hero::aim_cursor,
                     mobility::cast_mobility,
                     hero::drive_hero,
                     hero::place_camera,
+                    hero::show_crosshair,
                 )
                     .chain()
                     .in_set(WorldStage::Input),
