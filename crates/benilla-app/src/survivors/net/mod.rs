@@ -513,6 +513,7 @@ mod tests {
                         display: 2,
                         race: 2,
                         sex: 1,
+                        appearance: [0; 5],
                     },
                 ],
                 ..Session::default()
