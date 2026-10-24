@@ -63,6 +63,8 @@ pub(super) struct HeroPick {
     pub zone: String,
     /// The hero's name, as typed or rolled on the main screen; empty for none yet.
     pub name: String,
+    /// The difficulty picked under Run Options, by [`data::Difficulty::name`].
+    pub difficulty: String,
     /// The character-creation dials: skin, face, hair style, hair colour, facial hair.
     pub appearance: [u8; 5],
 }
@@ -77,6 +79,8 @@ pub(super) struct ZoneRecord {
     pub best_time: f32,
     pub best_level: u32,
     pub best_kills: u32,
+    /// The hardest [`data::DIFFICULTIES`] index won here (meaningful once `wins` is above 0).
+    pub best_difficulty: u8,
 }
 
 /// Every run, added up.
@@ -141,6 +145,8 @@ pub(super) struct RunResult {
     pub loot: Vec<String>,
     /// The gold the run earned.
     pub gold: u32,
+    /// The [`data::DIFFICULTIES`] index it was played at.
+    pub difficulty: u8,
 }
 
 impl Profile {
@@ -205,10 +211,31 @@ impl Profile {
         z.best_time = z.best_time.max(r.secs);
         z.best_level = z.best_level.max(r.level);
         z.best_kills = z.best_kills.max(r.kills);
+        if r.won {
+            z.best_difficulty = z.best_difficulty.max(r.difficulty);
+        }
         for name in &r.loot {
             *self.inventory.entry(name.clone()).or_default() += 1;
         }
         self.gold += u64::from(r.gold);
+    }
+
+    /// Whether a difficulty is open in a zone: Normal always, any other once the one below it has
+    /// been won there.
+    pub fn difficulty_open(&self, zone: &str, difficulty: usize) -> bool {
+        difficulty == 0
+            || (difficulty < data::DIFFICULTIES.len()
+                && self.zones.get(zone).is_some_and(|r| {
+                    r.wins > 0 && usize::from(r.best_difficulty) + 1 >= difficulty
+                }))
+    }
+
+    /// The hardest difficulty open in a zone.
+    pub fn hardest_open(&self, zone: &str) -> usize {
+        (0..data::DIFFICULTIES.len())
+            .rev()
+            .find(|&d| self.difficulty_open(zone, d))
+            .unwrap_or(0)
     }
 
     /// Train the next talent point with gold, if there is enough and a point left.
@@ -346,6 +373,7 @@ impl Profile {
                 zone: zone.name.to_string(),
                 name: String::new(),
                 appearance: [0; 5],
+                difficulty: String::new(),
             },
             ..Self::default()
         })
@@ -520,7 +548,14 @@ fn record_run(run: Res<Run>, selection: Res<Selection>, mut store: ResMut<Profil
         kills: run.kills,
         damage_done: run.damage_done,
         loot: run.loot.iter().map(|i| i.name.clone()).collect(),
-        gold: data::run_gold(run.kills, run.bosses, run.won, run.stats().gold),
+        gold: data::run_gold(
+            run.kills,
+            run.bosses,
+            run.won,
+            run.stats().gold
+                * data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward,
+        ),
+        difficulty: run.difficulty as u8,
     };
     store.edit(|p| p.record(&result));
     // A finished run is worth writing at once.
@@ -541,11 +576,30 @@ mod tests {
             damage_done: 1000.0,
             loot: Vec::new(),
             gold: 0,
+            difficulty: 0,
         }
     }
 
     fn warrior() -> &'static data::ClassDef {
         data::CLASSES.iter().find(|c| c.id == 1).unwrap()
+    }
+
+    #[test]
+    fn difficulties_open_one_win_at_a_time() {
+        let mut p = Profile::default();
+        assert!(p.difficulty_open("Elwynn Forest", 0));
+        assert!(!p.difficulty_open("Elwynn Forest", 1));
+        p.record(&result("Elwynn Forest", false, 9, 99));
+        assert_eq!(p.hardest_open("Elwynn Forest"), 0);
+        p.record(&result("Elwynn Forest", true, 20, 900));
+        assert_eq!(p.hardest_open("Elwynn Forest"), 1);
+        let mut heroic = result("Elwynn Forest", true, 25, 1200);
+        heroic.difficulty = 1;
+        p.record(&heroic);
+        assert_eq!(p.hardest_open("Elwynn Forest"), 2);
+        // Another zone opens nothing here, and nothing past the table.
+        assert_eq!(p.hardest_open("Duskwood"), 0);
+        assert!(!p.difficulty_open("Elwynn Forest", 3));
     }
 
     #[test]
@@ -648,6 +702,7 @@ mod tests {
             zone: "Elwynn Forest".into(),
             name: "Nirkashed".into(),
             appearance: [3, 1, 4, 1, 5],
+            difficulty: "Heroic".into(),
         };
         p.record(&result("Elwynn Forest", true, 12, 300));
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);

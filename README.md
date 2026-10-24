@@ -57,6 +57,9 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   points, up to vanilla's 51, shared by every class; the **Talents** tab lays out the class's
   three real trees from the client's `Talent.dbc` (names, icons, tiers, prerequisites), each
   talent giving a stat of its tree's theme per rank.
+- **Run Options**: Normal, Heroic and Mythic, each opened per zone by a win at the one below,
+  tougher and better paid. **R** rerolls the level-up cards (three a run), and both mouse buttons
+  run forward as in WoW.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.

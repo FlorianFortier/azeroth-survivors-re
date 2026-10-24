@@ -2578,6 +2578,54 @@ pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock
     out
 });
 
+/// Rerolls of the level-up cards a run starts with (R at the cards).
+pub(crate) const REROLLS_PER_RUN: u32 = 3;
+
+/// A solo run's difficulty, picked under Run Options: each opens a zone at a time, once the one
+/// below it has been won there.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Difficulty {
+    pub name: &'static str,
+    /// Multipliers on enemy health and damage.
+    pub health: f32,
+    pub damage: f32,
+    /// The multiplier on the run's gold.
+    pub reward: f32,
+}
+
+pub(crate) const DIFFICULTIES: [Difficulty; 3] = [
+    Difficulty {
+        name: "Normal",
+        health: 1.0,
+        damage: 1.0,
+        reward: 1.0,
+    },
+    Difficulty {
+        name: "Heroic",
+        health: 1.7,
+        damage: 1.5,
+        reward: 1.75,
+    },
+    Difficulty {
+        name: "Mythic",
+        health: 2.6,
+        damage: 2.1,
+        reward: 2.75,
+    },
+];
+
+impl Rules {
+    /// The solo rules at a difficulty ([`DIFFICULTIES`] index, held to the table).
+    pub fn solo_at(difficulty: usize) -> Self {
+        let d = DIFFICULTIES[difficulty.min(DIFFICULTIES.len() - 1)];
+        Self {
+            health: d.health,
+            damage: d.damage,
+            ..Self::SOLO
+        }
+    }
+}
+
 /// The gold a run earns: a coin for every eight kills, 25 for each boss reached, 100 for the win,
 /// all times the hero's gold multiplier ([`Stat::Gold`]).
 pub(crate) fn run_gold(kills: u32, bosses: u32, won: bool, gold: f32) -> u32 {
@@ -3345,5 +3393,16 @@ mod tests {
         assert_eq!(run_gold(0, 0, false, 1.0), 0);
         assert_eq!(run_gold(800, 5, true, 1.0), 100 + 125 + 100);
         assert_eq!(run_gold(80, 1, false, 1.5), 53);
+    }
+
+    #[test]
+    fn difficulties_harden_and_pay_more() {
+        assert_eq!(Rules::solo_at(0), Rules::SOLO);
+        for w in DIFFICULTIES.windows(2) {
+            assert!(w[1].health > w[0].health && w[1].damage > w[0].damage);
+            assert!(w[1].reward > w[0].reward);
+        }
+        assert_eq!(Rules::solo_at(99).health, DIFFICULTIES[2].health);
+        assert!(Rules::solo_at(1).hp_scale(0.0) > Rules::SOLO.hp_scale(0.0));
     }
 }

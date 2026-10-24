@@ -72,6 +72,9 @@ pub(super) fn save_pick(sel: &Selection, store: &mut ProfileStore) {
         zone: sel.map_def().name.to_string(),
         name: store.profile.hero.name.clone(),
         appearance: sel.appearance,
+        difficulty: data::DIFFICULTIES[sel.difficulty.min(data::DIFFICULTIES.len() - 1)]
+            .name
+            .to_string(),
     };
     store.edit(|p| p.hero = hero);
 }
@@ -93,6 +96,10 @@ pub(super) fn restore_pick(
     *done = true;
     let hero = &store.profile.hero;
     selection.appearance = hero.appearance;
+    selection.difficulty = data::DIFFICULTIES
+        .iter()
+        .position(|d| d.name == hero.difficulty)
+        .unwrap_or(0);
     let (class, map) = super::profile::pick_indices(hero);
     if let Some(map) = map {
         selection.map = map;
