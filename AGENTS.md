@@ -113,6 +113,8 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   `Vitals::loot` and onto the profile's `inventory` when the run ends, won or lost. What is
   `equipped` adds its bonuses through `Profile::run_bonuses` and its look through `outfit::body`,
   a display picked from `ItemDisplayInfo` by the icon's slot (`outfit::gear_worn`).
+  Every item ever found is in the collection (`Profile::collected`), which adds
+  `data::collection_bonus` (a `COLLECTION_SHARE` of its first bonus) to every run.
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
 

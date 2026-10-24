@@ -221,6 +221,35 @@ impl Profile {
             .collect()
     }
 
+    /// The items found at least once, in the campaign's order: the collection.
+    pub fn collected(&self) -> Vec<&'static data::ItemDef> {
+        data::ITEMS
+            .iter()
+            .filter(|i| self.inventory.get(&i.name).is_some_and(|n| *n > 0))
+            .collect()
+    }
+
+    /// What the collection gives every run.
+    pub fn collection_bonuses(&self) -> Vec<data::Bonus> {
+        self.collected()
+            .into_iter()
+            .map(data::collection_bonus)
+            .collect()
+    }
+
+    /// Wear `item` in its slot, if it is owned.
+    pub fn equip(&mut self, item: &data::ItemDef) {
+        if self.inventory.get(&item.name).is_some_and(|n| *n > 0) {
+            self.equipped
+                .insert(item.slot.name().to_string(), item.name.clone());
+        }
+    }
+
+    /// Take off what `slot` wears.
+    pub fn unequip(&mut self, slot: data::GearSlot) {
+        self.equipped.remove(slot.name());
+    }
+
     /// Wear the next item owned for `slot`, after the one worn now; past the last, wear nothing.
     pub fn equip_next(&mut self, slot: data::GearSlot) {
         let owned = self.owned_for(slot);
@@ -245,13 +274,14 @@ impl Profile {
 
     /// What the profile brings into a run for a hero of `race` (the hero actually spawned, which
     /// a lobby may have changed): the bonuses that hold all run and the effects that fire on
-    /// their own. The race's three racials and the gear worn; the collection and talents add
-    /// theirs here as they land.
+    /// their own. The race's three racials, the gear worn and the collection; talents add theirs
+    /// here as they land.
     pub fn run_bonuses(&self, race: u8) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
         let (mut bonuses, procs) = data::racial_bonuses(race);
         for item in self.gear() {
             bonuses.extend_from_slice(&item.bonuses);
         }
+        bonuses.extend(self.collection_bonuses());
         (bonuses, procs)
     }
 
@@ -497,7 +527,11 @@ mod tests {
         p.record(&r);
         assert_eq!(p.inventory[&helm.name], 2);
         assert!(p.gear().is_empty());
+        // Found, so collected: two items, two collection bonuses, worn or not.
+        assert_eq!(p.collected(), [helm, other]);
+        assert_eq!(p.collection_bonuses().len(), 2);
         let bare = p.run_bonuses(1).0.len();
+        assert_eq!(bare, data::racial_bonuses(1).0.len() + 2);
         // Cycling the slot: the first owned, the next, then nothing.
         p.equip_next(data::GearSlot::Head);
         assert_eq!(p.gear(), [helm]);
@@ -512,6 +546,18 @@ mod tests {
         // It survives the file.
         p.equip_next(data::GearSlot::Head);
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
+        // Wearing by name, and taking off.
+        p.equip(other);
+        assert_eq!(p.gear(), [other]);
+        p.unequip(data::GearSlot::Head);
+        assert!(p.gear().is_empty());
+        let boots = data::ITEMS
+            .iter()
+            .find(|i| i.slot == data::GearSlot::Feet)
+            .unwrap();
+        p.equip(boots);
+        assert!(p.gear().is_empty(), "not owned, not worn");
+        p.equip(helm);
         // A name worn but no longer in the tables is left off.
         p.equipped.insert("Legs".into(), "Thunderfury".into());
         assert_eq!(p.gear(), [helm]);
