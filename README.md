@@ -37,7 +37,8 @@ minutes. **No server, no login, no account** — fully offline and self-containe
 - **A character-create pick screen** built from the client's own glue art: eight races, both
   genders, every class the race can be, and **sixteen zones**, from the starting zones to
   Naxxramas and the Gates of Ahn'Qiraj. Each zone fights with its own creatures and bosses, taken
-  from the zone's real spawns. Your pick is remembered across reloads.
+  from the zone's real spawns. Your pick and every run's record are kept in a saved profile
+  (`benilla-config/survivors-profile.toml`, or the browser's storage).
 - **Level-up cards** that deal in, tilt toward the cursor and lift on hover. Their WoW item-quality
   colour says how strong a pick is, and each card lists exactly what changes, like
   `Damage 20 » 26` or `Targets 2 » 3`.
