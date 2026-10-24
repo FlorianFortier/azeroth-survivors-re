@@ -179,6 +179,37 @@ pub(super) enum Choice {
     Heal,
 }
 
+/// The line under the cards, with the rerolls left.
+#[derive(Component)]
+pub(super) struct RerollHint;
+
+/// The line under the cards says how many rerolls are left.
+pub(super) fn reroll_hint(run: Res<Run>, mut hints: Query<&mut Text, With<RerollHint>>) {
+    let want = if run.rerolls > 0 {
+        format!(
+            "Click a card, or press 1, 2 or 3  ·  R rerolls the cards ({} left)",
+            run.rerolls
+        )
+    } else {
+        "Click a card, or press 1, 2 or 3  ·  no rerolls left".to_string()
+    };
+    for mut t in &mut hints {
+        if **t != want {
+            **t = want.clone();
+        }
+    }
+}
+
+/// Deal the cards again, spending a reroll; false when none is left.
+pub(super) fn reroll(run: &mut Run, rng: &mut Rng, offer: &mut Offer) -> bool {
+    if run.rerolls == 0 || offer.choices.is_empty() {
+        return false;
+    }
+    run.rerolls -= 1;
+    offer.choices = choices_for(run, rng);
+    true
+}
+
 /// The level-up cards on offer.
 #[derive(Resource, Default)]
 pub(super) struct Offer {
@@ -713,7 +744,10 @@ pub(super) fn setup_hud(
                     ..default()
                 },
             ));
-            root.spawn(centered(f, "Click a card, or press 1, 2 or 3", 14.0, DIM));
+            root.spawn((
+                RerollHint,
+                centered(f, "Click a card, or press 1, 2 or 3", 14.0, DIM),
+            ));
         });
 
     // --- Pause. ---
@@ -1724,7 +1758,8 @@ pub(super) fn refresh_results(
         "The horde was too much this time."
     }
     .to_string();
-    let gold = data::run_gold(run.kills, run.bosses, run.won, run.stats().gold);
+    let reward = data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward;
+    let gold = data::run_gold(run.kills, run.bosses, run.won, run.stats().gold * reward);
     if gold > 0 {
         stats_line.push_str(&format!("\nGold earned: {gold}"));
     }

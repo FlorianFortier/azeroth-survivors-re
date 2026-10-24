@@ -388,6 +388,7 @@ pub(super) fn aim_cursor(
 pub(super) fn drive_hero(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     phase: Res<State<Phase>>,
     session: Res<Session>,
     run: Res<Run>,
@@ -424,9 +425,22 @@ pub(super) fn drive_hero(
                 if keys.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]) {
                     dir.x += 1.0;
                 }
+                // Both mouse buttons held run forward, as in WoW: where the camera looks, or
+                // toward the cursor from above.
+                let both = mouse.pressed(MouseButton::Left) && mouse.pressed(MouseButton::Right);
+                if both && rig.mode != CamMode::Fixed && dir.z >= 0.0 {
+                    dir.z = -1.0;
+                }
                 // Chase and orbit move relative to the camera; the top-down view, to the world.
                 if rig.mode != CamMode::Fixed {
                     dir = rig.relative(dir);
+                } else if both && dir == Vec3::ZERO {
+                    if let Some(to) = aim.0 {
+                        let d = flat(to - tf.translation);
+                        if d.length() > 0.5 {
+                            dir = d.normalize();
+                        }
+                    }
                 }
             }
             let mut pos = tf.translation;

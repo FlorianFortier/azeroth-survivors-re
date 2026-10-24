@@ -126,6 +126,8 @@ enum ScreenAction {
     TrainPoint,
     /// Take back every point the class has spent.
     ResetTalents,
+    /// The next difficulty open in the zone picked.
+    RunOptions,
     Zone(usize),
     Enter,
     Coop,
@@ -387,6 +389,14 @@ fn clicks(
             }
         }
         ScreenAction::Armory => page.0 = ARMORY,
+        ScreenAction::RunOptions => {
+            let zone = selection.map_def().name;
+            let open = store.profile.hardest_open(zone);
+            let now = selection.difficulty.min(open);
+            selection.difficulty = if now >= open { 0 } else { now + 1 };
+            selection.version += 1;
+            menu::save_pick(&selection, &mut store);
+        }
         ScreenAction::TrainPoint => {
             store.edit(|p| {
                 p.train_point();
@@ -1887,13 +1897,15 @@ fn refresh_bottom_bar(
     session: Res<super::Session>,
     store: Res<ProfileStore>,
     bar: Query<Entity, With<BottomBar>>,
-    mut shown: Local<Option<(usize, bool, bool)>>,
+    mut shown: Local<Option<(usize, bool, bool, usize, usize)>>,
 ) {
     let (Some(fonts), Ok(bar)) = (fonts, bar.single()) else {
         return;
     };
     let open = store.profile.zone_open(selection.map);
-    let view = (selection.map, session.in_lobby, open);
+    let hardest = store.profile.hardest_open(selection.map_def().name);
+    let difficulty = selection.difficulty.min(hardest);
+    let view = (selection.map, session.in_lobby, open, difficulty, hardest);
     if *shown == Some(view) {
         return;
     }
@@ -1904,17 +1916,53 @@ fn refresh_bottom_bar(
     let final_boss = timeline.last().map_or("", |t| t.1);
     commands.entity(bar).despawn_related::<Children>();
     commands.entity(bar).with_children(|r| {
+        let d = data::DIFFICULTIES[difficulty];
         let options = kit::button(
             r,
             f,
             "Run Options",
-            Some("Normal difficulty"),
+            Some(&format!("{} difficulty", d.name)),
             kit::ButtonLook::PLAIN,
-            (),
+            ScreenAction::RunOptions,
         );
+        let mut lines = vec![TipLine::new("Difficulty", Color::WHITE).header()];
+        for (i, x) in data::DIFFICULTIES.iter().enumerate() {
+            let (text, color) = if i <= hardest {
+                (
+                    format!(
+                        "{}: enemies ×{:.1} health, ×{:.1} damage, ×{:.2} gold",
+                        x.name, x.health, x.damage, x.reward
+                    ),
+                    if i == difficulty {
+                        theme::GOLD
+                    } else {
+                        theme::TEXT
+                    },
+                )
+            } else {
+                (
+                    format!(
+                        "{}: win {} on {} to open it",
+                        x.name,
+                        map.name,
+                        data::DIFFICULTIES[i - 1].name
+                    ),
+                    theme::DIM,
+                )
+            };
+            lines.push(TipLine::new(text, color));
+        }
+        lines.push(TipLine::new(
+            if session.in_lobby {
+                "A lobby plays by its host's rules."
+            } else {
+                "Click for the next one."
+            },
+            theme::DIM,
+        ));
         r.commands().entity(options).insert((
-            kit::Disabled(true),
-            Tooltip::simple("Run Options", "Difficulty and run modifiers arrive soon."),
+            kit::Disabled(session.in_lobby || hardest == 0),
+            Tooltip(lines),
         ));
         let sub = if open || session.in_lobby {
             format!(

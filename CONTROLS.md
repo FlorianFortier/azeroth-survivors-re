@@ -11,6 +11,7 @@ where you look. **C** switches to the classic top-down views.
 | Menu | **Co-op** (bottom right) | create or join a lobby — see [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |
 | Playing | **mouse** | look around; the hero turns with the view |
 | Playing | **W / S / A / D** or **arrow keys** | run where the camera looks, backpedal, strafe |
+| Playing | **both mouse buttons** held | run forward, as in WoW (toward the cursor in the top-down view) |
 | Playing | **Space** | jump |
 | Playing | **F** (from level 5) | your class's movement spell: Blink, Charge… aimed at the crosshair |
 | Playing | **mouse wheel** | zoom the camera in and out |
@@ -20,6 +21,8 @@ where you look. **C** switches to the classic top-down views.
 | Playing | **Esc** | pause (frees the pointer) |
 | Playing | — | abilities cast themselves (no aim) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
+| Level up | **R** | deal the cards again: three rerolls a run |
+| Menu | **Run Options** (bottom left) | the difficulty: Heroic opens once a zone is won on Normal, Mythic once won on Heroic |
 | Paused | **Esc** | resume |
 | Game over | **Enter** (or **Play again**) | back to the menu (or the lobby, in multiplayer) |
 | Any | minimap **+ / −** / minimize | minimap zoom / collapse |

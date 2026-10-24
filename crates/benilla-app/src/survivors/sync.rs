@@ -104,7 +104,7 @@ pub(super) fn apply_choice(v: &mut Vitals, choice: &WireChoice) -> bool {
 pub(super) fn begin_run(
     mut commands: Commands,
     mut run: ResMut<Run>,
-    session: Res<Session>,
+    mut session: ResMut<Session>,
     phase: Res<State<Phase>>,
     selection: Res<Selection>,
     store: Res<super::profile::ProfileStore>,
@@ -123,6 +123,13 @@ pub(super) fn begin_run(
     let Ok(me) = local.single() else {
         return;
     };
+    // Alone, the run is played at the difficulty picked, if the zone has opened it.
+    if session.mode == Mode::Solo {
+        let zone = selection.stage_def().name;
+        let d = selection.difficulty.min(store.profile.hardest_open(zone));
+        session.rules = data::Rules::solo_at(d);
+        run.difficulty = d;
+    }
     // The local hero brings in what the profile has earned. A guest's hero gets its racials,
     // which its race alone decides; the rest of a guest's profile crossing the wire is its own
     // task.

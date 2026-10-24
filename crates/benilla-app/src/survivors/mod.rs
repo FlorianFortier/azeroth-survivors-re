@@ -134,6 +134,8 @@ impl Plugin for SurvivorsPlugin {
                     menu::refresh_menu_ui.before(crate::glue::GlueVisuals),
                     cards::deal_cards,
                     cards::choose_card,
+                    cards::reroll_cards,
+                    hud::reroll_hint,
                     cards::animate_cards,
                     hud::refresh_hud,
                     hud::refresh_results,
@@ -218,6 +220,8 @@ pub(super) struct Selection {
     pub look: Option<usize>,
     /// The appearance dials picked for the look ([`outfit::Appearance`]).
     pub appearance: outfit::Appearance,
+    /// The difficulty picked under Run Options ([`data::DIFFICULTIES`] index).
+    pub difficulty: usize,
     /// An index into [`data::MAPS`].
     pub map: usize,
     /// The battleground the world is standing in: the last one entered (or the saved pick at
@@ -521,6 +525,11 @@ pub(super) struct Run {
     pub begun: bool,
     /// Multiplayer: still waiting for every player to load the zone. The clock holds.
     pub waiting: bool,
+    /// Rerolls of the level-up cards left this run.
+    pub rerolls: u32,
+    /// The [`data::DIFFICULTIES`] index the run is played at; Normal in a lobby, whose own rules
+    /// set its difficulty.
+    pub difficulty: usize,
 }
 
 impl Default for Run {
@@ -537,6 +546,8 @@ impl Default for Run {
             banner: None,
             begun: false,
             waiting: false,
+            rerolls: data::REROLLS_PER_RUN,
+            difficulty: 0,
         }
     }
 }

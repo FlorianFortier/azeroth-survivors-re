@@ -505,6 +505,21 @@ pub(super) fn animate_cards(
     }
 }
 
+/// R deals the cards again, while a reroll is left and no card is being picked.
+pub(super) fn reroll_cards(
+    phase: Res<State<Phase>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    pending: Res<PendingPick>,
+    mut run: ResMut<Run>,
+    mut rng: ResMut<Rng>,
+    mut offer: ResMut<Offer>,
+) {
+    if *phase.get() != Phase::LevelUp || pending.0.is_some() || !keys.just_pressed(KeyCode::KeyR) {
+        return;
+    }
+    hud::reroll(&mut run, &mut rng, &mut offer);
+}
+
 /// A click on a card, or 1/2/3: start its burst; the choice applies when it finishes.
 pub(super) fn choose_card(
     phase: Res<State<Phase>>,

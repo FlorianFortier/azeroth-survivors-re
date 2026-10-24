@@ -10,8 +10,8 @@ use bevy::input::ButtonState;
 use bevy::prelude::*;
 use survivors_net::protocol::{normalize_code, LobbyState, LobbyView, Up, CODE_LEN};
 use survivors_net::settings::{
-    clean_name, Difficulty, Settings, AMBUSH_EVERY_MAX, AMBUSH_EVERY_MIN, DURATION_MAX, DURATION_MIN,
-    MAX_LOBBY_NAME, MAX_PLAYERS, MAX_PLAYER_NAME, PERCENT_MAX, PERCENT_MIN,
+    clean_name, Difficulty, Settings, AMBUSH_EVERY_MAX, AMBUSH_EVERY_MIN, DURATION_MAX,
+    DURATION_MIN, MAX_LOBBY_NAME, MAX_PLAYERS, MAX_PLAYER_NAME, PERCENT_MAX, PERCENT_MIN,
 };
 
 use super::{loadout, Net, Party, Status};
