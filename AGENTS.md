@@ -1,6 +1,6 @@
 # Working in this repository
 
-*Azeroth Survivors* is a local, offline build of Aethus' fan-made WoW roguelike, running on
+*Azeroth Survivors* is a local, LAN build of Aethus' fan-made WoW roguelike, running on
 [wenilla](https://github.com/Arnesen/wenilla) — the WebAssembly build of
 [samwhosung/benilla](https://github.com/samwhosung/benilla), a from-scratch WoW 1.12.1 client in
 Rust + Bevy. There is no server, no login and no realm: the game boots straight into the

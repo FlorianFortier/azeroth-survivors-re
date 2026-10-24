@@ -31,6 +31,19 @@ const GRAVITY: f32 = 19.291_105;
 
 /// Radians of orbit per raw mouse unit while right-dragging.
 const ORBIT_RATE: f32 = 0.008;
+/// Radians of turn per raw mouse unit in the chase view, before `WOW_MOUSE_SENS`.
+const CHASE_RATE: f32 = 0.0028;
+/// The chase view's elevation range: from a little under the shoulders looking up, to high above.
+const CHASE_PITCH_MIN: f32 = -0.35;
+const CHASE_PITCH_MAX: f32 = 1.25;
+const CHASE_PITCH: f32 = 0.32;
+/// The chase boom: its rest length, its zoom range, and the point it hangs from above the feet.
+const CHASE_DIST: f32 = 9.0;
+const CHASE_ZOOM_MIN: f32 = 3.0;
+const CHASE_ZOOM_MAX: f32 = 24.0;
+const CHASE_HEIGHT: f32 = 1.9;
+/// The top-down view's rest distance.
+const FIXED_DIST: f32 = 30.0;
 /// Elevation clamp (radians): ~10°..~83° above the horizon, so the camera never dives underground.
 const PITCH_MIN: f32 = 0.18;
 const PITCH_MAX: f32 = 1.45;
@@ -40,14 +53,27 @@ const FIXED_PITCH: f32 = 61.0 * std::f32::consts::PI / 180.0;
 const ZOOM_MIN: f32 = 1.5;
 const ZOOM_MAX: f32 = 70.0;
 
-/// Whether the camera is locked; `C` toggles it.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+/// The view; `C` cycles them.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(super) enum CamMode {
-    /// Locked top-down (58°), laptop-friendly — the original feel.
+    /// Third person behind the hero, the mouse turning the view and the hero with it, WASD
+    /// relative to where the camera looks: the 3D survivors feel.
     #[default]
+    Chase,
+    /// Locked top-down (61°), laptop-friendly: the hero faces the cursor.
     Fixed,
-    /// Unlocked: a mouse drag swings and tilts it around the hero.
+    /// Unlocked top-down: a mouse drag swings and tilts it around the hero.
     Orbit,
+}
+
+impl CamMode {
+    fn next(self) -> Self {
+        match self {
+            CamMode::Chase => CamMode::Fixed,
+            CamMode::Fixed => CamMode::Orbit,
+            CamMode::Orbit => CamMode::Chase,
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -64,13 +90,167 @@ pub(super) struct CamRig {
 impl Default for CamRig {
     fn default() -> Self {
         Self {
-            dist: 30.0,
+            dist: CHASE_DIST,
             orbit: 0.6,
             yaw: 0.0,
-            pitch: FIXED_PITCH,
-            mode: CamMode::Fixed,
+            pitch: CHASE_PITCH,
+            mode: CamMode::Chase,
         }
     }
+}
+
+impl CamRig {
+    /// Where the camera looks along the ground: the chase view's forward.
+    pub(super) fn forward(&self) -> Vec3 {
+        let (sy, cy) = self.yaw.sin_cos();
+        Vec3::new(-sy, 0.0, -cy)
+    }
+
+    /// WASD's `dir` (x right, z back) turned to the camera's heading.
+    fn relative(&self, dir: Vec3) -> Vec3 {
+        let (sy, cy) = self.yaw.sin_cos();
+        Vec3::new(dir.x * cy + dir.z * sy, 0.0, dir.z * cy - dir.x * sy)
+    }
+
+    /// Switch to `mode` at its rest framing; the chase keeps the heading, so the view does not spin.
+    fn switch(&mut self, mode: CamMode) {
+        self.mode = mode;
+        match mode {
+            CamMode::Chase => {
+                self.pitch = CHASE_PITCH;
+                self.dist = CHASE_DIST;
+            }
+            CamMode::Fixed => {
+                self.yaw = 0.0;
+                self.pitch = FIXED_PITCH;
+                self.dist = FIXED_DIST;
+            }
+            CamMode::Orbit => {
+                self.pitch = self.pitch.clamp(PITCH_MIN, PITCH_MAX);
+                self.dist = FIXED_DIST;
+            }
+        }
+    }
+}
+
+/// The chase view holds the mouse: the cursor is hidden and kept in the window while a run is
+/// played, and given back for menus, cards, the pause screen, an unfocused window, or while Alt is
+/// held (to reach the minimap's buttons).
+pub(super) fn capture_cursor(
+    phase: Res<State<Phase>>,
+    run: Res<Run>,
+    rig: Res<CamRig>,
+    keys: Res<ButtonInput<KeyCode>>,
+    loading: Res<crate::loading_screen::LoadingScreen>,
+    mut windows: Query<
+        (&mut Window, &mut bevy::window::CursorOptions),
+        With<bevy::window::PrimaryWindow>,
+    >,
+    mut held: Local<bool>,
+) {
+    let Ok((mut window, mut cursor)) = windows.single_mut() else {
+        return;
+    };
+    let want = rig.mode == CamMode::Chase
+        && *phase.get() == Phase::Playing
+        && run.begun
+        && window.focused
+        && !loading.covering()
+        && !keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    if want == *held {
+        return;
+    }
+    *held = want;
+    // Written only on a change: a `Mut` every frame makes the windowing backend re-apply it.
+    if want {
+        // Windows confines rather than locks; raw mouse motion still turns the view at the edge.
+        cursor.grab_mode = if cfg!(windows) {
+            bevy::window::CursorGrabMode::Confined
+        } else {
+            bevy::window::CursorGrabMode::Locked
+        };
+        cursor.visible = false;
+    } else {
+        cursor.grab_mode = bevy::window::CursorGrabMode::None;
+        cursor.visible = true;
+        // Given back at the centre, where the crosshair was.
+        let center = Vec2::new(window.width(), window.height()) / 2.0;
+        window.set_cursor_position(Some(center));
+    }
+}
+
+/// The chase view's crosshair, at the centre of the screen.
+#[derive(Component)]
+pub(super) struct Crosshair;
+
+pub(super) fn setup_crosshair(mut commands: Commands) {
+    commands
+        .spawn((
+            Crosshair,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                display: Display::None,
+                ..default()
+            },
+            Pickable::IGNORE,
+            GlobalZIndex(390),
+            Visibility::Hidden,
+        ))
+        .with_children(|c| {
+            c.spawn((
+                Node {
+                    width: Val::Px(6.0),
+                    height: Val::Px(6.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::MAX,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(1.0, 0.9, 0.6, 0.9)),
+                BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.8)),
+                Pickable::IGNORE,
+            ));
+        });
+}
+
+pub(super) fn show_crosshair(
+    phase: Res<State<Phase>>,
+    rig: Res<CamRig>,
+    run: Res<Run>,
+    mut crosshair: Query<(&mut Visibility, &mut Node), With<Crosshair>>,
+) {
+    let on = rig.mode == CamMode::Chase
+        && matches!(phase.get(), Phase::Playing | Phase::LevelUp)
+        && run.begun
+        && run.dead_t.is_none();
+    for (mut v, mut n) in &mut crosshair {
+        let want = if on {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *v != want {
+            *v = want;
+        }
+        let display = if on { Display::Flex } else { Display::None };
+        if n.display != display {
+            n.display = display;
+        }
+    }
+}
+
+/// The mouse-turn multiplier, `WOW_MOUSE_SENS` (`?mouse_sens=` on the web), 1 by default.
+fn mouse_sens() -> f32 {
+    static SENS: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *SENS.get_or_init(|| {
+        crate::webenv::var("WOW_MOUSE_SENS")
+            .and_then(|v| v.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .map_or(1.0, |v| v.clamp(0.1, 10.0))
+    })
 }
 
 /// Where a battleground's runs start.
@@ -150,12 +330,18 @@ pub(super) fn aim_cursor(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cams: Query<(&Camera, &Transform), With<WorldCamera>>,
     hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
+    rig: Res<CamRig>,
     world: WorldPoint,
     mut aim: ResMut<AimPoint>,
 ) {
     let point = (|| {
-        let cursor = windows.single().ok()?.cursor_position()?;
         let (cam, tf) = cams.single().ok()?;
+        // The chase view aims where the crosshair is; the others where the pointer is.
+        let cursor = if rig.mode == CamMode::Chase {
+            cam.logical_viewport_size()? / 2.0
+        } else {
+            windows.single().ok()?.cursor_position()?
+        };
         let ray = cam
             .viewport_to_world(&GlobalTransform::from(*tf), cursor)
             .ok()?;
@@ -224,20 +410,25 @@ pub(super) fn drive_hero(
                 if keys.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]) {
                     dir.x += 1.0;
                 }
-                // In orbit mode WASD is camera-relative; in fixed mode it stays world-relative.
-                if rig.mode == CamMode::Orbit {
-                    let (sy, cy) = rig.yaw.sin_cos();
-                    dir = Vec3::new(dir.x * cy + dir.z * sy, 0.0, dir.z * cy - dir.x * sy);
+                // Chase and orbit move relative to the camera; the top-down view, to the world.
+                if rig.mode != CamMode::Fixed {
+                    dir = rig.relative(dir);
                 }
             }
             let mut pos = tf.translation;
-            // Locked, the hero faces the cursor and WASD moves him under it, so he backpedals and
-            // strafes as a player does; unlocked (or driven), he faces where he runs.
-            let face = (rig.mode == CamMode::Fixed && auto.is_none() && steering)
-                .then(|| aim.0.map(|a| flat(a - pos)))
-                .flatten()
-                .filter(|d| d.length() > 0.5)
-                .map(|d| d.normalize());
+            // The chase hero faces where the camera looks, and the top-down one the cursor, so
+            // WASD backpedals and strafes as a player does; orbiting (or driven), he faces where he
+            // runs.
+            let face = match rig.mode {
+                _ if auto.is_some() || !steering => None,
+                CamMode::Chase => Some(rig.forward()),
+                CamMode::Fixed => aim
+                    .0
+                    .map(|a| flat(a - pos))
+                    .filter(|d| d.length() > 0.5)
+                    .map(|d| d.normalize()),
+                CamMode::Orbit => None,
+            };
             if let Some(look) = face {
                 let target = Quat::from_rotation_y(yaw_toward(look));
                 tf.rotation = tf.rotation.slerp(target, (dt * 20.0).min(1.0));
@@ -315,44 +506,73 @@ pub(super) fn drive_hero(
     player.pos = focus;
 }
 
-/// A slow orbit at the menu; in play, top-down until `C` unlocks it to swing and tilt.
-pub(super) fn place_camera(
-    time: Res<Time<Real>>,
+/// The view's controls, before the hero moves: `C` cycles the views, the wheel zooms, and the
+/// mouse turns the chase view (while the cursor is held) or drags the orbit.
+pub(super) fn turn_camera(
     phase: Res<State<Phase>>,
     mut rig: ResMut<CamRig>,
     mut wheel: MessageReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     keys: Res<ButtonInput<KeyCode>>,
-    player: Res<crate::player::Player>,
-    world: WorldPoint,
-    hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
-    mut cams: Query<&mut Transform, With<WorldCamera>>,
+    windows: Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
 ) {
-    // `C` unlocks the camera to swing and tilt; locking it again snaps back to the top-down view,
-    // so world-relative WASD lines up with the screen again.
     // On the lobby screen C is a letter in a name.
     if *phase.get() != Phase::Lobby && keys.just_pressed(KeyCode::KeyC) {
-        rig.mode = match rig.mode {
-            CamMode::Fixed => CamMode::Orbit,
-            CamMode::Orbit => {
-                rig.yaw = 0.0;
-                rig.pitch = FIXED_PITCH;
-                CamMode::Fixed
-            }
-        };
+        let next = rig.mode.next();
+        rig.switch(next);
     }
-    // With no hero yet, the focus `drive_hero` grounded.
-    let focus = hero.single().map_or(player.pos, |t| t.translation);
-    // Multiplicative, so a notch moves as far by eye close in as far out; all the way down to an
-    // over-the-shoulder view.
+    // Multiplicative, so a notch moves as far by eye close in as far out.
+    let (zmin, zmax) = if rig.mode == CamMode::Chase {
+        (CHASE_ZOOM_MIN, CHASE_ZOOM_MAX)
+    } else {
+        (ZOOM_MIN, ZOOM_MAX)
+    };
     for w in wheel.read() {
         let notches = match w.unit {
             MouseScrollUnit::Line => w.y,
             MouseScrollUnit::Pixel => w.y * 0.02,
         };
-        rig.dist = (rig.dist * (1.0 - 0.12 * notches).clamp(0.5, 1.5)).clamp(ZOOM_MIN, ZOOM_MAX);
+        rig.dist = (rig.dist * (1.0 - 0.12 * notches).clamp(0.5, 1.5)).clamp(zmin, zmax);
     }
+    if matches!(phase.get(), Phase::Menu | Phase::Lobby) {
+        return;
+    }
+    match rig.mode {
+        CamMode::Chase => {
+            let held = windows
+                .single()
+                .is_ok_and(|c| !c.visible && c.grab_mode != bevy::window::CursorGrabMode::None);
+            if held && *phase.get() == Phase::Playing {
+                let rate = CHASE_RATE * mouse_sens();
+                rig.yaw -= motion.delta.x * rate;
+                rig.pitch =
+                    (rig.pitch + motion.delta.y * rate).clamp(CHASE_PITCH_MIN, CHASE_PITCH_MAX);
+            }
+        }
+        // Either mouse button drags the camera around the hero, as in WoW.
+        CamMode::Orbit => {
+            if mouse.any_pressed([MouseButton::Left, MouseButton::Right]) {
+                rig.yaw -= motion.delta.x * ORBIT_RATE;
+                rig.pitch = (rig.pitch + motion.delta.y * ORBIT_RATE).clamp(PITCH_MIN, PITCH_MAX);
+            }
+        }
+        CamMode::Fixed => {}
+    }
+}
+
+/// A slow orbit at the menu; in play, the view `C` picked, on the hero where it now stands.
+pub(super) fn place_camera(
+    time: Res<Time<Real>>,
+    phase: Res<State<Phase>>,
+    mut rig: ResMut<CamRig>,
+    player: Res<crate::player::Player>,
+    world: WorldPoint,
+    hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
+    mut cams: Query<&mut Transform, With<WorldCamera>>,
+) {
+    // With no hero yet, the focus `drive_hero` grounded.
+    let focus = hero.single().map_or(player.pos, |t| t.translation);
     let (eye, look) = if matches!(phase.get(), Phase::Menu | Phase::Lobby) {
         rig.orbit += time.delta_secs() * 0.2;
         let d = 7.0;
@@ -360,13 +580,9 @@ pub(super) fn place_camera(
             focus + Vec3::new(rig.orbit.sin() * d, 2.4, rig.orbit.cos() * d),
             focus + Vec3::Y * 1.1,
         )
+    } else if rig.mode == CamMode::Chase {
+        chase_eye(&rig, focus, |p| world.terrain_height_under(p))
     } else {
-        // Unlocked, either mouse button drags the camera around the hero, as in WoW.
-        if rig.mode == CamMode::Orbit && mouse.any_pressed([MouseButton::Left, MouseButton::Right])
-        {
-            rig.yaw -= motion.delta.x * ORBIT_RATE;
-            rig.pitch = (rig.pitch + motion.delta.y * ORBIT_RATE).clamp(PITCH_MIN, PITCH_MAX);
-        }
         let (sy, cy) = rig.yaw.sin_cos();
         let (sp, cp) = rig.pitch.sin_cos();
         let look = focus + Vec3::Y * 1.4;
@@ -381,6 +597,33 @@ pub(super) fn place_camera(
     for mut cam in &mut cams {
         *cam = placed;
     }
+}
+
+/// The chase camera's eye and the point it looks at: a boom behind and above the hero's shoulders,
+/// pulled in where a hill rises between them, and never under the ground.
+fn chase_eye(rig: &CamRig, focus: Vec3, ground: impl Fn(Vec3) -> Option<f32>) -> (Vec3, Vec3) {
+    let look = focus + Vec3::Y * CHASE_HEIGHT;
+    let (sy, cy) = rig.yaw.sin_cos();
+    let (sp, cp) = rig.pitch.sin_cos();
+    let back = Vec3::new(cp * sy, sp, cp * cy);
+    // Walk the boom outward; stop short of the first point under the terrain.
+    const STEPS: usize = 12;
+    let mut dist = rig.dist;
+    for i in 1..=STEPS {
+        let d = rig.dist * i as f32 / STEPS as f32;
+        let p = look + back * d;
+        if ground(p).is_some_and(|h| p.y < h + 0.4) {
+            dist = (rig.dist * (i - 1) as f32 / STEPS as f32).max(1.2);
+            break;
+        }
+    }
+    let mut eye = look + back * dist;
+    if let Some(h) = ground(eye) {
+        eye.y = eye.y.max(h + 0.5);
+    }
+    // Looking up from low, aim a little above the shoulders so the hero stays in frame.
+    let look = look + Vec3::Y * (-rig.pitch).max(0.0) * 2.0;
+    (eye, look)
 }
 
 /// Damage the hero takes from one blow, after immunity, armour and the shield; returns what got
@@ -575,4 +818,56 @@ fn gait(look: Vec3, dir: Vec3) -> u32 {
 
 pub(super) fn reach(hero: Vec3, other: Vec3) -> f32 {
     flat(other - hero).length()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_chase_view_sits_behind_and_looks_ahead() {
+        let rig = CamRig::default();
+        assert_eq!(rig.mode, CamMode::Chase);
+        let (eye, look) = chase_eye(&rig, Vec3::ZERO, |_| Some(0.0));
+        // Behind the hero (yaw 0 looks along -Z, so the camera is on +Z) and above.
+        assert!(eye.z > 0.0 && eye.y > 0.0);
+        let fwd = flat(look - eye).normalize();
+        assert!(fwd.distance(rig.forward()) < 1e-4);
+    }
+
+    #[test]
+    fn wasd_follows_the_camera_heading() {
+        let mut rig = CamRig::default();
+        rig.yaw = std::f32::consts::FRAC_PI_2;
+        // W runs where the camera looks; D runs to its right.
+        let w = rig.relative(Vec3::new(0.0, 0.0, -1.0));
+        assert!(w.distance(rig.forward()) < 1e-5);
+        let d = rig.relative(Vec3::new(1.0, 0.0, 0.0));
+        assert!(d.dot(rig.forward()).abs() < 1e-5);
+        assert!(rig.forward().cross(d).y < 0.0, "D is to the right");
+    }
+
+    #[test]
+    fn a_hill_behind_pulls_the_boom_in() {
+        let rig = CamRig::default();
+        // A wall of ground rising behind the hero, 3 yd back.
+        let hill = |p: Vec3| Some(if p.z > 3.0 { 50.0 } else { 0.0 });
+        let (eye, look) = chase_eye(&rig, Vec3::ZERO, hill);
+        assert!(eye.z <= 3.5, "the camera stays in front of the hill: {eye}");
+        assert!(eye.distance(look) < rig.dist);
+    }
+
+    #[test]
+    fn views_cycle_and_reset_their_framing() {
+        let mut rig = CamRig::default();
+        rig.yaw = 1.0;
+        rig.switch(rig.mode.next());
+        assert_eq!(rig.mode, CamMode::Fixed);
+        assert_eq!(rig.yaw, 0.0);
+        rig.switch(rig.mode.next());
+        assert_eq!(rig.mode, CamMode::Orbit);
+        rig.switch(rig.mode.next());
+        assert_eq!(rig.mode, CamMode::Chase);
+        assert_eq!(rig.pitch, CHASE_PITCH);
+    }
 }
