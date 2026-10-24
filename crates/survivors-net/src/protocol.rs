@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -26,6 +26,8 @@ pub struct Loadout {
     pub display: u32,
     pub race: u8,
     pub sex: u8,
+    /// The five character-creation dials: skin, face, hair style, hair colour, facial hair.
+    pub appearance: [u8; 5],
 }
 
 /// Who a relayed game message goes to.
@@ -223,6 +225,9 @@ impl Wire for Loadout {
             .u32(self.display)
             .u8(self.race)
             .u8(self.sex);
+        for d in self.appearance {
+            w.u8(d);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -230,6 +235,7 @@ impl Wire for Loadout {
             display: r.u32()?,
             race: r.u8()?,
             sex: r.u8()?,
+            appearance: [r.u8()?, r.u8()?, r.u8()?, r.u8()?, r.u8()?],
         })
     }
 }
@@ -513,6 +519,7 @@ mod tests {
             display: 1234,
             race: 2,
             sex: 1,
+            appearance: [1, 2, 3, 4, 5],
         }
     }
 

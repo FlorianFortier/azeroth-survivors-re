@@ -862,6 +862,7 @@ pub(super) fn setup_hud(
 }
 
 /// The menu's hero is the run's hero: respawned whenever the pick changes.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn menu_preview(
     mut commands: Commands,
     phase: Res<State<Phase>>,
@@ -870,7 +871,8 @@ pub(super) fn menu_preview(
     mut run: ResMut<Run>,
     heroes: Query<Entity, With<Hero>>,
     world: benilla_world::world_point::WorldPoint,
-    mut shown: Local<Option<(usize, u32, usize)>>,
+    catalog: Option<Res<crate::entities::CharCreate>>,
+    mut shown: Local<Option<(usize, u32, usize, super::outfit::Appearance, bool)>>,
 ) {
     // A guest's run hero is the host's to send: no preview once its run has begun.
     if !matches!(phase.get(), Phase::Menu | Phase::Lobby) || session.mode == super::Mode::Client {
@@ -879,7 +881,15 @@ pub(super) fn menu_preview(
     let want = selection
         .class
         .zip(selection.look.and_then(|i| selection.looks.get(i)).copied());
-    let key = want.map(|(c, l)| (c, l.0, selection.stage));
+    let key = want.map(|(c, l)| {
+        (
+            c,
+            l.0,
+            selection.stage,
+            selection.appearance,
+            catalog.is_some(),
+        )
+    });
     if key == *shown && (key.is_none() || !heroes.is_empty()) {
         return;
     }
@@ -895,15 +905,16 @@ pub(super) fn menu_preview(
         pos.y = h;
     }
     let serial = run.guid();
-    let e = hero::spawn_hero(
-        &mut commands,
-        &data::CLASSES[class],
-        display,
+    let class = &data::CLASSES[class];
+    let body = super::outfit::body(
+        class,
         race,
         sex,
-        serial,
-        pos,
+        selection.appearance,
+        display,
+        catalog.as_deref().map(|c| &c.0),
     );
+    let e = hero::spawn_hero(&mut commands, class, &body, race, sex, serial, pos);
     commands.entity(e).insert(super::LocalHero);
 }
 

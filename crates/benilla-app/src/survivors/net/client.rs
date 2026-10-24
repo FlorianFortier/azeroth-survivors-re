@@ -70,6 +70,7 @@ pub(super) struct Replica {
 fn object_type(kind: ObjectKind) -> ObjectType {
     match kind {
         ObjectKind::Unit => ObjectType::Unit,
+        ObjectKind::Player => ObjectType::Player,
         ObjectKind::GameObject => ObjectType::GameObject,
         ObjectKind::DynamicObject => ObjectType::DynamicObject,
     }
@@ -81,7 +82,15 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
         ObjectKind::Unit => benilla_protocol::EntityKind::Unit,
         ObjectKind::GameObject => benilla_protocol::EntityKind::GameObject,
         ObjectKind::DynamicObject => benilla_protocol::EntityKind::DynamicObject,
+        ObjectKind::Player => benilla_protocol::EntityKind::Player,
     };
+    // A player hero is dressed from its fields: its pieces' templates are answered here.
+    if s.kind == ObjectKind::Player {
+        crate::survivors::outfit::queue_templates(
+            commands,
+            crate::survivors::outfit::worn_entries(&s.fields),
+        );
+    }
     let mut ec = commands.spawn((
         Guid(s.guid),
         NetEntity {
@@ -94,7 +103,7 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
         Visibility::default(),
         RunEntity,
     ));
-    if s.kind == ObjectKind::Unit {
+    if matches!(s.kind, ObjectKind::Unit | ObjectKind::Player) {
         ec.insert((MovementState::default(), ScriptedFacing));
     }
     let copy = Replica { pos, yaw: s.yaw };

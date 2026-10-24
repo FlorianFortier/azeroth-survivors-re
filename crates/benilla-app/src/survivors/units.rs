@@ -112,6 +112,50 @@ pub(super) fn spawn_unit(commands: &mut Commands, spec: &UnitSpec, pos: Vec3, ya
         .id()
 }
 
+/// Spawn a player character: the race's body (`spec.display`), its appearance and worn items as
+/// extra fields (`PLAYER_BYTES`, `PLAYER_VISIBLE_ITEM_*`), dressed as the client dresses a player.
+/// `spec.weapons` is ignored: a player holds what it wears.
+pub(super) fn spawn_player(
+    commands: &mut Commands,
+    spec: &UnitSpec,
+    extra: &[(u16, u32)],
+    pos: Vec3,
+    yaw: f32,
+) -> Entity {
+    // A player's guid has no high part.
+    let guid = spec.serial;
+    let mut pairs: Vec<(u16, u32)> = vec![
+        (0, guid as u32),
+        (1, (guid >> 32) as u32),
+        // OBJECT | UNIT | PLAYER.
+        (2, 0x19),
+        (4, spec.scale.to_bits()),
+        (FIELD_HEALTH, 100),
+        (FIELD_MAX_HEALTH, 100),
+        (FIELD_LEVEL, spec.level),
+        (FIELD_FACTION, spec.faction),
+        (FIELD_BYTES_0, spec.bytes0),
+        (FIELD_BYTES_2, u32::from(spec.sheath)),
+    ];
+    pairs.extend_from_slice(extra);
+    commands
+        .spawn((
+            Guid(guid),
+            NetEntity {
+                kind: benilla_protocol::EntityKind::Player,
+                display_id: Some(spec.display),
+                scale: spec.scale,
+            },
+            ObjectStore(ObjectFields::from_pairs(&pairs)),
+            crate::creature_anim::MovementState::default(),
+            crate::net::ScriptedFacing,
+            Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(yaw)),
+            Visibility::default(),
+            RunEntity,
+        ))
+        .id()
+}
+
 /// Spawn a generic GameObject showing `GameObjectDisplayInfo` row `display`.
 pub(super) fn spawn_object(
     commands: &mut Commands,

@@ -63,6 +63,8 @@ pub(super) struct HeroPick {
     pub zone: String,
     /// The hero's name, as typed or rolled on the main screen; empty for none yet.
     pub name: String,
+    /// The character-creation dials: skin, face, hair style, hair colour, facial hair.
+    pub appearance: [u8; 5],
 }
 
 /// One zone's record.
@@ -222,6 +224,7 @@ impl Profile {
                 sex: u8::try_from(sex).ok()?,
                 zone: zone.name.to_string(),
                 name: String::new(),
+                appearance: [0; 5],
             },
             ..Self::default()
         })
@@ -443,6 +446,7 @@ mod tests {
             sex: 1,
             zone: "Elwynn Forest".into(),
             name: "Nirkashed".into(),
+            appearance: [3, 1, 4, 1, 5],
         };
         p.record(&result("Elwynn Forest", true, 12, 300));
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
@@ -452,6 +456,7 @@ mod tests {
     fn missing_fields_default_and_unknown_ones_are_skipped() {
         let p = Profile::parse("version = 1\n[hero]\nclass = \"Mage\"\n").unwrap();
         assert_eq!(p.hero.class, "Mage");
+        assert_eq!(p.hero.appearance, [0; 5]);
         assert_eq!(p.totals, Totals::default());
         // A field a newer game added does not stop an older one reading the rest.
         let p = Profile::parse("version = 1\ngold = 500\n[hero]\nclass = \"Rogue\"\n").unwrap();

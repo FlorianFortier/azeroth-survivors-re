@@ -29,6 +29,8 @@ pub enum ObjectKind {
     Unit,
     GameObject,
     DynamicObject,
+    /// A hero drawn as a player character, dressed from its fields.
+    Player,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -271,6 +273,7 @@ impl Wire for ObjectKind {
             ObjectKind::Unit => 0,
             ObjectKind::GameObject => 1,
             ObjectKind::DynamicObject => 2,
+            ObjectKind::Player => 3,
         });
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -278,6 +281,7 @@ impl Wire for ObjectKind {
             0 => ObjectKind::Unit,
             1 => ObjectKind::GameObject,
             2 => ObjectKind::DynamicObject,
+            3 => ObjectKind::Player,
             t => return Err(WireError::BadTag(t)),
         })
     }

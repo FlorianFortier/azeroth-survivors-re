@@ -6,6 +6,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
 use super::data::{self, ClassDef};
+use super::outfit;
 use super::units::{self, flat, wow_to_bevy, yaw_toward, Fx, Marks, UnitSpec};
 use super::{controls_active, HeroState, LocalHero, Phase, Run, Selection, Session, Vitals};
 use crate::creature_anim::{move_flags, MovementState};
@@ -273,11 +274,12 @@ pub(super) fn follow_map(
     }
 }
 
-/// The hero in the class trainer's look, weapons drawn.
+/// The hero, weapons drawn: the race's own body in what it wears, or the class trainer's look
+/// ([`outfit::Body`]).
 pub(super) fn spawn_hero(
     commands: &mut Commands,
     class: &'static ClassDef,
-    display: u32,
+    body: &outfit::Body,
     race: u8,
     sex: u8,
     serial: u64,
@@ -287,21 +289,33 @@ pub(super) fn spawn_hero(
         | u32::from(class.id) << 8
         | u32::from(sex) << 16
         | u32::from(class.power) << 24;
-    let e = units::spawn_unit(
-        commands,
-        &UnitSpec {
-            serial,
-            display,
-            scale: 1.0,
-            level: 60,
-            faction: units::FACTION_FRIENDLY,
-            bytes0,
-            weapons: class.weapons,
-            sheath: class.sheath,
-        },
-        pos,
-        0.0,
-    );
+    let display = match body {
+        outfit::Body::Player { display, .. } | outfit::Body::Trainer { display } => *display,
+    };
+    let spec = UnitSpec {
+        serial,
+        display,
+        scale: 1.0,
+        level: 60,
+        faction: units::FACTION_FRIENDLY,
+        bytes0,
+        weapons: class.weapons,
+        sheath: class.sheath,
+    };
+    let e = match body {
+        outfit::Body::Player {
+            appearance, worn, ..
+        } => {
+            let mut extra: Vec<(u16, u32)> = outfit::appearance_fields(appearance).to_vec();
+            extra.extend(
+                worn.iter()
+                    .map(|w| (outfit::visible_field(w.slot), outfit::entry(w))),
+            );
+            outfit::queue_templates(commands, worn.iter().map(outfit::entry).collect());
+            units::spawn_player(commands, &spec, &extra, pos, 0.0)
+        }
+        outfit::Body::Trainer { .. } => units::spawn_unit(commands, &spec, pos, 0.0),
+    };
     commands
         .entity(e)
         .insert((Hero { vy: 0.0, air: 0.0 }, Marks::buffs()));
