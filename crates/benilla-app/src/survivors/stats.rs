@@ -259,10 +259,12 @@ mod tests {
         assert_eq!(timed.len(), 1);
         let s = Stats::from_bonuses(timed.iter().flat_map(|t| t.bonuses));
         assert!((s.haste - 0.3).abs() < 1e-6);
-        // Runs out after its duration, and fires again on the next interval.
+        // Runs out after its duration, and fires again on the next interval (9.9 s on, so 5.9 s
+        // after the 4 s; a little past it, clear of the float boundary).
         tick_effects(&mut procs, &mut timed, 4.0);
         assert!(timed.is_empty());
-        let fired = tick_effects(&mut procs, &mut timed, 5.9);
+        assert!(tick_effects(&mut procs, &mut timed, 5.8).is_empty());
+        let fired = tick_effects(&mut procs, &mut timed, 0.2);
         assert_eq!(fired.len(), 1);
     }
 
