@@ -18,7 +18,7 @@ make build                                  # once
 cargo run --release -p wenilla-host -- --www web/dist --data wow-data/Data --bind 0.0.0.0:8090
 ```
 
-Players open `http://<host-ip>:8090/`, pick a hero, click **Multiplayer**, and either
+Players open `http://<host-ip>:8090/`, pick a hero, click **Co-op**, and either
 **Create a lobby** or type the host's code and **Join**. The page's own origin is the lobby
 server, so nothing else needs configuring.
 
@@ -56,7 +56,7 @@ The player name defaults to "Adventurer"; set it in the lobby screen, or with `?
 | **Code** | Five characters from an alphabet without look-alikes (no `0/O`, `1/I/L`). Typing is forgiving: case, spaces and dashes are ignored. |
 | **Seats** | 1 to 4. The host is always seat 1 (★). The host can remove a player (×). |
 | **Ready** | Every player but the host readies up; the host's **Start the run** unlocks when all are ready. Changing a rule clears everyone's ready. |
-| **Change hero** | Back to the hero picker while keeping your seat; Enter (or Enter World) returns to the lobby with the new hero. |
+| **Change hero** | Back to the hero picker while keeping your seat; Enter, the big Enter button or Co-op return to the lobby with the new hero. |
 | **Leave** | A guest leaving frees the seat. The host leaving closes the lobby for everyone. |
 
 ### Rules the host sets

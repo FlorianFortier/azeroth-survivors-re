@@ -2,14 +2,15 @@
 //! the left, the hero in the middle, the zone on the right — over the slowly orbiting hero.
 //!
 //! It is built from [`super::kit`] and drives the same [`Selection`] and profile as the glue
-//! menu ([`super::menu`]). Until every column is in, it replaces that menu only under
-//! `WOW_NEW_MENU=1` (`?new_menu=1` on the web).
+//! menu ([`super::menu`]), which it replaces; `WOW_NEW_MENU=0` (`?new_menu=0` on the web) brings
+//! the glue menu back.
 //!
 //! Today: the class column (the class grid, the class's description, its starting health with
 //! everything the profile brings in, its starting spell, the zones open, and its spell pool with
 //! tooltips) and the hero column (faction, name with a race-flavoured Random, race and sex,
-//! an open stage where the live hero turns, the equipment slots and the race). The zone list
-//! comes next.
+//! an open stage where the live hero turns, the equipment slots and the race), the zone column
+//! (every zone, the picked one opened with its horde, its bosses and when they come, and the
+//! record of past runs there) and the bottom bar (run options, the way in, co-op).
 
 use bevy::prelude::*;
 
@@ -19,10 +20,11 @@ use super::kit::{self, theme, FieldDone, IconSource, KitClicks, KitFonts, TextFi
 use super::profile::ProfileStore;
 use super::{menu, names, Owned, Phase, Rng, Run, Selection, Vitals};
 
-/// The new screen replaces the glue menu.
+/// The new screen replaces the glue menu; `WOW_NEW_MENU=0` (`?new_menu=0`) brings the glue menu
+/// back.
 pub(super) fn enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| crate::webenv::var("WOW_NEW_MENU").is_some_and(|v| v != "0"))
+    *ON.get_or_init(|| crate::webenv::var("WOW_NEW_MENU").is_none_or(|v| v != "0"))
 }
 
 pub(super) fn plugin(app: &mut App) {
@@ -38,6 +40,8 @@ pub(super) fn plugin(app: &mut App) {
             name_edits,
             refresh_class_column,
             refresh_hero_card,
+            refresh_zone_list,
+            refresh_bottom_bar,
             adopt_name,
         )
             .chain()
@@ -70,8 +74,18 @@ enum ScreenAction {
     Race(u8),
     Sex(u8),
     RandomName,
+    Zone(usize),
     Enter,
+    Coop,
 }
+
+/// The zone list's rows, rebuilt when the zone picked changes.
+#[derive(Component)]
+struct ZoneList;
+
+/// The bottom bar, rebuilt when the zone or the lobby changes.
+#[derive(Component)]
+struct BottomBar;
 
 /// The hero's name field.
 #[derive(Component)]
@@ -133,6 +147,7 @@ fn build_screen(
             root.spawn(Node {
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                min_height: Val::Px(0.0),
                 column_gap: Val::Px(14.0),
                 justify_content: JustifyContent::SpaceBetween,
                 ..default()
@@ -163,28 +178,42 @@ fn build_screen(
                     f,
                     Some("Zone"),
                     Node {
-                        width: Val::Px(300.0),
+                        width: Val::Px(320.0),
+                        min_height: Val::Px(0.0),
                         ..default()
                     },
                     |p| {
-                        p.spawn(kit::text(
-                            &f.body,
-                            "The zone list comes with the next update; the zone last picked is used.",
-                            12.0,
-                            theme::DIM,
-                        ));
+                        kit::scroll_area(
+                            p,
+                            Node {
+                                flex_grow: 1.0,
+                                flex_basis: Val::Px(0.0),
+                                row_gap: Val::Px(5.0),
+                                ..default()
+                            },
+                            |list| {
+                                list.spawn((
+                                    ZoneList,
+                                    Node {
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(5.0),
+                                        ..default()
+                                    },
+                                ));
+                            },
+                        );
                     },
                 );
             });
-            // The call to action.
-            root.spawn(Node {
-                column_gap: Val::Px(12.0),
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|r| {
-                kit::big_button(r, f, "Enter World", "Start the run", ScreenAction::Enter);
-            });
+            // The bar under the columns: run options, the way in, co-op.
+            root.spawn((
+                BottomBar,
+                Node {
+                    column_gap: Val::Px(14.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ));
             root.spawn(kit::text(
                 &f.body,
                 "WASD to run · the mouse to look · 1 2 3 picks a card · Enter to play",
@@ -259,6 +288,14 @@ fn clicks(
                 field.value.clone_from(&name);
             }
         }
+        ScreenAction::Zone(i) => {
+            if selection.map != i {
+                selection.map = i;
+                selection.version += 1;
+                menu::save_pick(&selection, &mut store);
+            }
+        }
+        ScreenAction::Coop => next.set(Phase::Lobby),
         ScreenAction::Enter => {
             if session.in_lobby {
                 next.set(Phase::Lobby);
@@ -758,6 +795,198 @@ fn refresh_hero_card(
     });
 }
 
+/// Minutes and seconds, "2:15".
+fn mmss(secs: f32) -> String {
+    let s = secs.max(0.0).round() as u32;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// A zone's bosses and when each comes, under the solo rules: `(time, name)`.
+fn boss_timeline(zone: usize) -> Vec<(f32, &'static str)> {
+    let rules = data::Rules::SOLO;
+    let roster = data::roster(zone);
+    let n = rules.bosses_due(rules.duration);
+    (0..n)
+        .map(|k| {
+            let (def, _) = rules.boss(roster, k);
+            ((k + 1) as f32 * rules.boss_every, def.name)
+        })
+        .collect()
+}
+
+/// A zone's horde by name, weakest first, each once.
+fn enemy_names(zone: usize) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for e in &data::roster(zone).enemies {
+        if !out.contains(&e.name) {
+            out.push(e.name);
+        }
+    }
+    out
+}
+
+/// The zone rows: the picked one opened (where it is, the horde, the bosses and when they come,
+/// what winning means), the others as a name to pick.
+fn refresh_zone_list(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    store: Res<ProfileStore>,
+    list: Query<Entity, With<ZoneList>>,
+    mut shown: Local<Option<(usize, usize)>>,
+) {
+    let (Some(fonts), Ok(list)) = (fonts, list.single()) else {
+        return;
+    };
+    let view = (selection.map, store.profile.zones.len());
+    if *shown == Some(view) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    commands.entity(list).despawn_related::<Children>();
+    commands.entity(list).with_children(|l| {
+        for (i, map) in data::MAPS.iter().enumerate() {
+            let picked = i == selection.map;
+            let record = store.profile.zones.get(map.name);
+            let button = l
+                .spawn((
+                    Button,
+                    kit::ButtonLook::PLAIN,
+                    kit::Selected(picked),
+                    kit::Disabled(false),
+                    ScreenAction::Zone(i),
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        row_gap: Val::Px(3.0),
+                        border: UiRect::all(Val::Px(if picked { 2.0 } else { 1.0 })),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(theme::BUTTON),
+                    BorderColor::all(theme::BRASS),
+                    BoxShadow::new(
+                        Color::NONE,
+                        Val::Px(0.0),
+                        Val::Px(0.0),
+                        Val::Px(0.0),
+                        Val::Px(8.0),
+                    ),
+                ))
+                .id();
+            l.commands().entity(button).with_children(|b| {
+                b.spawn(kit::text(
+                    &f.title,
+                    map.name,
+                    if picked { 22.0 } else { 17.0 },
+                    if picked { theme::GOLD } else { theme::TEXT },
+                ));
+                let mut sub = map.zone.to_string();
+                if let Some(r) = record {
+                    if r.wins > 0 {
+                        sub.push_str(&format!(" · won {}×", r.wins));
+                    } else if r.runs > 0 {
+                        sub.push_str(&format!(" · best {}", mmss(r.best_time)));
+                    }
+                }
+                b.spawn(kit::text(&f.body, sub, 11.0, theme::DIM));
+                if !picked {
+                    return;
+                }
+                b.spawn(kit::text(&f.body, map.victory, 12.0, theme::TEXT));
+                let names = enemy_names(i);
+                let shown_names: Vec<&str> = names.iter().take(10).copied().collect();
+                let more = names.len().saturating_sub(shown_names.len());
+                let mut line = shown_names.join(", ");
+                if more > 0 {
+                    line.push_str(&format!(" and {more} more"));
+                }
+                b.spawn(kit::text(&f.body, line, 11.0, theme::DIM));
+                b.spawn(Node {
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: Val::Px(5.0),
+                    row_gap: Val::Px(4.0),
+                    ..default()
+                })
+                .with_children(|chips| {
+                    let timeline = boss_timeline(i);
+                    let last = timeline.len().saturating_sub(1);
+                    for (k, (t, name)) in timeline.iter().enumerate() {
+                        kit::chip(chips, f, &format!("{} · {name}", mmss(*t)), k == last);
+                    }
+                    kit::chip(
+                        chips,
+                        f,
+                        &format!("{} · Victory", mmss(data::Rules::SOLO.duration)),
+                        true,
+                    );
+                });
+            });
+        }
+    });
+}
+
+/// Run Options, the way into the zone picked, and co-op.
+fn refresh_bottom_bar(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    session: Res<super::Session>,
+    bar: Query<Entity, With<BottomBar>>,
+    mut shown: Local<Option<(usize, bool)>>,
+) {
+    let (Some(fonts), Ok(bar)) = (fonts, bar.single()) else {
+        return;
+    };
+    let view = (selection.map, session.in_lobby);
+    if *shown == Some(view) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    let map = selection.map_def();
+    let bosses = boss_timeline(selection.map).len();
+    commands.entity(bar).despawn_related::<Children>();
+    commands.entity(bar).with_children(|r| {
+        let options = kit::button(
+            r,
+            f,
+            "Run Options",
+            Some("Normal difficulty"),
+            kit::ButtonLook::PLAIN,
+            (),
+        );
+        r.commands().entity(options).insert((
+            kit::Disabled(true),
+            Tooltip::simple("Run Options", "Difficulty and run modifiers arrive soon."),
+        ));
+        kit::big_button(
+            r,
+            f,
+            &format!("Enter {}", map.name),
+            &format!(
+                "Survive {} · {bosses} bosses on the way",
+                mmss(data::Rules::SOLO.duration)
+            ),
+            ScreenAction::Enter,
+        );
+        let (title, sub) = if session.in_lobby {
+            ("Co-op", "Back to your lobby")
+        } else {
+            ("Co-op", "Play with friends")
+        };
+        kit::button(
+            r,
+            f,
+            title,
+            Some(sub),
+            kit::ButtonLook::PLAIN,
+            ScreenAction::Coop,
+        );
+    });
+}
+
 /// The hero's name is the player's name in a lobby, unless `WOW_NAME` says otherwise.
 fn adopt_name(store: Res<ProfileStore>, mut net: ResMut<super::net::Net>) {
     if !store.is_changed() || crate::webenv::var("WOW_NAME").is_some() || net.lobby.is_some() {
@@ -814,6 +1043,26 @@ mod tests {
                     && crate::glue::art::race_tc(r, 1).is_some()
             );
         }
+    }
+
+    #[test]
+    fn every_zone_shows_its_bosses_in_order_before_the_bell() {
+        for i in 0..data::MAPS.len() {
+            let t = boss_timeline(i);
+            assert!(!t.is_empty(), "{}", data::MAPS[i].name);
+            assert!(t.windows(2).all(|w| w[0].0 < w[1].0));
+            assert!(t.last().unwrap().0 < data::Rules::SOLO.duration);
+            assert!(!enemy_names(i).is_empty());
+        }
+        // The first boss comes at 2:15.
+        assert_eq!(mmss(boss_timeline(0)[0].0), "2:15");
+    }
+
+    #[test]
+    fn clocks_read_as_minutes() {
+        assert_eq!(mmss(0.0), "0:00");
+        assert_eq!(mmss(900.0), "15:00");
+        assert_eq!(mmss(135.4), "2:15");
     }
 
     #[test]

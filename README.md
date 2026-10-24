@@ -77,7 +77,7 @@ damage and crowd size one by one), the run's length, how often bosses come, shar
 revives, and whether the lobby is listed publicly.
 
 `make start` already serves a lobby beside the game: players on your network open your page,
-click **Multiplayer**, and create or join. To host lobbies on the internet without exposing game
+click **Co-op**, and create or join. To host lobbies on the internet without exposing game
 files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 
 ## Controls

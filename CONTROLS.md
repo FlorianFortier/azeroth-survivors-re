@@ -5,9 +5,10 @@ where you look. **C** switches to the classic top-down views.
 
 | When | Key / Input | Action |
 |---|---|---|
-| Menu | Click a race, gender, class and zone | make your pick (**Randomize** rolls one) |
-| Menu | **Enter** (or **Enter World**) | start the run; the world travels to the zone picked |
-| Menu | **Multiplayer** (bottom left) | create or join a lobby — see [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |
+| Menu | Click a class, a race, a sex and a zone | make your pick; **Random** rolls a name in the race's sound |
+| Menu | **mouse wheel** over the zones | scroll the zone list |
+| Menu | **Enter** (or **Enter <zone>**) | start the run; the world travels to the zone picked |
+| Menu | **Co-op** (bottom right) | create or join a lobby — see [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |
 | Playing | **mouse** | look around; the hero turns with the view |
 | Playing | **W / S / A / D** or **arrow keys** | run where the camera looks, backpedal, strafe |
 | Playing | **Space** | jump |

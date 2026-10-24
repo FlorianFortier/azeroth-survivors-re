@@ -384,8 +384,13 @@ fn show_roots(
     mut label: Query<&mut Text, With<OpenLabel>>,
 ) {
     let p = *phase.get();
+    // The main screen has its own Co-op button; the corner one is for the glue menu.
     for (mut v, mut n) in &mut roots.p0() {
-        show(&mut v, &mut n, p == Phase::Menu);
+        show(
+            &mut v,
+            &mut n,
+            p == Phase::Menu && !crate::survivors::character::enabled(),
+        );
     }
     for (mut v, mut n) in &mut roots.p1() {
         show(&mut v, &mut n, p == Phase::Lobby);
