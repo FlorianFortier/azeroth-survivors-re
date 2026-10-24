@@ -2685,6 +2685,47 @@ pub(crate) fn zone_items(zone: usize) -> Vec<&'static ItemDef> {
     ITEMS.iter().filter(|i| i.zone == zone).collect()
 }
 
+/// The odds one horde kill in a zone drops `item`: its share of [`HORDE_ITEM_ODDS`], the zone's
+/// rarer half half as likely, as [`horde_item`] rolls it.
+pub(crate) fn horde_chance(item: &ItemDef) -> f32 {
+    let weight = |i: &ItemDef| if i.rarity <= Rarity::Rare { 2.0 } else { 1.0 };
+    let table = zone_items(item.zone);
+    let total: f32 = table.iter().map(|i| weight(i)).sum();
+    weight(item) / total / HORDE_ITEM_ODDS as f32
+}
+
+/// The horde a run met in `zone` by `elapsed` under `rules`: every tier the waves have reached.
+pub(crate) fn met_horde(zone: usize, elapsed: f32, rules: &Rules) -> Vec<&'static str> {
+    let r = roster(zone);
+    let top = rules.wave_pool(elapsed, r.enemies.len())[2].min(r.enemies.len() - 1);
+    let mut out: Vec<&'static str> = Vec::new();
+    for e in &r.enemies[..=top] {
+        if !out.contains(&e.name) {
+            out.push(e.name);
+        }
+    }
+    out
+}
+
+/// Every creature the campaign holds, horde and bosses, each name once: the Codex's whole.
+pub(crate) fn all_creatures() -> (Vec<&'static str>, Vec<&'static str>) {
+    let (mut horde, mut bosses): (Vec<&'static str>, Vec<&'static str>) = (Vec::new(), Vec::new());
+    for z in 0..MAPS.len() {
+        let r = roster(z);
+        for e in &r.enemies {
+            if !horde.contains(&e.name) {
+                horde.push(e.name);
+            }
+        }
+        for b in &r.bosses {
+            if !bosses.contains(&b.name) {
+                bosses.push(b.name);
+            }
+        }
+    }
+    (horde, bosses)
+}
+
 /// The item a horde kill drops from `roll` (uniform in `[0, 1)`), if any: one in
 /// [`HORDE_ITEM_ODDS`], the zone's commoner items likelier.
 pub(crate) fn horde_item(zone: usize, roll: f32) -> Option<&'static ItemDef> {
@@ -3404,5 +3445,31 @@ mod tests {
         }
         assert_eq!(Rules::solo_at(99).health, DIFFICULTIES[2].health);
         assert!(Rules::solo_at(1).hp_scale(0.0) > Rules::SOLO.hp_scale(0.0));
+    }
+
+    #[test]
+    fn horde_chances_add_up_to_the_odds() {
+        for z in 0..MAPS.len() {
+            let sum: f32 = zone_items(z).iter().map(|i| horde_chance(i)).sum();
+            assert!(
+                (sum - 1.0 / HORDE_ITEM_ODDS as f32).abs() < 1e-7,
+                "{}",
+                MAPS[z].name
+            );
+        }
+        let uncommon = boss_item(0, 0).unwrap();
+        let epic = boss_item(0, 4).unwrap();
+        assert!((horde_chance(uncommon) - 2.0 * horde_chance(epic)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_run_meets_more_of_the_horde_as_it_goes() {
+        let early = met_horde(0, 0.0, &Rules::SOLO);
+        let late = met_horde(0, FINAL_BOSS_SECS, &Rules::SOLO);
+        assert!(early.len() >= 3);
+        assert!(late.len() > early.len());
+        assert_eq!(late.len(), roster(0).enemies.len());
+        let (horde, bosses) = all_creatures();
+        assert!(horde.len() > 100 && bosses.len() >= 55);
     }
 }

@@ -44,6 +44,8 @@ pub(super) fn plugin(app: &mut App) {
             show_pages,
             refresh_collection,
             refresh_talents,
+            refresh_drops,
+            refresh_codex,
             refresh_armory,
             refresh_zone_list,
             refresh_bottom_bar,
@@ -71,9 +73,11 @@ struct ScreenRoot;
 /// The pages the screen shows in its columns' place: the tabs built so far, and the Armory.
 const CHARACTER: usize = 0;
 const COLLECTION: usize = 1;
+const DROPS: usize = 2;
+const CODEX: usize = 3;
 const TALENTS: usize = 4;
 const ARMORY: usize = 100;
-const BUILT_TABS: [usize; 3] = [CHARACTER, COLLECTION, TALENTS];
+const BUILT_TABS: [usize; 5] = [CHARACTER, COLLECTION, DROPS, CODEX, TALENTS];
 
 /// The page shown.
 #[derive(Resource, Default)]
@@ -94,6 +98,10 @@ struct ArmoryBody;
 struct CollectionBar;
 #[derive(Component)]
 struct TalentsBody;
+#[derive(Component)]
+struct DropsBody;
+#[derive(Component)]
+struct CodexBody;
 
 /// The class column's body, rebuilt when the pick changes.
 #[derive(Component)]
@@ -204,7 +212,13 @@ fn build_screen(
                 }
             }
             // The Collection tab and the Armory, shown in the columns' place.
-            for (page, marker) in [(COLLECTION, 0u8), (ARMORY, 1), (TALENTS, 2)] {
+            for (page, marker) in [
+                (COLLECTION, 0u8),
+                (ARMORY, 1),
+                (TALENTS, 2),
+                (DROPS, 3),
+                (CODEX, 4),
+            ] {
                 root.spawn((
                     PageRoot(page),
                     Node {
@@ -222,7 +236,9 @@ fn build_screen(
                         Some(match marker {
                             0 => "Collection",
                             1 => "Armory",
-                            _ => "Talents",
+                            2 => "Talents",
+                            3 => "Drop Tables",
+                            _ => "Codex",
                         }),
                         Node {
                             width: Val::Percent(100.0),
@@ -246,7 +262,9 @@ fn build_screen(
                                     match marker {
                                         0 => e.insert(CollectionBody),
                                         1 => e.insert(ArmoryBody),
-                                        _ => e.insert(TalentsBody),
+                                        2 => e.insert(TalentsBody),
+                                        3 => e.insert(DropsBody),
+                                        _ => e.insert(CodexBody),
                                     };
                                 },
                             );
@@ -1741,6 +1759,304 @@ fn refresh_talents(
     });
 }
 
+/// "1 in 1,500": the odds of one kill, as a reader takes them.
+fn one_in(chance: f32) -> String {
+    if chance <= 0.0 {
+        return "never".into();
+    }
+    let n = (1.0 / chance).round() as u64;
+    let digits = n.to_string();
+    let mut grouped = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    format!("1 in {grouped}")
+}
+
+/// The Drop Tables tab: every zone's five pieces, who drops each and at what odds.
+#[allow(clippy::too_many_arguments)]
+fn refresh_drops(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    store: Res<ProfileStore>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
+    body: Query<Entity, With<DropsBody>>,
+    mut shown: Local<Option<(usize, usize, Option<usize>, bool)>>,
+) {
+    let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
+        return;
+    };
+    let collected = store.profile.collected();
+    let view = (
+        collected.len(),
+        open_zones(&store),
+        selection.class,
+        displays.is_some(),
+    );
+    if *shown == Some(view) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    let class = selection.class_def();
+    commands.entity(body).despawn_related::<Children>();
+    commands.entity(body).with_children(|p| {
+        p.spawn(kit::text(
+            &f.body,
+            format!(
+                "A boss always drops its own piece. Any other kill drops one of its zone's \
+                 pieces {} times in all, the rare half half as often.",
+                one_in(1.0 / data::HORDE_ITEM_ODDS as f32)
+            ),
+            12.0,
+            theme::DIM,
+        ));
+        for (z, map) in data::MAPS.iter().enumerate() {
+            let open = store.profile.zone_open(z);
+            kit::heading(p, f, map.name);
+            if !open {
+                if let Some(hint) = data::unlock_hint(z) {
+                    p.spawn(kit::text(
+                        &f.body,
+                        format!("Locked · {hint}"),
+                        11.0,
+                        theme::RED,
+                    ));
+                }
+            }
+            for item in data::zone_items(z) {
+                let have = collected.contains(&item);
+                let boss = data::roster(z).bosses[item.boss].name;
+                p.spawn(Node {
+                    column_gap: Val::Px(10.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                })
+                .with_children(|row| {
+                    let icon = displays
+                        .as_deref()
+                        .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
+                        .unwrap_or_else(|| "Interface\\Icons\\INV_Misc_QuestionMark".to_string());
+                    let e = kit::icon(row, IconSource::Texture(icon), 28.0, None);
+                    if !have {
+                        row.commands()
+                            .entity(e)
+                            .insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)));
+                    }
+                    row.spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        width: Val::Px(280.0),
+                        ..default()
+                    })
+                    .with_children(|c| {
+                        c.spawn(kit::text(
+                            &f.body,
+                            item.name.clone(),
+                            13.0,
+                            hud::rgb(item.rarity.color()),
+                        ));
+                        let bonuses: Vec<String> = item
+                            .bonuses
+                            .iter()
+                            .map(|b| format!("+{}", bonus_text(b)))
+                            .collect();
+                        c.spawn(kit::text(
+                            &f.body,
+                            format!("{} · {}", item.slot.name(), bonuses.join(" · ")),
+                            11.0,
+                            theme::DIM,
+                        ));
+                    });
+                    kit::chip(row, f, &format!("{boss}: always"), true);
+                    kit::chip(
+                        row,
+                        f,
+                        &format!("Horde: {}", one_in(data::horde_chance(item))),
+                        false,
+                    );
+                    if have {
+                        row.spawn(kit::text(&f.body, "Found", 11.0, theme::GREEN));
+                    }
+                });
+            }
+        }
+    });
+}
+
+/// The Codex: the horde, the bosses and the spells met in the runs, and the pieces found.
+#[allow(clippy::too_many_arguments)]
+fn refresh_codex(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    store: Res<ProfileStore>,
+    spells: Option<Res<crate::ui_action::Spells>>,
+    body: Query<Entity, With<CodexBody>>,
+    mut shown: Local<Option<(usize, usize, usize, usize, bool)>>,
+) {
+    let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
+        return;
+    };
+    let codex = &store.profile.codex;
+    let view = (
+        codex.horde.len(),
+        codex.bosses.len(),
+        codex.spells.len(),
+        store.profile.collected().len(),
+        spells.is_some(),
+    );
+    if *shown == Some(view) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    let spells = spells.as_deref();
+    let (horde, bosses) = data::all_creatures();
+    let stats = super::Stats::base();
+    let unseen = theme::DIM.with_alpha(0.6);
+    commands.entity(body).despawn_related::<Children>();
+    commands.entity(body).with_children(|p| {
+        let seen_of = |all: &[&str], set: &std::collections::BTreeSet<String>| {
+            all.iter().filter(|n| set.contains(**n)).count()
+        };
+        let spell_keys: Vec<&str> = data::ABILITIES
+            .iter()
+            .map(|a| a.key)
+            .chain(data::PASSIVES.iter().map(|p| p.key))
+            .collect();
+        p.spawn(Node {
+            column_gap: Val::Px(12.0),
+            ..default()
+        })
+        .with_children(|r| {
+            for (label, value, max) in [
+                ("Horde", seen_of(&horde, &codex.horde), horde.len()),
+                ("Bosses", seen_of(&bosses, &codex.bosses), bosses.len()),
+                (
+                    "Spells",
+                    seen_of(&spell_keys, &codex.spells),
+                    spell_keys.len(),
+                ),
+                ("Items", store.profile.collected().len(), data::ITEMS.len()),
+            ] {
+                r.spawn(Node {
+                    width: Val::Px(200.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    kit::progress_bar(
+                        c,
+                        f,
+                        label,
+                        kit::Progress {
+                            value: value as f32,
+                            max: max as f32,
+                        },
+                    );
+                });
+            }
+        });
+        kit::heading(p, f, "Bosses");
+        for (z, map) in data::MAPS.iter().enumerate() {
+            p.spawn(Node {
+                column_gap: Val::Px(6.0),
+                align_items: AlignItems::Center,
+                flex_wrap: FlexWrap::Wrap,
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    width: Val::Px(170.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.title, map.name, 14.0, theme::GOLD));
+                });
+                for (t, name) in boss_timeline(z) {
+                    let met = codex.bosses.contains(name);
+                    let label = if met {
+                        format!("{} · {name}", mmss(t))
+                    } else {
+                        format!("{} · ???", mmss(t))
+                    };
+                    kit::chip(row, f, &label, met);
+                }
+            });
+        }
+        kit::heading(p, f, "Horde");
+        for (z, map) in data::MAPS.iter().enumerate() {
+            let names = enemy_names(z);
+            let met: Vec<String> = names
+                .iter()
+                .map(|n| {
+                    if codex.horde.contains(*n) {
+                        n.to_string()
+                    } else {
+                        "???".to_string()
+                    }
+                })
+                .collect();
+            let count = names.iter().filter(|n| codex.horde.contains(**n)).count();
+            p.spawn(Node {
+                column_gap: Val::Px(6.0),
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    width: Val::Px(170.0),
+                    flex_shrink: 0.0,
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(
+                        &f.title,
+                        format!("{} ({count}/{})", map.name, names.len()),
+                        14.0,
+                        theme::GOLD,
+                    ));
+                });
+                row.spawn(kit::text(&f.body, met.join(", "), 11.0, theme::TEXT));
+            });
+        }
+        kit::heading(p, f, "Spells");
+        p.spawn(Node {
+            column_gap: Val::Px(4.0),
+            row_gap: Val::Px(4.0),
+            flex_wrap: FlexWrap::Wrap,
+            ..default()
+        })
+        .with_children(|g| {
+            for a in data::ABILITIES {
+                let met = codex.spells.contains(a.key);
+                let tip = if met {
+                    Tooltip(spell_tip(a, &stats, spells))
+                } else {
+                    Tooltip::simple("Not played yet", "Take it from a level-up card.")
+                };
+                let e = kit::icon(g, IconSource::Spell(a.spell), 30.0, Some(tip));
+                if !met {
+                    g.commands().entity(e).insert(BackgroundColor(unseen));
+                }
+            }
+            for ps in data::PASSIVES {
+                let met = codex.spells.contains(ps.key);
+                let tip = if met {
+                    Tooltip::simple(ps.name, format!("+{} per rank", bonus_text(&ps.bonus(1))))
+                } else {
+                    Tooltip::simple("Not played yet", "Take it from a level-up card.")
+                };
+                let e = kit::icon(g, IconSource::Spell(ps.spell), 30.0, Some(tip));
+                if !met {
+                    g.commands().entity(e).insert(BackgroundColor(unseen));
+                }
+            }
+        });
+    });
+}
+
 /// Minutes and seconds, "2:15".
 fn mmss(secs: f32) -> String {
     let s = secs.max(0.0).round() as u32;
@@ -2108,6 +2424,11 @@ mod tests {
         );
         assert!(BUILT_TABS.iter().all(|&t| t < TABS.len()));
         assert_eq!(TABS[TALENTS], "Talents");
+        assert_eq!(TABS[DROPS], "Drop Tables");
+        assert_eq!(TABS[CODEX], "Codex");
+        assert_eq!(one_in(1.0 / 600.0), "1 in 600");
+        assert_eq!(one_in(1.0 / 1500.0), "1 in 1,500");
+        assert_eq!(one_in(0.0), "never");
         assert!(!BUILT_TABS.contains(&ARMORY));
     }
 
