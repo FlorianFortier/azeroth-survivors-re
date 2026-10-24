@@ -201,6 +201,7 @@ pub(super) fn spawn_enemies(
     let due_bosses = rules.bosses_due(elapsed);
     while run.bosses < due_bosses {
         let (def, final_boss) = rules.boss(roster, run.bosses);
+        let slot = Some(run.bosses.min(u32::from(u8::MAX)) as u8);
         let hpos = anchor(&mut rng);
         let a = rng.range(0.0, std::f32::consts::TAU);
         let pos = ground(
@@ -215,7 +216,7 @@ pub(super) fn spawn_enemies(
             def,
             pos,
             hpos,
-            Some(run.bosses.min(u32::from(u8::MAX)) as u8),
+            slot,
             final_boss,
         );
         run.bosses += 1;
