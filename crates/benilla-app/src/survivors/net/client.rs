@@ -144,6 +144,9 @@ fn apply_me(run: &mut Run, v: WireVitals) {
     run.revive_t = v.revive_t;
     run.damage_done = v.damage_done;
     run.kills = v.kills;
+    if run.loot.len() != v.loot.len() {
+        run.loot = v.loot.iter().filter_map(|n| data::item(n)).collect();
+    }
     if ahead {
         // Only the cooldowns, on the abilities both sides know.
         for a in &v.abilities {

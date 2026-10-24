@@ -100,6 +100,10 @@ pub(super) struct Profile {
     pub totals: Totals,
     /// By [`data::MapDef::name`].
     pub zones: BTreeMap<String, ZoneRecord>,
+    /// Every item found, by [`data::ItemDef::name`], and how many times.
+    pub inventory: BTreeMap<String, u32>,
+    /// What the hero wears: item name by [`data::GearSlot::name`].
+    pub equipped: BTreeMap<String, String>,
 }
 
 impl Default for Profile {
@@ -109,6 +113,8 @@ impl Default for Profile {
             hero: HeroPick::default(),
             totals: Totals::default(),
             zones: BTreeMap::new(),
+            inventory: BTreeMap::new(),
+            equipped: BTreeMap::new(),
         }
     }
 }
@@ -122,6 +128,8 @@ pub(super) struct RunResult {
     pub level: u32,
     pub kills: u32,
     pub damage_done: f64,
+    /// The items the hero found, by name.
+    pub loot: Vec<String>,
 }
 
 impl Profile {
@@ -186,14 +194,65 @@ impl Profile {
         z.best_time = z.best_time.max(r.secs);
         z.best_level = z.best_level.max(r.level);
         z.best_kills = z.best_kills.max(r.kills);
+        for name in &r.loot {
+            *self.inventory.entry(name.clone()).or_default() += 1;
+        }
+    }
+
+    /// The gear worn, slot by slot; a name the tables no longer have, or one no longer owned, is
+    /// left off.
+    pub fn gear(&self) -> Vec<&'static data::ItemDef> {
+        data::GearSlot::ALL
+            .iter()
+            .filter_map(|s| {
+                let name = self.equipped.get(s.name())?;
+                let item = data::item(name)?;
+                (item.slot == *s && self.inventory.get(name).is_some_and(|n| *n > 0))
+                    .then_some(item)
+            })
+            .collect()
+    }
+
+    /// The items owned for a slot, in the campaign's order.
+    pub fn owned_for(&self, slot: data::GearSlot) -> Vec<&'static data::ItemDef> {
+        data::ITEMS
+            .iter()
+            .filter(|i| i.slot == slot && self.inventory.get(&i.name).is_some_and(|n| *n > 0))
+            .collect()
+    }
+
+    /// Wear the next item owned for `slot`, after the one worn now; past the last, wear nothing.
+    pub fn equip_next(&mut self, slot: data::GearSlot) {
+        let owned = self.owned_for(slot);
+        let now = self
+            .equipped
+            .get(slot.name())
+            .and_then(|n| owned.iter().position(|i| i.name == *n));
+        let next = match now {
+            None => owned.first(),
+            Some(k) => owned.get(k + 1),
+        };
+        match next {
+            Some(i) => {
+                self.equipped
+                    .insert(slot.name().to_string(), i.name.clone());
+            }
+            None => {
+                self.equipped.remove(slot.name());
+            }
+        }
     }
 
     /// What the profile brings into a run for a hero of `race` (the hero actually spawned, which
     /// a lobby may have changed): the bonuses that hold all run and the effects that fire on
-    /// their own. Today the race's three racials; the collection, talents and gear each add
+    /// their own. The race's three racials and the gear worn; the collection and talents add
     /// theirs here as they land.
     pub fn run_bonuses(&self, race: u8) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
-        data::racial_bonuses(race)
+        let (mut bonuses, procs) = data::racial_bonuses(race);
+        for item in self.gear() {
+            bonuses.extend_from_slice(&item.bonuses);
+        }
+        (bonuses, procs)
     }
 
     /// The pick file the profile replaced: `class race sex zone`, all indices.
@@ -357,8 +416,7 @@ fn keep_to_open_zones(
     store: Res<ProfileStore>,
     mut selection: ResMut<Selection>,
 ) {
-    if *phase.get() != Phase::Menu || session.in_lobby || store.profile.zone_open(selection.map)
-    {
+    if *phase.get() != Phase::Menu || session.in_lobby || store.profile.zone_open(selection.map) {
         return;
     }
     let furthest = (0..data::MAPS.len())
@@ -388,11 +446,7 @@ fn save_on_exit(mut exit: MessageReader<AppExit>, mut store: ResMut<ProfileStore
 }
 
 /// The run that just ended goes on the record.
-fn record_run(
-    run: Res<Run>,
-    selection: Res<Selection>,
-    mut store: ResMut<ProfileStore>,
-) {
+fn record_run(run: Res<Run>, selection: Res<Selection>, mut store: ResMut<ProfileStore>) {
     if !run.begun {
         return;
     }
@@ -403,6 +457,7 @@ fn record_run(
         level: run.level,
         kills: run.kills,
         damage_done: run.damage_done,
+        loot: run.loot.iter().map(|i| i.name.clone()).collect(),
     };
     store.edit(|p| p.record(&result));
     // A finished run is worth writing at once.
@@ -421,7 +476,45 @@ mod tests {
             level,
             kills,
             damage_done: 1000.0,
+            loot: Vec::new(),
         }
+    }
+
+    #[test]
+    fn found_items_are_kept_and_worn_gear_counts() {
+        let mut p = Profile::default();
+        let helm = data::ITEMS
+            .iter()
+            .find(|i| i.slot == data::GearSlot::Head)
+            .unwrap();
+        let other = data::ITEMS
+            .iter()
+            .filter(|i| i.slot == data::GearSlot::Head)
+            .nth(1)
+            .unwrap();
+        let mut r = result("Elwynn Forest", false, 5, 50);
+        r.loot = vec![helm.name.clone(), helm.name.clone(), other.name.clone()];
+        p.record(&r);
+        assert_eq!(p.inventory[&helm.name], 2);
+        assert!(p.gear().is_empty());
+        let bare = p.run_bonuses(1).0.len();
+        // Cycling the slot: the first owned, the next, then nothing.
+        p.equip_next(data::GearSlot::Head);
+        assert_eq!(p.gear(), [helm]);
+        assert_eq!(p.run_bonuses(1).0.len(), bare + helm.bonuses.len());
+        p.equip_next(data::GearSlot::Head);
+        assert_eq!(p.gear(), [other]);
+        p.equip_next(data::GearSlot::Head);
+        assert!(p.gear().is_empty());
+        // A slot with nothing owned stays empty.
+        p.equip_next(data::GearSlot::Feet);
+        assert!(p.equipped.get("Feet").is_none());
+        // It survives the file.
+        p.equip_next(data::GearSlot::Head);
+        assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
+        // A name worn but no longer in the tables is left off.
+        p.equipped.insert("Legs".into(), "Thunderfury".into());
+        assert_eq!(p.gear(), [helm]);
     }
 
     #[test]
@@ -430,7 +523,10 @@ mod tests {
         let (bonuses, procs) = p.run_bonuses(8);
         assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Regen, 1.5)));
         assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Crit, 0.03)));
-        assert_eq!(procs.iter().map(|d| d.key).collect::<Vec<_>>(), ["berserking"]);
+        assert_eq!(
+            procs.iter().map(|d| d.key).collect::<Vec<_>>(),
+            ["berserking"]
+        );
         // A Gnome's racials always hold, none fires.
         let (bonuses, procs) = p.run_bonuses(7);
         assert_eq!(bonuses.len(), 3);

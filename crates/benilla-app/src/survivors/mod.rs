@@ -384,6 +384,8 @@ pub(super) struct Vitals {
     /// Effects that fire on their own, and the ones running now.
     pub procs: Vec<stats::Proc>,
     pub timed: Vec<stats::Timed>,
+    /// The items this hero has found this run, kept on the profile when it ends.
+    pub loot: Vec<&'static data::ItemDef>,
 }
 
 impl Default for Vitals {
@@ -415,6 +417,7 @@ impl Default for Vitals {
             meta: Vec::new(),
             procs: Vec::new(),
             timed: Vec::new(),
+            loot: Vec::new(),
         }
     }
 }

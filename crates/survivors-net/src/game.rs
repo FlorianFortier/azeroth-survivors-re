@@ -90,6 +90,8 @@ pub struct Vitals {
     pub picks: u32,
     /// Seconds an ally has stood over this fallen hero, toward the revive.
     pub revive_t: f32,
+    /// The items this hero has found this run, by name.
+    pub loot: Vec<String>,
 }
 
 /// A hero in the party frames.
@@ -375,7 +377,11 @@ impl Wire for Vitals {
             .u64(self.damage_done.max(0.0).round() as u64)
             .u32(self.kills)
             .u32(self.picks)
-            .f32(self.revive_t);
+            .f32(self.revive_t)
+            .len(self.loot.len());
+        for name in &self.loot {
+            w.str(name);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
@@ -412,6 +418,14 @@ impl Wire for Vitals {
             kills: r.u32()?,
             picks: r.u32()?,
             revive_t: r.f32()?,
+            loot: {
+                let n = r.len(1)?;
+                let mut loot = Vec::with_capacity(n);
+                for _ in 0..n {
+                    loot.push(r.str()?);
+                }
+                loot
+            },
         })
     }
 }
@@ -776,6 +790,7 @@ mod tests {
                 damage_done: 12345.0,
                 kills: 50,
                 picks: 4,
+                loot: vec!["Hogger's Helm".into()],
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {

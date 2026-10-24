@@ -46,6 +46,10 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 - **Your hero is a player character**: the race's own body with character creation's skin, face,
   hair, hair colour and facial hair, dressed piece by piece in the class's starting outfit and its
   weapons, which the Equipment panel lists.
+- **Loot that lasts**: each of the 60 bosses drops its own piece of gear (uncommon to legendary),
+  and the horde now and then one of its zone's. Whatever you catch is kept, won or lost; wear it
+  from the Equipment panel (a click on a slot cycles what you own), and it shows on your hero and
+  adds to your numbers.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.

@@ -108,6 +108,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
 - **A hero is a player, dressed from its fields.** Its worn pieces are `PLAYER_VISIBLE_ITEM_*`
   entries with the top bit set (`outfit::entry`); every machine answers their templates from the
   entry alone (`outfit::queue_templates`), so a guest needs nothing but the host's fields.
+- **Gear is `data::ITEMS`: five per zone, one per boss, stored by name.** A boss always drops
+  its own; the horde one of its zone's in `HORDE_ITEM_ODDS`. What a hero catches goes on
+  `Vitals::loot` and onto the profile's `inventory` when the run ends, won or lost. What is
+  `equipped` adds its bonuses through `Profile::run_bonuses` and its look through `outfit::body`,
+  a display picked from `ItemDisplayInfo` by the icon's slot (`outfit::gear_worn`).
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
 
