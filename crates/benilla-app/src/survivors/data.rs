@@ -1929,7 +1929,7 @@ pub(crate) struct MapDef {
 /// Whether the campaign's zone `i` is open: the first always, any other once the zone before it
 /// has been won (`won` says, by zone name, whether a zone's final boss has fallen).
 pub(crate) fn unlocked(i: usize, won: impl Fn(&str) -> bool) -> bool {
-    i == 0 || MAPS.get(i - 1).is_some_and(|prev| won(prev.name))
+    i < MAPS.len() && (i == 0 || won(MAPS[i - 1].name))
 }
 
 /// What opens zone `i`, as the main screen words it: "Defeat Edwin VanCleef in Elwynn Forest".

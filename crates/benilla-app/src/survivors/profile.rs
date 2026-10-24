@@ -536,7 +536,7 @@ runs = 2
         // Index 5 was Elwynn Forest in the pick file's day.
         assert_eq!(p.hero.zone, "Elwynn Forest");
         assert_eq!((p.hero.race, p.hero.sex), (8, 1));
-        assert_eq!(pick_indices(&p.hero), (Some(3), Some(5)));
+        assert_eq!(pick_indices(&p.hero), (Some(3), Some(0)));
         // Out of range or short: nothing to carry.
         assert!(Profile::from_old_pick("99 1 0 0").is_none());
         assert!(Profile::from_old_pick("1 2").is_none());
