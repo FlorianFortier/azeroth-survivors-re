@@ -373,6 +373,7 @@ impl Profile {
                 zone: zone.name.to_string(),
                 name: String::new(),
                 appearance: [0; 5],
+                difficulty: String::new(),
             },
             ..Self::default()
         })
@@ -701,6 +702,7 @@ mod tests {
             zone: "Elwynn Forest".into(),
             name: "Nirkashed".into(),
             appearance: [3, 1, 4, 1, 5],
+            difficulty: "Heroic".into(),
         };
         p.record(&result("Elwynn Forest", true, 12, 300));
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
