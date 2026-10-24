@@ -1321,8 +1321,7 @@ fn refresh_collection(
                     let boss = data::roster(z).bosses[item.boss].name;
                     let tip = if have {
                         let mut lines = vec![
-                            TipLine::new(item.name.clone(), hud::rgb(item.rarity.color()))
-                                .header(),
+                            TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
                             TipLine::new(item.slot.name(), Color::WHITE)
                                 .right(item.rarity.name(), theme::DIM),
                         ];
@@ -1397,7 +1396,14 @@ fn refresh_armory(
             ..default()
         })
         .with_children(|r| {
-            kit::button(r, f, "Back", None, kit::ButtonLook::PLAIN, ScreenAction::Back);
+            kit::button(
+                r,
+                f,
+                "Back",
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Back,
+            );
             r.spawn(kit::text(
                 &f.body,
                 "What you wear shows on your hero and adds to every run.",
@@ -1453,7 +1459,12 @@ fn refresh_armory(
                         worn == Some(item),
                         ScreenAction::Wear(index),
                     );
-                    let n = store.profile.inventory.get(&item.name).copied().unwrap_or(0);
+                    let n = store
+                        .profile
+                        .inventory
+                        .get(&item.name)
+                        .copied()
+                        .unwrap_or(0);
                     let hint = if worn == Some(item) {
                         format!("Worn · found {n}×")
                     } else {
