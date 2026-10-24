@@ -933,7 +933,14 @@ fn refresh_equipment(
     *shown = Some(view);
     let worn = match (selection.class_def(), look) {
         (Some(class), Some((race, sex))) => {
-            match outfit::body(class, race, sex, selection.appearance, 0, catalog.as_deref().map(|c| &c.0)) {
+            match outfit::body(
+                class,
+                race,
+                sex,
+                selection.appearance,
+                0,
+                catalog.as_deref().map(|c| &c.0),
+            ) {
                 outfit::Body::Player { worn, .. } => worn,
                 outfit::Body::Trainer { .. } => Vec::new(),
             }
@@ -944,14 +951,8 @@ fn refresh_equipment(
     commands.entity(row).with_children(|r| {
         for (label, art, slot) in outfit::SHOWN {
             let piece = worn.iter().find(|w| w.slot == slot);
-            let icon = piece.and_then(|w| {
-                displays
-                    .as_deref()?
-                    .catalog
-                    .get(w.display)?
-                    .icon
-                    .clone()
-            });
+            let icon =
+                piece.and_then(|w| displays.as_deref()?.catalog.get(w.display)?.icon.clone());
             let (source, tip) = match (piece, icon) {
                 (Some(_), Some(icon)) => (
                     IconSource::Texture(icon),
@@ -970,7 +971,10 @@ fn refresh_equipment(
                 r,
                 source,
                 30.0,
-                Some(Tooltip(vec![TipLine::new(label, Color::WHITE).header(), tip])),
+                Some(Tooltip(vec![
+                    TipLine::new(label, Color::WHITE).header(),
+                    tip,
+                ])),
             );
         }
     });
@@ -1069,7 +1073,12 @@ fn refresh_zone_list(
                 ));
                 if !open {
                     let hint = data::unlock_hint(i).unwrap_or_default();
-                    b.spawn(kit::text(&f.body, format!("Locked · {hint}"), 11.0, theme::RED));
+                    b.spawn(kit::text(
+                        &f.body,
+                        format!("Locked · {hint}"),
+                        11.0,
+                        theme::RED,
+                    ));
                     return;
                 }
                 let mut sub = map.zone.to_string();

@@ -154,7 +154,15 @@ pub(super) fn begin_run(
                 seat.display,
                 catalog.as_deref().map(|c| &c.0),
             );
-            let e = hero::spawn_hero(&mut commands, class, &body, seat.race, seat.sex, serial, pos);
+            let e = hero::spawn_hero(
+                &mut commands,
+                class,
+                &body,
+                seat.race,
+                seat.sex,
+                serial,
+                pos,
+            );
             commands.entity(e).insert(HeroState {
                 slot: seat.slot,
                 v: {

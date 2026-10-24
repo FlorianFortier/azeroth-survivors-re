@@ -240,7 +240,8 @@ pub(super) fn counts(catalog: Option<&CharCreateCatalog>, race: u8, sex: u8) -> 
 fn trainer_body() -> bool {
     static TRAINER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *TRAINER.get_or_init(|| {
-        crate::webenv::var("WOW_HERO_BODY").is_some_and(|v| v.trim().eq_ignore_ascii_case("trainer"))
+        crate::webenv::var("WOW_HERO_BODY")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("trainer"))
     })
 }
 
@@ -326,7 +327,10 @@ mod tests {
         let e = entry(&w);
         assert!(is_own(e));
         let t = template(e).unwrap();
-        assert_eq!((t.display_info_id, t.inventory_type, t.class), (9891, 20, 4));
+        assert_eq!(
+            (t.display_info_id, t.inventory_type, t.class),
+            (9891, 20, 4)
+        );
         // A real template's entry is never taken for one of ours.
         assert!(template(2361).is_none());
     }
