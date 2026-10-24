@@ -8,6 +8,8 @@ pub(crate) type Weapon = (u16, u32, u8, u8, u8, u8, u8);
 pub(crate) struct ClassDef {
     pub id: u8,
     pub name: &'static str,
+    /// One line on how the class plays, for the class picker.
+    pub blurb: &'static str,
     /// `RAID_CLASS_COLORS`, 0xRRGGBB.
     pub color: u32,
     /// `UNIT_FIELD_BYTES_0` byte 3.
@@ -1094,6 +1096,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 1,
         name: "Warrior",
+        blurb: "Steel and fury: cleave through the horde and shrug off its blows.",
         color: 0xC79C6E,
         power: 1,
         start: "cleave",
@@ -1119,6 +1122,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 2,
         name: "Paladin",
+        blurb: "Holy light that smites the wicked and shields the faithful.",
         color: 0xF58CBA,
         power: 0,
         start: "hammer_of_wrath",
@@ -1141,6 +1145,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 3,
         name: "Hunter",
+        blurb: "Shots that strike from afar while the horde gives chase.",
         color: 0xABD473,
         power: 0,
         start: "arcane_shot",
@@ -1164,6 +1169,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 4,
         name: "Rogue",
+        blurb: "Blades and speed: strike first, strike hard, and be gone.",
         color: 0xFFF569,
         power: 3,
         start: "sinister_strike",
@@ -1185,6 +1191,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 5,
         name: "Priest",
+        blurb: "Light that burns the horde and mends the one who wields it.",
         color: 0xFFFFFF,
         power: 0,
         start: "smite",
@@ -1208,6 +1215,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 7,
         name: "Shaman",
+        blurb: "Storms that jump from foe to foe, and totems that fight beside you.",
         color: 0x0070DE,
         power: 0,
         start: "lightning_bolt",
@@ -1230,6 +1238,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 8,
         name: "Mage",
+        blurb: "Frost, fire and arcane: freeze the horde, then burn it down.",
         color: 0x69CCF0,
         power: 0,
         start: "frostbolt",
@@ -1257,6 +1266,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 9,
         name: "Warlock",
+        blurb: "Curses that eat at the horde, and terror that scatters it.",
         color: 0x9482C9,
         power: 0,
         start: "shadow_bolt",
@@ -1281,6 +1291,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
     ClassDef {
         id: 11,
         name: "Druid",
+        blurb: "Nature's wrath, and the wild's own strength to weather it.",
         color: 0xFF7D0A,
         power: 0,
         start: "wrath",
@@ -2281,6 +2292,13 @@ mod tests {
                 "{}: duplicate ability in pool",
                 c.name
             );
+        }
+    }
+
+    #[test]
+    fn every_class_has_a_blurb() {
+        for c in CLASSES {
+            assert!(!c.blurb.is_empty(), "{}", c.name);
         }
     }
 

@@ -11,6 +11,7 @@
 mod abilities;
 mod auto;
 mod cards;
+mod character;
 mod data;
 mod enemies;
 mod grade;
@@ -68,6 +69,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(net::plugin)
             .add_plugins(profile::plugin)
             .add_plugins(kit::plugin)
+            .add_plugins(character::plugin)
             .add_systems(Startup, (hud::setup_hud, hero::setup_crosshair))
             .add_systems(Update, hero::daylight)
             .add_systems(

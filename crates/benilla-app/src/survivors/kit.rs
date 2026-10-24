@@ -252,11 +252,14 @@ fn button_colors(
 pub(super) enum IconSource {
     Spell(u32),
     Texture(String),
+    /// One cell of an atlas: its texcoords `[left, right, top, bottom]` in 0..1, as the client's
+    /// `SetTexCoord` (the class icons' `CLASS_ICON_TCOORDS`).
+    Atlas(String, [f32; 4]),
 }
 
 /// An icon slot filled from a texture path once the archives are readable.
 #[derive(Component)]
-pub(super) struct TextureIcon(pub String);
+pub(super) struct TextureIcon(pub String, pub Option<[f32; 4]>);
 
 #[derive(Component)]
 struct TextureIconDone;
@@ -288,6 +291,11 @@ fn fill_texture_icons(
             }
         };
         if let Some(h) = handle {
+            if let Some(tc) = icon.1 {
+                if let Some(size) = images.get(&h).map(|i| i.size_f32()) {
+                    img.rect = Some(crate::glue::art::tc_rect(size, tc));
+                }
+            }
             img.image = h;
             img.color = Color::WHITE;
         }
@@ -310,7 +318,8 @@ pub(super) fn icon_image(p: &mut ChildSpawnerCommands, source: &IconSource, size
     ));
     match source {
         IconSource::Spell(id) => e.insert(hud::SpellIcon(*id)),
-        IconSource::Texture(path) => e.insert(TextureIcon(path.clone())),
+        IconSource::Texture(path) => e.insert(TextureIcon(path.clone(), None)),
+        IconSource::Atlas(path, tc) => e.insert(TextureIcon(path.clone(), Some(*tc))),
     };
     e.id()
 }
@@ -471,12 +480,14 @@ pub(super) fn heading(p: &mut ChildSpawnerCommands, fonts: &KitFonts, title: &st
 }
 
 /// A row of tabs: one per label, each carrying the caller's action; `active` is the selected one.
+/// Returns the tabs, in order, so the caller can disable or annotate them.
 pub(super) fn tab_bar<A: Component + Clone>(
     p: &mut ChildSpawnerCommands,
     fonts: &KitFonts,
     tabs: &[(&str, A)],
     active: usize,
-) -> Entity {
+) -> Vec<Entity> {
+    let mut ids = Vec::with_capacity(tabs.len());
     p.spawn(Node {
         column_gap: Val::Px(6.0),
         justify_content: JustifyContent::Center,
@@ -484,10 +495,11 @@ pub(super) fn tab_bar<A: Component + Clone>(
     })
     .with_children(|r| {
         for (i, (label, action)) in tabs.iter().enumerate() {
-            r.spawn((
+            let mut tab = r.spawn((
                 Button,
                 ButtonLook::PLAIN,
                 Selected(i == active),
+                Disabled(false),
                 action.clone(),
                 Node {
                     padding: UiRect::axes(Val::Px(12.0), Val::Px(5.0)),
@@ -504,13 +516,14 @@ pub(super) fn tab_bar<A: Component + Clone>(
                     Val::Px(0.0),
                     Val::Px(8.0),
                 ),
-            ))
-            .with_children(|b| {
+            ));
+            tab.with_children(|b| {
                 b.spawn(text(&fonts.body, *label, 14.0, theme::GOLD));
             });
+            ids.push(tab.id());
         }
-    })
-    .id()
+    });
+    ids
 }
 
 /// A button with a label and an optional line under it ("Run Options / Normal difficulty").

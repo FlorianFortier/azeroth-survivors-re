@@ -17,6 +17,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-app/src/survivors/data.rs` | the game's tables and balance curves (classes, abilities, passives, zones, waves) | ours |
 | `crates/benilla-*` | the client: formats, world, UI, protocol, app | upstream's, plus our `#[cfg]`-gated carries |
 | `crates/benilla-app/src/webbridge/` | the JavaScript bridge, wasm side | wenilla's |
+| `crates/benilla-app/src/survivors/character.rs` | the new main screen (title, tabs, Character tab), built from the kit on the same `Selection` and profile as the glue menu. Replaces that menu under `WOW_NEW_MENU=1` (`?new_menu=1`) until all its columns are in | ours |
 | `crates/benilla-app/src/survivors/kit.rs` | the menu's UI kit: panels, headings, tabs, icon and call-to-action buttons, stat tiles, progress bars, chips, tooltips; clicks read through `KitClicks`. `WOW_UI_KIT=1` (`?ui_kit=1`) shows a gallery over the menu | ours |
 | `crates/benilla-app/src/survivors/profile.rs` | the saved profile (`benilla-config/survivors-profile.toml`, `localStorage` on the web): pick, run records, and the meta-progression as it lands | ours |
 | `crates/benilla-app/src/survivors/net/` | multiplayer, game side: socket, host stream, guest copy, lobby screen | ours |
