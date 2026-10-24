@@ -500,6 +500,8 @@ pub(super) struct Run {
     pub elapsed: f32,
     pub bosses: u32,
     pub rings: u32,
+    /// The zone's final boss has fallen: the run is won at the end of the frame.
+    pub final_slain: bool,
     pub won: bool,
     /// Every hero has fallen and stayed down.
     pub lost: bool,
@@ -520,6 +522,7 @@ impl Default for Run {
             elapsed: 0.0,
             bosses: 0,
             rings: 0,
+            final_slain: false,
             won: false,
             lost: false,
             next_guid: 1,

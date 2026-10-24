@@ -173,7 +173,7 @@ pub(super) fn rules_for(settings: &Settings, heroes: usize) -> Rules {
     let pct = |v: u16| f32::from(v) / 100.0;
     Rules {
         duration: f32::from(s.duration_secs),
-        boss_every: f32::from(s.boss_every_secs),
+        ambush_every: f32::from(s.ambush_every_secs),
         health: pct(s.difficulty.enemy_health),
         damage: pct(s.difficulty.enemy_damage),
         density: pct(s.difficulty.density),
@@ -668,7 +668,7 @@ mod tests {
     fn lobby_settings_become_rules() {
         let settings = Settings {
             duration_secs: 600,
-            boss_every_secs: 90,
+            ambush_every_secs: 90,
             difficulty: Difficulty::HARD,
             shared_xp: false,
             revive: true,
@@ -676,13 +676,13 @@ mod tests {
         };
         let r = rules_for(&settings, 3);
         assert_eq!(r.duration, 600.0);
-        assert_eq!(r.boss_every, 90.0);
+        assert_eq!(r.ambush_every, 90.0);
         assert_eq!(r.health, 1.5);
         assert_eq!(r.heroes, 3);
         assert!(!r.shared_xp && r.revive);
         assert_eq!(
             rules_for(&Settings::default(), 1).duration,
-            data::VICTORY_SECS
+            data::FINAL_BOSS_SECS
         );
     }
 }

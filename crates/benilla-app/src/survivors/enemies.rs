@@ -25,6 +25,8 @@ pub(super) struct Enemy {
     pub radius: f32,
     pub xp: u32,
     pub boss: bool,
+    /// The zone's final boss: its fall wins the run.
+    pub final_boss: bool,
     pub attack_cd: f32,
     pub slow: f32,
     pub slow_t: f32,
@@ -105,9 +107,9 @@ fn spawn_enemy(
     pos: Vec3,
     hero: Vec3,
     boss: bool,
-    toughness: f32,
+    final_boss: bool,
 ) {
-    let scale = rules.hp_scale(run.elapsed) * toughness;
+    let scale = rules.hp_scale(run.elapsed);
     let serial = run.guid();
     let e = units::spawn_unit(
         commands,
@@ -135,6 +137,7 @@ fn spawn_enemy(
             radius: radius_for(def),
             xp: def.xp,
             boss,
+            final_boss,
             attack_cd: 0.5,
             slow: 1.0,
             slow_t: 0.0,
@@ -187,7 +190,7 @@ pub(super) fn spawn_enemies(
 
     let due_bosses = rules.bosses_due(elapsed);
     while run.bosses < due_bosses {
-        let (def, toughness) = rules.boss(roster, run.bosses);
+        let (def, final_boss) = rules.boss(roster, run.bosses);
         let hpos = anchor(&mut rng);
         let a = rng.range(0.0, std::f32::consts::TAU);
         let pos = ground(
@@ -203,14 +206,18 @@ pub(super) fn spawn_enemies(
             pos,
             hpos,
             true,
-            toughness,
+            final_boss,
         );
         run.bosses += 1;
-        run.banner = Some((format!("{} approaches!", def.name), 4.0));
+        run.banner = Some(if final_boss {
+            (format!("{} has come: bring them down!", def.name), 5.0)
+        } else {
+            (format!("{} approaches!", def.name), 4.0)
+        });
     }
 
     // Half way between bosses, a closing ring of the moment's weakest around every standing hero.
-    let due_rings = ((elapsed + rules.boss_every / 2.0) / rules.boss_every.max(1.0)) as u32;
+    let due_rings = ((elapsed + rules.ambush_every / 2.0) / rules.ambush_every.max(1.0)) as u32;
     if run.rings < due_rings {
         run.rings = due_rings;
         let def = &roster.enemies[pool[0]];
@@ -225,7 +232,7 @@ pub(super) fn spawn_enemies(
                     hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 26.0,
                     hpos.y,
                 );
-                spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, 1.0);
+                spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, false);
             }
         }
         run.banner = Some(("They're surrounding you!".into(), 3.0));
@@ -250,7 +257,7 @@ pub(super) fn spawn_enemies(
         let a = rng.range(0.0, std::f32::consts::TAU);
         let r = rng.range(34.0, 42.0);
         let pos = ground(&world, hpos + Vec3::new(a.cos(), 0.0, a.sin()) * r, hpos.y);
-        spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, 1.0);
+        spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, false, false);
     }
 }
 

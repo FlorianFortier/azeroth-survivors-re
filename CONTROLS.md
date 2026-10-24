@@ -5,7 +5,7 @@ where you look. **C** switches to the classic top-down views.
 
 | When | Key / Input | Action |
 |---|---|---|
-| Menu | Click a class, a race, a sex and a zone | make your pick; **Random** rolls a name in the race's sound |
+| Menu | Click a class, a race, a sex and a zone | make your pick; **Random** rolls a name in the race's sound. A locked zone says which final boss opens it |
 | Menu | **mouse wheel** over the zones | scroll the zone list |
 | Menu | **Enter** (or **Enter <zone>**) | start the run; the world travels to the zone picked |
 | Menu | **Co-op** (bottom right) | create or join a lobby — see [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |

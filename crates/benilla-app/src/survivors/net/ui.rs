@@ -10,7 +10,7 @@ use bevy::input::ButtonState;
 use bevy::prelude::*;
 use survivors_net::protocol::{normalize_code, LobbyState, LobbyView, Up, CODE_LEN};
 use survivors_net::settings::{
-    clean_name, Difficulty, Settings, BOSS_EVERY_MAX, BOSS_EVERY_MIN, DURATION_MAX, DURATION_MIN,
+    clean_name, Difficulty, Settings, AMBUSH_EVERY_MAX, AMBUSH_EVERY_MIN, DURATION_MAX, DURATION_MIN,
     MAX_LOBBY_NAME, MAX_PLAYERS, MAX_PLAYER_NAME, PERCENT_MAX, PERCENT_MIN,
 };
 
@@ -69,7 +69,7 @@ enum Rule {
     Density(i8),
     Scale,
     Duration(i8),
-    BossEvery(i8),
+    AmbushEvery(i8),
     SharedXp,
     Revive,
     Listed,
@@ -599,9 +599,9 @@ fn apply_rule(s: &Settings, rule: Rule) -> Settings {
                 .clamp(i32::from(DURATION_MIN), i32::from(DURATION_MAX))
                 as u16;
         }
-        Rule::BossEvery(d) => {
-            s.boss_every_secs = (i32::from(s.boss_every_secs) + i32::from(d) * 15)
-                .clamp(i32::from(BOSS_EVERY_MIN), i32::from(BOSS_EVERY_MAX))
+        Rule::AmbushEvery(d) => {
+            s.ambush_every_secs = (i32::from(s.ambush_every_secs) + i32::from(d) * 15)
+                .clamp(i32::from(AMBUSH_EVERY_MIN), i32::from(AMBUSH_EVERY_MAX))
                 as u16;
         }
         Rule::SharedXp => s.shared_xp = !s.shared_xp,
@@ -617,6 +617,7 @@ fn clicks(
     mut ui: ResMut<LobbyUi>,
     mut net: ResMut<Net>,
     selection: Res<Selection>,
+    store: Res<crate::survivors::profile::ProfileStore>,
     phase: Res<State<Phase>>,
     mut next: ResMut<NextState<Phase>>,
 ) {
@@ -642,6 +643,7 @@ fn clicks(
                     Action::Create => {
                         let settings = Settings {
                             name: format!("{}'s run", net.name),
+                            zone: u8::try_from(selection.map).unwrap_or(0),
                             ..Settings::default()
                         };
                         net.send(Up::Create {
@@ -680,7 +682,16 @@ fn clicks(
                     Action::Set(rule) => {
                         if let Some(view) = &net.lobby {
                             if view.is_host() && view.state == LobbyState::Open {
-                                let s = apply_rule(&view.settings, *rule);
+                                let mut s = apply_rule(&view.settings, *rule);
+                                // The host offers only the zones their campaign has opened.
+                                if let Rule::Zone(d) = *rule {
+                                    for _ in 0..data::MAPS.len() {
+                                        if store.profile.zone_open(usize::from(s.zone)) {
+                                            break;
+                                        }
+                                        s = apply_rule(&s, Rule::Zone(d));
+                                    }
+                                }
                                 net.send(Up::UpdateSettings(s));
                             }
                         }
@@ -1046,16 +1057,16 @@ fn build_table(
                 Some(Rule::Scale),
             );
             line(
-                "Survive for",
+                "Final boss at",
                 mmss(s.duration_secs),
                 Some(Rule::Duration(-1)),
                 Some(Rule::Duration(1)),
             );
             line(
-                "A boss every",
-                mmss(s.boss_every_secs),
-                Some(Rule::BossEvery(-1)),
-                Some(Rule::BossEvery(1)),
+                "An ambush every",
+                mmss(s.ambush_every_secs),
+                Some(Rule::AmbushEvery(-1)),
+                Some(Rule::AmbushEvery(1)),
             );
             line(
                 "Shared experience",

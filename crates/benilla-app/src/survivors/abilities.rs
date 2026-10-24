@@ -795,6 +795,9 @@ pub(super) fn apply_hits(
         if en.boss {
             run.banner = Some((format!("{} is slain!", en.def.name), 3.0));
         }
+        if en.final_boss {
+            run.final_slain = true;
+        }
     };
 
     for h in all {

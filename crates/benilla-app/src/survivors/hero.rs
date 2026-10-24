@@ -768,7 +768,7 @@ pub(super) fn hero_vitals(
     if run.won || run.lost || heroes.is_empty() {
         return;
     }
-    if run.elapsed >= rules.duration {
+    if run.final_slain {
         run.won = true;
         // A last flourish before the results.
         for (entity, .., hero) in &heroes {

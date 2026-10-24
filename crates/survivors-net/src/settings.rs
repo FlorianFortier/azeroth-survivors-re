@@ -6,18 +6,20 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 /// The most players a lobby can seat.
 pub const MAX_PLAYERS: u8 = 4;
 /// The zones the game offers (`survivors::data::MAPS`); the game's tests hold the two equal.
-pub const ZONE_COUNT: u8 = 16;
+pub const ZONE_COUNT: u8 = 12;
 /// Longest lobby name, in characters.
 pub const MAX_LOBBY_NAME: usize = 32;
 /// Longest player name, in characters.
 pub const MAX_PLAYER_NAME: usize = 20;
 
+/// When the final boss comes; the other bosses' times scale with it.
 pub const DURATION_MIN: u16 = 5 * 60;
 pub const DURATION_MAX: u16 = 30 * 60;
-pub const DURATION_DEFAULT: u16 = 15 * 60;
-pub const BOSS_EVERY_MIN: u16 = 60;
-pub const BOSS_EVERY_MAX: u16 = 300;
-pub const BOSS_EVERY_DEFAULT: u16 = 135;
+pub const DURATION_DEFAULT: u16 = 16 * 60;
+/// How often the horde closes a ring around every hero.
+pub const AMBUSH_EVERY_MIN: u16 = 60;
+pub const AMBUSH_EVERY_MAX: u16 = 300;
+pub const AMBUSH_EVERY_DEFAULT: u16 = 135;
 /// Percent bounds for the three difficulty multipliers.
 pub const PERCENT_MIN: u16 = 25;
 pub const PERCENT_MAX: u16 = 400;
@@ -87,9 +89,10 @@ pub struct Settings {
     pub zone: u8,
     pub max_players: u8,
     pub difficulty: Difficulty,
-    /// Survive this long to win.
+    /// When the final boss comes; its fall wins the run.
     pub duration_secs: u16,
-    pub boss_every_secs: u16,
+    /// How often the horde closes a ring around every hero.
+    pub ambush_every_secs: u16,
     /// Every hero gains the experience any hero picks up.
     pub shared_xp: bool,
     /// A fallen hero can be brought back by an ally standing over them.
@@ -106,7 +109,7 @@ impl Default for Settings {
             max_players: MAX_PLAYERS,
             difficulty: Difficulty::NORMAL,
             duration_secs: DURATION_DEFAULT,
-            boss_every_secs: BOSS_EVERY_DEFAULT,
+            ambush_every_secs: AMBUSH_EVERY_DEFAULT,
             shared_xp: true,
             revive: true,
             listed: false,
@@ -158,7 +161,7 @@ impl Settings {
                 scale_with_players: self.difficulty.scale_with_players,
             },
             duration_secs: self.duration_secs.clamp(DURATION_MIN, DURATION_MAX),
-            boss_every_secs: self.boss_every_secs.clamp(BOSS_EVERY_MIN, BOSS_EVERY_MAX),
+            ambush_every_secs: self.ambush_every_secs.clamp(AMBUSH_EVERY_MIN, AMBUSH_EVERY_MAX),
             shared_xp: self.shared_xp,
             revive: self.revive,
             listed: self.listed,
@@ -188,7 +191,7 @@ impl Wire for Settings {
         w.str(&self.name).u8(self.zone).u8(self.max_players);
         self.difficulty.put(w);
         w.u16(self.duration_secs)
-            .u16(self.boss_every_secs)
+            .u16(self.ambush_every_secs)
             .bool(self.shared_xp)
             .bool(self.revive)
             .bool(self.listed);
@@ -200,7 +203,7 @@ impl Wire for Settings {
             max_players: r.u8()?,
             difficulty: Difficulty::get(r)?,
             duration_secs: r.u16()?,
-            boss_every_secs: r.u16()?,
+            ambush_every_secs: r.u16()?,
             shared_xp: r.bool()?,
             revive: r.bool()?,
             listed: r.bool()?,
@@ -231,7 +234,7 @@ mod tests {
                 scale_with_players: false,
             },
             duration_secs: 1,
-            boss_every_secs: u16::MAX,
+            ambush_every_secs: u16::MAX,
             shared_xp: false,
             revive: false,
             listed: true,
@@ -244,7 +247,7 @@ mod tests {
         assert_eq!(s.difficulty.enemy_damage, PERCENT_MAX);
         assert_eq!(s.difficulty.density, PERCENT_MIN);
         assert_eq!(s.duration_secs, DURATION_MIN);
-        assert_eq!(s.boss_every_secs, BOSS_EVERY_MAX);
+        assert_eq!(s.ambush_every_secs, AMBUSH_EVERY_MAX);
         assert!(s.listed && !s.revive && !s.shared_xp);
         let many = Settings {
             max_players: 99,
@@ -279,7 +282,7 @@ mod tests {
             max_players: 3,
             difficulty: Difficulty::HARD,
             duration_secs: 1200,
-            boss_every_secs: 90,
+            ambush_every_secs: 90,
             shared_xp: false,
             revive: true,
             listed: true,

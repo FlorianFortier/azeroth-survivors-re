@@ -99,6 +99,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
 - **The profile only grows.** A new profile field takes `#[serde(default)]`, so every older
   profile keeps loading; renaming or changing a field's meaning bumps `PROFILE_VERSION`. Classes,
   zones and items are stored by name, never by table index.
+- **The campaign is `data::MAPS`, in order.** Each zone has exactly five bosses, one per
+  `data::BOSS_TIMES` slot, the last its final boss: the run is won when that one falls
+  (`Run::final_slain`), never on the clock. A zone opens when the one before it has a win on the
+  profile (`Profile::zone_open`). A zone renamed keeps its records through
+  `profile::RENAMED_ZONES`.
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
 
