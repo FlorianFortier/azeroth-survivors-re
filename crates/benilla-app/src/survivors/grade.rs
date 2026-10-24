@@ -84,10 +84,11 @@ fn attach(
 fn toggle(
     keys: Res<ButtonInput<KeyCode>>,
     phase: Res<State<super::Phase>>,
+    focus: Res<super::kit::KitFocus>,
     mut on: ResMut<GradeOn>,
 ) {
-    // On the lobby screen G is a letter in a name.
-    if *phase.get() != super::Phase::Lobby && keys.just_pressed(KeyCode::KeyG) {
+    // On the lobby screen, or in a name field, G is a letter.
+    if *phase.get() != super::Phase::Lobby && !focus.typing() && keys.just_pressed(KeyCode::KeyG) {
         on.0 = !on.0;
     }
 }

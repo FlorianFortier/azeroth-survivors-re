@@ -515,10 +515,11 @@ pub(super) fn turn_camera(
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<super::kit::KitFocus>,
     windows: Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
 ) {
-    // On the lobby screen C is a letter in a name.
-    if *phase.get() != Phase::Lobby && keys.just_pressed(KeyCode::KeyC) {
+    // On the lobby screen, or in a name field, C is a letter.
+    if *phase.get() != Phase::Lobby && !focus.typing() && keys.just_pressed(KeyCode::KeyC) {
         let next = rig.mode.next();
         rig.switch(next);
     }

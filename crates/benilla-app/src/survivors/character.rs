@@ -7,15 +7,17 @@
 //!
 //! Today: the class column (the class grid, the class's description, its starting health with
 //! everything the profile brings in, its starting spell, the zones open, and its spell pool with
-//! tooltips). The hero card and the zone list come next.
+//! tooltips) and the hero column (faction, name with a race-flavoured Random, race and sex,
+//! an open stage where the live hero turns, the equipment slots and the race). The zone list
+//! comes next.
 
 use bevy::prelude::*;
 
 use super::data::{self, ClassDef};
 use super::hud::{self, TipLine};
-use super::kit::{self, theme, IconSource, KitClicks, KitFonts, Tooltip};
+use super::kit::{self, theme, FieldDone, IconSource, KitClicks, KitFonts, TextField, Tooltip};
 use super::profile::ProfileStore;
-use super::{menu, Owned, Phase, Run, Selection, Vitals};
+use super::{menu, names, Owned, Phase, Rng, Run, Selection, Vitals};
 
 /// The new screen replaces the glue menu.
 pub(super) fn enabled() -> bool {
@@ -29,7 +31,15 @@ pub(super) fn plugin(app: &mut App) {
     }
     app.add_systems(
         Update,
-        (build_screen, show_screen, clicks, refresh_class_column)
+        (
+            build_screen,
+            show_screen,
+            clicks,
+            name_edits,
+            refresh_class_column,
+            refresh_hero_card,
+            adopt_name,
+        )
             .chain()
             .after(hud::show_panels),
     );
@@ -57,8 +67,26 @@ struct ClassColumn;
 enum ScreenAction {
     Tab(usize),
     Class(usize),
+    Race(u8),
+    Sex(u8),
+    RandomName,
     Enter,
 }
+
+/// The hero's name field.
+#[derive(Component)]
+struct NameField;
+
+/// The hero card's parts that follow the pick: the faction badge, the race-and-class line, the
+/// race and sex pickers, and the race section under the stage.
+#[derive(Component)]
+struct HeroFaction;
+#[derive(Component)]
+struct HeroLine;
+#[derive(Component)]
+struct HeroPickers;
+#[derive(Component)]
+struct RaceSection;
 
 fn build_screen(
     mut commands: Commands,
@@ -129,10 +157,7 @@ fn build_screen(
                         ));
                     },
                 );
-                cols.spawn(Node {
-                    flex_grow: 1.0,
-                    ..default()
-                });
+                hero_column(cols, f);
                 kit::panel(
                     cols,
                     f,
@@ -202,6 +227,8 @@ fn clicks(
     mut run: ResMut<Run>,
     mut store: ResMut<ProfileStore>,
     mut next: ResMut<NextState<Phase>>,
+    mut rng: ResMut<Rng>,
+    mut name_field: Query<&mut TextField, With<NameField>>,
 ) {
     if *phase.get() != Phase::Menu {
         return;
@@ -211,13 +238,26 @@ fn clicks(
     };
     match action {
         ScreenAction::Tab(_) => {}
-        ScreenAction::Class(c) => {
+        ScreenAction::Class(_) | ScreenAction::Race(_) | ScreenAction::Sex(_) => {
             let Some(creatures) = creatures.as_deref() else {
                 return;
             };
             let all = menu::all_looks(creatures);
-            menu::pick_class(&mut selection, &all, c);
+            match action {
+                ScreenAction::Class(c) => menu::pick_class(&mut selection, &all, c),
+                ScreenAction::Race(r) => menu::pick_race(&mut selection, &all, r),
+                ScreenAction::Sex(s) => menu::pick_sex(&mut selection, &all, s),
+                _ => {}
+            }
             menu::save_pick(&selection, &mut store);
+        }
+        ScreenAction::RandomName => {
+            let race = menu::current_look(&selection).map_or(1, |l| l.0);
+            let name = names::random_name(race, || rng.f32());
+            store.edit(|p| p.hero.name.clone_from(&name));
+            for mut field in &mut name_field {
+                field.value.clone_from(&name);
+            }
         }
         ScreenAction::Enter => {
             if session.in_lobby {
@@ -350,6 +390,385 @@ fn spell_tip(
     hud::ability_tip(&owned, stats, spells)
 }
 
+/// The ten slots the hero wears, with the paper doll's empty-slot art.
+const EQUIPMENT: [(&str, &str); 10] = [
+    ("Head", "Head"),
+    ("Shoulders", "Shoulder"),
+    ("Chest", "Chest"),
+    ("Wrists", "Wrists"),
+    ("Hands", "Hands"),
+    ("Waist", "Waist"),
+    ("Legs", "Legs"),
+    ("Feet", "Feet"),
+    ("Main Hand", "MainHand"),
+    ("Off Hand", "SecondaryHand"),
+];
+
+/// The Alliance's races; the rest are the Horde's.
+fn alliance(race: u8) -> bool {
+    matches!(race, 1 | 3 | 4 | 7)
+}
+
+/// The races in the character-create order.
+const RACES: [u8; 8] = [1, 3, 7, 4, 2, 5, 6, 8];
+
+/// The middle column: the hero card on top, the open stage where the live hero turns, and the
+/// equipment and race under it.
+fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
+    cols.spawn(Node {
+        flex_grow: 1.0,
+        flex_direction: FlexDirection::Column,
+        align_items: AlignItems::Center,
+        row_gap: Val::Px(8.0),
+        max_width: Val::Px(560.0),
+        ..default()
+    })
+    .with_children(|c| {
+        kit::panel(
+            c,
+            f,
+            None,
+            Node {
+                width: Val::Percent(100.0),
+                ..default()
+            },
+            |p| {
+                p.spawn(Node {
+                    column_gap: Val::Px(8.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                })
+                .with_children(|r| {
+                    r.spawn((HeroFaction, Node::default()));
+                    kit::text_field(
+                        r,
+                        f,
+                        "",
+                        230.0,
+                        names::MAX_NAME,
+                        names::name_char,
+                        NameField,
+                    );
+                    kit::button(
+                        r,
+                        f,
+                        "Random",
+                        None,
+                        kit::ButtonLook::PLAIN,
+                        ScreenAction::RandomName,
+                    );
+                });
+                p.spawn((
+                    HeroLine,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                ));
+                p.spawn((
+                    HeroPickers,
+                    Node {
+                        column_gap: Val::Px(4.0),
+                        align_items: AlignItems::Center,
+                        flex_wrap: FlexWrap::Wrap,
+                        ..default()
+                    },
+                ));
+            },
+        );
+        // The stage: no fill, so the hero orbiting in the world shows through its frame.
+        c.spawn((
+            Node {
+                width: Val::Percent(100.0),
+                flex_grow: 1.0,
+                min_height: Val::Px(140.0),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
+                ..default()
+            },
+            BorderColor::all(theme::BRASS.with_alpha(0.55)),
+            Pickable::IGNORE,
+        ));
+        kit::panel(
+            c,
+            f,
+            Some("Equipment"),
+            Node {
+                width: Val::Percent(100.0),
+                ..default()
+            },
+            |p| {
+                p.spawn(Node {
+                    column_gap: Val::Px(4.0),
+                    justify_content: JustifyContent::Center,
+                    flex_wrap: FlexWrap::Wrap,
+                    ..default()
+                })
+                .with_children(|r| {
+                    for (label, art) in EQUIPMENT {
+                        kit::icon(
+                            r,
+                            IconSource::Texture(format!(
+                                "Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}"
+                            )),
+                            30.0,
+                            Some(Tooltip(vec![
+                                TipLine::new(label, Color::WHITE).header(),
+                                TipLine::new("Empty", theme::DIM),
+                            ])),
+                        );
+                    }
+                });
+                p.spawn(Node {
+                    column_gap: Val::Px(8.0),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                })
+                .with_children(|r| {
+                    for (title, sub) in [
+                        ("Armory", "Race, look, gear and drop tables"),
+                        ("Talents", "Spend your talent points"),
+                    ] {
+                        let b = kit::button(r, f, title, Some(sub), kit::ButtonLook::ACTION, ());
+                        r.commands()
+                            .entity(b)
+                            .insert((kit::Disabled(true), Tooltip::simple(title, "Coming soon.")));
+                    }
+                });
+                p.spawn((
+                    RaceSection,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(3.0),
+                        ..default()
+                    },
+                ));
+            },
+        );
+    });
+}
+
+/// The name field's edits go on the profile, tidied; Random rolls one in the race's sound.
+fn name_edits(
+    mut done: MessageReader<FieldDone>,
+    mut fields: Query<&mut TextField, With<NameField>>,
+    mut store: ResMut<ProfileStore>,
+) {
+    for d in done.read() {
+        let Ok(mut field) = fields.get_mut(d.field) else {
+            continue;
+        };
+        let name = names::clean_name(&d.value);
+        if name.chars().count() < 2 {
+            // Too short to be a name: the last one stands.
+            field.value.clone_from(&store.profile.hero.name);
+            continue;
+        }
+        if field.value != name {
+            field.value.clone_from(&name);
+        }
+        store.edit(|p| p.hero.name = name);
+    }
+}
+
+/// What the hero card shows, to rebuild it only when that changes.
+#[derive(PartialEq, Clone, Debug)]
+struct HeroView {
+    class: Option<usize>,
+    look: Option<(u8, u8)>,
+    looks_known: bool,
+}
+
+/// The parts of the hero card that follow the pick; the name too, when the profile has none yet.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn refresh_hero_card(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    creatures: Option<Res<crate::entities::Creatures>>,
+    mut store: ResMut<ProfileStore>,
+    mut rng: ResMut<Rng>,
+    mut name: Query<&mut TextField, With<NameField>>,
+    mut parts: ParamSet<(
+        Query<Entity, With<HeroFaction>>,
+        Query<Entity, With<HeroLine>>,
+        Query<Entity, With<HeroPickers>>,
+        Query<Entity, With<RaceSection>>,
+    )>,
+    mut shown: Local<Option<HeroView>>,
+) {
+    let Some(fonts) = fonts else { return };
+    let look = menu::current_look(&selection);
+    // A hero always has a name: the profile's, or one rolled for the race.
+    if let Ok(mut field) = name.single_mut() {
+        if store.profile.hero.name.is_empty() {
+            if let Some((race, _)) = look {
+                let rolled = names::random_name(race, || rng.f32());
+                store.edit(|p| p.hero.name.clone_from(&rolled));
+            }
+        }
+        if field.value.is_empty() && !store.profile.hero.name.is_empty() {
+            field.value.clone_from(&store.profile.hero.name);
+        }
+    }
+    let view = HeroView {
+        class: selection.class,
+        look,
+        looks_known: creatures.is_some(),
+    };
+    if shown.as_ref() == Some(&view) {
+        return;
+    }
+    let (Ok(faction), Ok(line), Ok(pickers), Ok(race_section)) = (
+        parts.p0().single(),
+        parts.p1().single(),
+        parts.p2().single(),
+        parts.p3().single(),
+    ) else {
+        return;
+    };
+    *shown = Some(view);
+    let f = &*fonts;
+    let all = creatures
+        .as_deref()
+        .map(menu::all_looks)
+        .unwrap_or_default();
+    for e in [faction, line, pickers, race_section] {
+        commands.entity(e).despawn_related::<Children>();
+    }
+    let Some((race, sex)) = look else {
+        return;
+    };
+    let class = selection.class_def();
+
+    commands.entity(faction).with_children(|b| {
+        let (label, color) = if alliance(race) {
+            ("ALLIANCE", Color::srgb(0.25, 0.5, 1.0))
+        } else {
+            ("HORDE", Color::srgb(0.9, 0.2, 0.15))
+        };
+        b.spawn((
+            Node {
+                padding: UiRect::axes(Val::Px(7.0), Val::Px(2.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                border_radius: BorderRadius::all(Val::Px(9.0)),
+                ..default()
+            },
+            BackgroundColor(color.with_alpha(0.2)),
+            BorderColor::all(color),
+        ))
+        .with_children(|c| {
+            c.spawn(kit::text(&f.body, label, 10.0, color));
+        });
+    });
+
+    commands.entity(line).with_children(|l| {
+        l.spawn(Node {
+            column_gap: Val::Px(6.0),
+            ..default()
+        })
+        .with_children(|r| {
+            r.spawn(kit::text(
+                &f.body,
+                crate::char_select::race_name(race),
+                17.0,
+                theme::TEXT,
+            ));
+            if let Some(class) = class {
+                r.spawn(kit::text(&f.body, class.name, 17.0, hud::rgb(class.color)));
+            }
+        });
+        l.spawn(kit::text(
+            &f.body,
+            if sex == 1 { "Female" } else { "Male" },
+            13.0,
+            theme::DIM,
+        ));
+    });
+
+    commands.entity(pickers).with_children(|r| {
+        for race_id in RACES {
+            let playable = all.is_empty() || menu::race_playable(&all, race_id);
+            let icon = match crate::glue::art::race_tc(race_id, sex) {
+                Some(tc) => IconSource::Atlas(
+                    "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races".into(),
+                    tc,
+                ),
+                None => continue,
+            };
+            let e = kit::icon_button(
+                r,
+                f,
+                icon,
+                26.0,
+                None,
+                race_id == race,
+                ScreenAction::Race(race_id),
+            );
+            if !playable {
+                r.commands().entity(e).insert(Visibility::Hidden);
+            }
+            let name = crate::char_select::race_name(race_id);
+            let keeps_class = all.is_empty()
+                || selection
+                    .class
+                    .and_then(|c| all.get(c))
+                    .is_some_and(|looks| looks.iter().any(|l| l.1 == race_id));
+            let note = if keeps_class {
+                format!("Play as a {name}.")
+            } else {
+                format!("Picking {name} changes your class.")
+            };
+            r.commands().entity(e).insert(Tooltip::simple(name, note));
+        }
+        r.spawn(Node {
+            width: Val::Px(10.0),
+            ..default()
+        });
+        for (s, label) in [(0u8, "Male"), (1, "Female")] {
+            let b = kit::button(
+                r,
+                f,
+                label,
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Sex(s),
+            );
+            r.commands().entity(b).insert(kit::Selected(s == sex));
+        }
+    });
+
+    commands.entity(race_section).with_children(|r| {
+        r.spawn(kit::text(
+            &f.title,
+            crate::char_select::race_name(race),
+            18.0,
+            theme::GOLD,
+        ));
+        r.spawn(kit::text(
+            &f.body,
+            if alliance(race) {
+                "Fights for the Alliance."
+            } else {
+                "Fights for the Horde."
+            },
+            12.0,
+            theme::DIM,
+        ));
+    });
+}
+
+/// The hero's name is the player's name in a lobby, unless `WOW_NAME` says otherwise.
+fn adopt_name(store: Res<ProfileStore>, mut net: ResMut<super::net::Net>) {
+    if !store.is_changed() || crate::webenv::var("WOW_NAME").is_some() || net.lobby.is_some() {
+        return;
+    }
+    let name = &store.profile.hero.name;
+    if !name.is_empty() && net.name != *name {
+        net.name.clone_from(name);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +800,20 @@ mod tests {
         let warrior = data::CLASSES.iter().find(|c| c.id == 1).unwrap();
         let mage = data::CLASSES.iter().find(|c| c.id == 8).unwrap();
         assert!(Vitals::new(warrior, 1).stats().max_hp > Vitals::new(mage, 1).stats().max_hp);
+    }
+
+    #[test]
+    fn races_split_into_the_two_factions() {
+        let alliance_count = RACES.iter().filter(|r| alliance(**r)).count();
+        assert_eq!(alliance_count, 4);
+        assert!(alliance(1) && !alliance(8));
+        // Every race has its face on the create sheet, both sexes.
+        for r in RACES {
+            assert!(
+                crate::glue::art::race_tc(r, 0).is_some()
+                    && crate::glue::art::race_tc(r, 1).is_some()
+            );
+        }
     }
 
     #[test]
