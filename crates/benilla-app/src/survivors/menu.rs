@@ -60,7 +60,7 @@ pub(super) struct RaceFace(u8);
 pub(super) struct PickName;
 
 /// The pick goes on the profile ([`super::profile`]), so a reload keeps the last hero and zone.
-fn save_pick(sel: &Selection, store: &mut ProfileStore) {
+pub(super) fn save_pick(sel: &Selection, store: &mut ProfileStore) {
     let (Some(class), Some(&(_, race, sex))) = (sel.class, sel.look.and_then(|i| sel.looks.get(i)))
     else {
         return;
@@ -105,7 +105,7 @@ pub(super) fn restore_pick(
 }
 
 /// Every class's looks, `(display, race, sex)`, indexed like [`data::CLASSES`].
-fn all_looks(creatures: &crate::entities::Creatures) -> Vec<Vec<(u32, u8, u8)>> {
+pub(super) fn all_looks(creatures: &crate::entities::Creatures) -> Vec<Vec<(u32, u8, u8)>> {
     data::CLASSES
         .iter()
         .map(|c| looks_for(c, creatures))
@@ -116,6 +116,23 @@ fn find(looks: &[(u32, u8, u8)], race: Option<u8>, sex: Option<u8>) -> Option<us
     looks
         .iter()
         .position(|&(_, r, s)| race.is_none_or(|x| x == r) && sex.is_none_or(|x| x == s))
+}
+
+/// Pick a class, keeping the race and gender where the class has them.
+pub(super) fn pick_class(sel: &mut Selection, all: &[Vec<(u32, u8, u8)>], class: usize) {
+    let cur = sel
+        .look
+        .and_then(|i| sel.looks.get(i))
+        .map(|&(_, r, s)| (r, s));
+    let (race, sex) = (cur.map(|c| c.0), cur.map_or(0, |c| c.1));
+    let looks = &all[class];
+    let l = find(looks, race, Some(sex))
+        .or_else(|| find(looks, race, None))
+        .or_else(|| find(looks, None, Some(sex)))
+        .or_else(|| find(looks, None, None));
+    if let Some(l) = l {
+        set(sel, all, class, l);
+    }
 }
 
 fn set(sel: &mut Selection, all: &[Vec<(u32, u8, u8)>], class: usize, look: usize) {
@@ -569,16 +586,7 @@ pub(super) fn menu_clicks(
             }
         }
         // The class keeps the race and gender where it can.
-        MenuAction::Class(c) => {
-            let looks = &all[c];
-            let l = find(looks, race, Some(sex))
-                .or_else(|| find(looks, race, None))
-                .or_else(|| find(looks, None, Some(sex)))
-                .or_else(|| find(looks, None, None));
-            if let Some(l) = l {
-                set(&mut selection, &all, c, l);
-            }
-        }
+        MenuAction::Class(c) => pick_class(&mut selection, &all, c),
         // The race keeps the class where it can, else takes the first class it has.
         MenuAction::Race(r) => {
             let classes = selection.class.into_iter().chain(0..all.len());

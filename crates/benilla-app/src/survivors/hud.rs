@@ -272,7 +272,11 @@ fn icon(spell: u32, size: f32) -> impl Bundle {
     )
 }
 
-fn spell_name(spells: Option<&crate::ui_action::Spells>, spell: u32, fallback: &str) -> String {
+pub(super) fn spell_name(
+    spells: Option<&crate::ui_action::Spells>,
+    spell: u32,
+    fallback: &str,
+) -> String {
     spells
         .and_then(|s| s.catalog.get(spell))
         .map(|d| d.name.clone())
@@ -1905,7 +1909,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
     gains.join(", ")
 }
 
-fn ability_tip(
+pub(super) fn ability_tip(
     o: &Owned,
     stats: &Stats,
     spells: Option<&crate::ui_action::Spells>,
@@ -2251,7 +2255,8 @@ pub(super) fn show_panels(
         }
     };
     for root in &mut roots.p0() {
-        set(root, p == Phase::Menu);
+        // The new main screen (`character`) takes the glue menu's place when it is on.
+        set(root, p == Phase::Menu && !super::character::enabled());
     }
     for root in &mut roots.p1() {
         set(
