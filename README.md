@@ -39,6 +39,9 @@ minutes. **No server, no login, no account** — fully offline and self-containe
   Naxxramas and the Gates of Ahn'Qiraj. Each zone fights with its own creatures and bosses, taken
   from the zone's real spawns. Your pick and every run's record are kept in a saved profile
   (`benilla-config/survivors-profile.toml`, or the browser's storage).
+- **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
+  Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
+  effect that fires on its own, shown on the main screen and carried by co-op guests too.
 - **Level-up cards** that deal in, tilt toward the cursor and lift on hover. Their WoW item-quality
   colour says how strong a pick is, and each card lists exactly what changes, like
   `Damage 20 » 26` or `Targets 2 » 3`.

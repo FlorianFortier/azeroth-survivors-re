@@ -333,7 +333,7 @@ fn refresh_class_column(
         .look
         .and_then(|i| selection.looks.get(i))
         .map_or(0, |l| l.1);
-    let (meta, procs) = store.profile.run_bonuses();
+    let (meta, procs) = store.profile.run_bonuses(race);
     let view = ClassView {
         class: selection.class,
         race,
@@ -746,11 +746,15 @@ fn refresh_hero_card(
                 r.commands().entity(e).insert(Visibility::Hidden);
             }
             let name = crate::char_select::race_name(race_id);
-            let keeps_class = all.is_empty()
-                || selection
+            // The client's looks decide; without them, vanilla's own pairs.
+            let keeps_class = if all.is_empty() {
+                class.is_none_or(|c| data::race_classes(race_id).contains(&c.id))
+            } else {
+                selection
                     .class
                     .and_then(|c| all.get(c))
-                    .is_some_and(|looks| looks.iter().any(|l| l.1 == race_id));
+                    .is_some_and(|looks| looks.iter().any(|l| l.1 == race_id))
+            };
             let note = if keeps_class {
                 format!("Play as a {name}.")
             } else {
@@ -792,7 +796,47 @@ fn refresh_hero_card(
             12.0,
             theme::DIM,
         ));
+        r.spawn(kit::text(&f.body, "Racials", 13.0, theme::GOLD));
+        for def in data::racials(race) {
+            r.spawn(Node {
+                column_gap: Val::Px(8.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|row| {
+                kit::icon(
+                    row,
+                    IconSource::Spell(def.spell),
+                    24.0,
+                    Some(racial_tip(def)),
+                );
+                row.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.body, def.name, 12.0, theme::TEXT));
+                    c.spawn(kit::text(&f.body, def.text, 11.0, theme::GREEN));
+                });
+            });
+        }
     });
+}
+
+/// A racial's tooltip: its name, what it does, and whether it is always on or fires.
+fn racial_tip(def: &data::RacialDef) -> Tooltip {
+    let kind = if def.proc.is_some() {
+        "Fires on its own"
+    } else {
+        "Always on"
+    };
+    Tooltip(vec![
+        TipLine::new(def.name, Color::WHITE)
+            .header()
+            .right("Racial", theme::DIM),
+        TipLine::new(kind, theme::DIM),
+        TipLine::new(def.text, theme::GREEN),
+    ])
 }
 
 /// Minutes and seconds, "2:15".

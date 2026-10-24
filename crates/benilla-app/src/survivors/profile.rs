@@ -134,11 +134,12 @@ impl Profile {
         z.best_kills = z.best_kills.max(r.kills);
     }
 
-    /// What the profile brings into a run, for the hero picked: the bonuses that hold all run
-    /// and the effects that fire on their own. The collection, talents, racials and gear each add
-    /// theirs here as they land; today the profile brings nothing yet.
-    pub fn run_bonuses(&self) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
-        (Vec::new(), Vec::new())
+    /// What the profile brings into a run for a hero of `race` (the hero actually spawned, which
+    /// a lobby may have changed): the bonuses that hold all run and the effects that fire on
+    /// their own. Today the race's three racials; the collection, talents and gear each add
+    /// theirs here as they land.
+    pub fn run_bonuses(&self, race: u8) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
+        data::racial_bonuses(race)
     }
 
     /// The pick file the profile replaced: `class race sex zone`, all indices.
@@ -326,6 +327,19 @@ mod tests {
             kills,
             damage_done: 1000.0,
         }
+    }
+
+    #[test]
+    fn a_troll_brings_its_racials() {
+        let p = Profile::default();
+        let (bonuses, procs) = p.run_bonuses(8);
+        assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Regen, 1.5)));
+        assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Crit, 0.03)));
+        assert_eq!(procs.iter().map(|d| d.key).collect::<Vec<_>>(), ["berserking"]);
+        // A Gnome's racials always hold, none fires.
+        let (bonuses, procs) = p.run_bonuses(7);
+        assert_eq!(bonuses.len(), 3);
+        assert!(procs.is_empty());
     }
 
     #[test]
