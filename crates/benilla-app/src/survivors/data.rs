@@ -1016,11 +1016,7 @@ const fn racial(
     }
 }
 
-const fn racial_proc(
-    name: &'static str,
-    text: &'static str,
-    proc: &'static ProcDef,
-) -> RacialDef {
+const fn racial_proc(name: &'static str, text: &'static str, proc: &'static ProcDef) -> RacialDef {
     RacialDef {
         key: proc.key,
         name,
@@ -2514,16 +2510,6 @@ impl Rarity {
         }
     }
 
-    /// The `ItemInfo` quality index (2 uncommon … 5 legendary).
-    pub const fn quality(self) -> u32 {
-        match self {
-            Rarity::Uncommon => 2,
-            Rarity::Rare => 3,
-            Rarity::Epic => 4,
-            Rarity::Legendary => 5,
-        }
-    }
-
     const fn power(self) -> f32 {
         match self {
             Rarity::Uncommon => 1.0,
@@ -2964,7 +2950,13 @@ mod tests {
             let r = roster(i);
             let last = r.bosses.last().unwrap();
             for e in r.enemies.iter().chain(&r.bosses[..r.bosses.len() - 1]) {
-                assert!(last.hp > e.hp, "{}: {} vs {}", MAPS[i].name, last.name, e.name);
+                assert!(
+                    last.hp > e.hp,
+                    "{}: {} vs {}",
+                    MAPS[i].name,
+                    last.name,
+                    e.name
+                );
             }
         }
     }
@@ -3217,7 +3209,10 @@ mod tests {
             let classes = race_classes(race);
             assert!(classes.len() >= 4, "race {race}");
             for id in classes {
-                assert!(CLASSES.iter().any(|c| c.id == *id), "race {race}: class {id}");
+                assert!(
+                    CLASSES.iter().any(|c| c.id == *id),
+                    "race {race}: class {id}"
+                );
             }
         }
         for c in CLASSES {
@@ -3248,7 +3243,7 @@ mod tests {
                 assert!(i.name.starts_with(roster(z).bosses[k].name));
             }
         }
-        assert_eq!(boss_item(0, 4).unwrap().name, "Edwin VanCleef's Ward");
+        assert_eq!(boss_item(0, 4).unwrap().name, "Edwin VanCleef's Gauntlets");
         // Every slot comes up six times.
         for s in GearSlot::ALL {
             assert_eq!(ITEMS.iter().filter(|i| i.slot == s).count(), 6, "{s:?}");

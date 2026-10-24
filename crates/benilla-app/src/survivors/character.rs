@@ -1040,10 +1040,9 @@ fn refresh_equipment(
                 None => {
                     let piece = outfit.iter().find(|w| w.slot == slot);
                     let note = match (piece, owned) {
-                        (_, n) if n > 0 => TipLine::new(
-                            format!("{n} found: click to wear one."),
-                            theme::GOLD,
-                        ),
+                        (_, n) if n > 0 => {
+                            TipLine::new(format!("{n} found: click to wear one."), theme::GOLD)
+                        }
                         (Some(_), _) => TipLine::new("Starting gear", theme::TEXT),
                         (None, _) => TipLine::new("Empty", theme::DIM),
                     };

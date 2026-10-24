@@ -234,7 +234,8 @@ impl Profile {
         };
         match next {
             Some(i) => {
-                self.equipped.insert(slot.name().to_string(), i.name.clone());
+                self.equipped
+                    .insert(slot.name().to_string(), i.name.clone());
             }
             None => {
                 self.equipped.remove(slot.name());
@@ -415,8 +416,7 @@ fn keep_to_open_zones(
     store: Res<ProfileStore>,
     mut selection: ResMut<Selection>,
 ) {
-    if *phase.get() != Phase::Menu || session.in_lobby || store.profile.zone_open(selection.map)
-    {
+    if *phase.get() != Phase::Menu || session.in_lobby || store.profile.zone_open(selection.map) {
         return;
     }
     let furthest = (0..data::MAPS.len())
@@ -446,11 +446,7 @@ fn save_on_exit(mut exit: MessageReader<AppExit>, mut store: ResMut<ProfileStore
 }
 
 /// The run that just ended goes on the record.
-fn record_run(
-    run: Res<Run>,
-    selection: Res<Selection>,
-    mut store: ResMut<ProfileStore>,
-) {
+fn record_run(run: Res<Run>, selection: Res<Selection>, mut store: ResMut<ProfileStore>) {
     if !run.begun {
         return;
     }
@@ -527,7 +523,10 @@ mod tests {
         let (bonuses, procs) = p.run_bonuses(8);
         assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Regen, 1.5)));
         assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Crit, 0.03)));
-        assert_eq!(procs.iter().map(|d| d.key).collect::<Vec<_>>(), ["berserking"]);
+        assert_eq!(
+            procs.iter().map(|d| d.key).collect::<Vec<_>>(),
+            ["berserking"]
+        );
         // A Gnome's racials always hold, none fires.
         let (bonuses, procs) = p.run_bonuses(7);
         assert_eq!(bonuses.len(), 3);

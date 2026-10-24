@@ -206,7 +206,11 @@ fn pool(catalog: &ItemDisplayCatalog, stems: &[&str]) -> Vec<u32> {
         .iter()
         .filter(|(_, d)| {
             d.icon.as_deref().is_some_and(|icon| {
-                let base = icon.rsplit(['\\', '/']).next().unwrap_or(icon).to_ascii_lowercase();
+                let base = icon
+                    .rsplit(['\\', '/'])
+                    .next()
+                    .unwrap_or(icon)
+                    .to_ascii_lowercase();
                 stems.iter().any(|s| base.starts_with(s))
             })
         })
@@ -237,7 +241,11 @@ pub(super) fn gear_worn(
     let (slot, inv) = gear_slot(item.slot);
     let base = match item.slot {
         GearSlot::MainHand | GearSlot::OffHand => {
-            let hand = if item.slot == GearSlot::MainHand { 0 } else { 1 };
+            let hand = if item.slot == GearSlot::MainHand {
+                0
+            } else {
+                1
+            };
             Worn::weapon(class.weapons.iter().find(|w| w.0 == hand)?)
         }
         _ => Worn::armour(slot, 0, inv),
@@ -673,7 +681,12 @@ mod tests {
             let Some(w) = gear_worn(blade, c, &cat) else {
                 continue;
             };
-            assert_eq!((w.class, w.subclass, w.sheath), (main.2, main.3, main.6), "{}", c.name);
+            assert_eq!(
+                (w.class, w.subclass, w.sheath),
+                (main.2, main.3, main.6),
+                "{}",
+                c.name
+            );
             if (main.2, main.3) == (2, 10) {
                 assert_eq!(w.display, 31, "{} swings a staff", c.name);
             }
@@ -683,7 +696,10 @@ mod tests {
             .iter()
             .find(|i| i.slot == GearSlot::OffHand)
             .unwrap();
-        for c in data::CLASSES.iter().filter(|c| !c.weapons.iter().any(|w| w.0 == 1)) {
+        for c in data::CLASSES
+            .iter()
+            .filter(|c| !c.weapons.iter().any(|w| w.0 == 1))
+        {
             assert!(gear_worn(ward, c, &cat).is_none(), "{}", c.name);
             assert!(gear_icon(ward, Some(c), &cat).is_some());
         }

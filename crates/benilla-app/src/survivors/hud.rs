@@ -874,7 +874,16 @@ pub(super) fn menu_preview(
     catalog: Option<Res<crate::entities::CharCreate>>,
     displays: Option<Res<crate::entities::ItemDisplays>>,
     store: Res<super::profile::ProfileStore>,
-    mut shown: Local<Option<(usize, u32, usize, super::outfit::Appearance, bool, Vec<String>)>>,
+    mut shown: Local<
+        Option<(
+            usize,
+            u32,
+            usize,
+            super::outfit::Appearance,
+            bool,
+            Vec<String>,
+        )>,
+    >,
 ) {
     // A guest's run hero is the host's to send: no preview once its run has begun.
     if !matches!(phase.get(), Phase::Menu | Phase::Lobby) || session.mode == super::Mode::Client {
@@ -890,7 +899,12 @@ pub(super) fn menu_preview(
             selection.stage,
             selection.appearance,
             catalog.is_some() && displays.is_some(),
-            store.profile.gear().iter().map(|i| i.name.clone()).collect(),
+            store
+                .profile
+                .gear()
+                .iter()
+                .map(|i| i.name.clone())
+                .collect(),
         )
     });
     if key == *shown && (key.is_none() || !heroes.is_empty()) {
