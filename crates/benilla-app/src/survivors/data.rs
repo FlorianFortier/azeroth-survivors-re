@@ -2578,6 +2578,43 @@ pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock
     out
 });
 
+/// The share of an item's first bonus its place in the collection gives for good, worn or not.
+pub(crate) const COLLECTION_SHARE: f32 = 0.25;
+
+/// What having found an item gives every run from then on: a quarter of its first bonus.
+pub(crate) fn collection_bonus(item: &ItemDef) -> Bonus {
+    let b = item.bonuses[0];
+    Bonus {
+        stat: b.stat,
+        amount: match b.amount {
+            Amount::Flat(v) => Amount::Flat(v * COLLECTION_SHARE),
+            Amount::Percent(v) => Amount::Percent(v * COLLECTION_SHARE),
+        },
+    }
+}
+
+/// Bonuses added up by stat and kind, in [`Stat::ALL`]'s order, flat before percent: the
+/// collection's line on the main screen.
+pub(crate) fn sum_bonuses(bonuses: &[Bonus]) -> Vec<Bonus> {
+    let mut out = Vec::new();
+    for stat in Stat::ALL {
+        let (mut flat, mut pct) = (0.0f32, 0.0f32);
+        for b in bonuses.iter().filter(|b| b.stat == stat) {
+            match b.amount {
+                Amount::Flat(v) => flat += v,
+                Amount::Percent(v) => pct += v,
+            }
+        }
+        if flat != 0.0 {
+            out.push(Bonus::flat(stat, flat));
+        }
+        if pct != 0.0 {
+            out.push(Bonus::pct(stat, pct));
+        }
+    }
+    out
+}
+
 /// An item by its name.
 pub(crate) fn item(name: &str) -> Option<&'static ItemDef> {
     ITEMS.iter().find(|i| i.name == name)
@@ -3276,5 +3313,23 @@ mod tests {
             assert_eq!(i.zone, 3);
         }
         assert!(horde_item(3, odds).is_none());
+    }
+
+    #[test]
+    fn the_collection_gives_a_share_of_each_item_and_adds_up() {
+        let helm = ITEMS.iter().find(|i| i.slot == GearSlot::Head).unwrap();
+        let b = collection_bonus(helm);
+        assert_eq!(b.stat, helm.bonuses[0].stat);
+        let (Amount::Percent(full), Amount::Percent(part)) = (helm.bonuses[0].amount, b.amount)
+        else {
+            panic!("a helm gives a percent of health");
+        };
+        assert!((part - full * COLLECTION_SHARE).abs() < 1e-6);
+        let all: Vec<Bonus> = ITEMS.iter().map(collection_bonus).collect();
+        let sum = sum_bonuses(&all);
+        // One line per stat and kind the slots give: ten slots, ten lines.
+        assert_eq!(sum.len(), 10);
+        let stats: HashSet<Stat> = sum.iter().map(|b| b.stat).collect();
+        assert!(stats.contains(&Stat::Crit) && stats.contains(&Stat::MaxHp));
     }
 }

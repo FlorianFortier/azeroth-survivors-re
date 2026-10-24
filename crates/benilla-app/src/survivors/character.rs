@@ -31,7 +31,7 @@ pub(super) fn plugin(app: &mut App) {
     if !enabled() {
         return;
     }
-    app.add_systems(
+    app.init_resource::<Page>().add_systems(
         Update,
         (
             build_screen,
@@ -41,6 +41,9 @@ pub(super) fn plugin(app: &mut App) {
             refresh_class_column,
             refresh_hero_card,
             refresh_equipment,
+            show_pages,
+            refresh_collection,
+            refresh_armory,
             refresh_zone_list,
             refresh_bottom_bar,
             adopt_name,
@@ -64,6 +67,30 @@ const TABS: [&str; 7] = [
 #[derive(Component)]
 struct ScreenRoot;
 
+/// The pages the screen shows in its columns' place: the tabs built so far, and the Armory.
+const CHARACTER: usize = 0;
+const COLLECTION: usize = 1;
+const ARMORY: usize = 100;
+const BUILT_TABS: [usize; 2] = [CHARACTER, COLLECTION];
+
+/// The page shown.
+#[derive(Resource, Default)]
+struct Page(usize);
+
+#[derive(Component)]
+struct PageRoot(usize);
+
+#[derive(Component)]
+struct TabButton(usize);
+
+/// The Collection tab's body, the Armory's, and the collection bar under the equipment.
+#[derive(Component)]
+struct CollectionBody;
+#[derive(Component)]
+struct ArmoryBody;
+#[derive(Component)]
+struct CollectionBar;
+
 /// The class column's body, rebuilt when the pick changes.
 #[derive(Component)]
 struct ClassColumn;
@@ -81,6 +108,14 @@ enum ScreenAction {
     RandomLook,
     /// Wear the next item owned for one of the ten slots ([`data::GearSlot::ALL`]).
     Equip(usize),
+    /// Open the Armory.
+    Armory,
+    /// Wear an item ([`data::ITEMS`] index) from the Armory.
+    Wear(usize),
+    /// Take off what one of the ten slots wears.
+    Unwear(usize),
+    /// Back to the Character tab.
+    Back,
     Zone(usize),
     Enter,
     Coop,
@@ -147,21 +182,74 @@ fn build_screen(
                 .map(|(i, t)| (*t, ScreenAction::Tab(i)))
                 .collect();
             let ids = kit::tab_bar(root, f, &tabs, 0);
-            for (i, id) in ids.into_iter().enumerate().skip(1) {
-                root.commands().entity(id).insert((
-                    kit::Disabled(true),
-                    Tooltip::simple(TABS[i], "Coming soon."),
-                ));
+            for (i, id) in ids.into_iter().enumerate() {
+                root.commands().entity(id).insert(TabButton(i));
+                if !BUILT_TABS.contains(&i) {
+                    root.commands().entity(id).insert((
+                        kit::Disabled(true),
+                        Tooltip::simple(TABS[i], "Coming soon."),
+                    ));
+                }
+            }
+            // The Collection tab and the Armory, shown in the columns' place.
+            for (page, marker) in [(COLLECTION, 0u8), (ARMORY, 1)] {
+                root.spawn((
+                    PageRoot(page),
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_grow: 1.0,
+                        min_height: Val::Px(0.0),
+                        display: Display::None,
+                        ..default()
+                    },
+                ))
+                .with_children(|pg| {
+                    kit::panel(
+                        pg,
+                        f,
+                        Some(if marker == 0 { "Collection" } else { "Armory" }),
+                        Node {
+                            width: Val::Percent(100.0),
+                            min_height: Val::Px(0.0),
+                            ..default()
+                        },
+                        |p| {
+                            kit::scroll_area(
+                                p,
+                                Node {
+                                    flex_grow: 1.0,
+                                    flex_basis: Val::Px(0.0),
+                                    ..default()
+                                },
+                                |body| {
+                                    let mut e = body.spawn(Node {
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(8.0),
+                                        ..default()
+                                    });
+                                    if marker == 0 {
+                                        e.insert(CollectionBody);
+                                    } else {
+                                        e.insert(ArmoryBody);
+                                    }
+                                },
+                            );
+                        },
+                    );
+                });
             }
             // The three columns; the middle one stays open so the hero shows through.
-            root.spawn(Node {
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                min_height: Val::Px(0.0),
-                column_gap: Val::Px(14.0),
-                justify_content: JustifyContent::SpaceBetween,
-                ..default()
-            })
+            root.spawn((
+                PageRoot(CHARACTER),
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_grow: 1.0,
+                    min_height: Val::Px(0.0),
+                    column_gap: Val::Px(14.0),
+                    justify_content: JustifyContent::SpaceBetween,
+                    ..default()
+                },
+            ))
             .with_children(|cols| {
                 kit::panel(
                     cols,
@@ -268,6 +356,7 @@ fn clicks(
     mut store: ResMut<ProfileStore>,
     mut next: ResMut<NextState<Phase>>,
     mut rng: ResMut<Rng>,
+    mut page: ResMut<Page>,
     mut name_field: Query<&mut TextField, With<NameField>>,
 ) {
     if *phase.get() != Phase::Menu {
@@ -277,7 +366,23 @@ fn clicks(
         return;
     };
     match action {
-        ScreenAction::Tab(_) => {}
+        ScreenAction::Tab(i) => {
+            if BUILT_TABS.contains(&i) {
+                page.0 = i;
+            }
+        }
+        ScreenAction::Armory => page.0 = ARMORY,
+        ScreenAction::Back => page.0 = CHARACTER,
+        ScreenAction::Wear(i) => {
+            if let Some(item) = data::ITEMS.get(i) {
+                store.edit(|p| p.equip(item));
+            }
+        }
+        ScreenAction::Unwear(k) => {
+            if let Some(&slot) = data::GearSlot::ALL.get(k) {
+                store.edit(|p| p.unequip(slot));
+            }
+        }
         ScreenAction::Class(_) | ScreenAction::Race(_) | ScreenAction::Sex(_) => {
             let Some(creatures) = creatures.as_deref() else {
                 return;
@@ -593,16 +698,35 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                     ..default()
                 })
                 .with_children(|r| {
-                    for (title, sub) in [
-                        ("Armory", "Race, look, gear and drop tables"),
-                        ("Talents", "Spend your talent points"),
-                    ] {
-                        let b = kit::button(r, f, title, Some(sub), kit::ButtonLook::ACTION, ());
-                        r.commands()
-                            .entity(b)
-                            .insert((kit::Disabled(true), Tooltip::simple(title, "Coming soon.")));
-                    }
+                    kit::button(
+                        r,
+                        f,
+                        "Armory",
+                        Some("Every piece you own, slot by slot"),
+                        kit::ButtonLook::ACTION,
+                        ScreenAction::Armory,
+                    );
+                    let b = kit::button(
+                        r,
+                        f,
+                        "Talents",
+                        Some("Spend your talent points"),
+                        kit::ButtonLook::ACTION,
+                        (),
+                    );
+                    r.commands().entity(b).insert((
+                        kit::Disabled(true),
+                        Tooltip::simple("Talents", "Coming soon."),
+                    ));
                 });
+                p.spawn((
+                    CollectionBar,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(3.0),
+                        ..default()
+                    },
+                ));
                 p.spawn((
                     RaceSection,
                     Node {
@@ -920,7 +1044,7 @@ struct EquipmentView {
 
 /// A piece of gear's tooltip: its name in its quality's colour, the slot, what it gives, where
 /// it drops, and how to change it.
-fn gear_tip(item: &data::ItemDef, owned: usize) -> Tooltip {
+fn gear_tip(item: &data::ItemDef, hint: String) -> Tooltip {
     let mut lines = vec![
         TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
         TipLine::new(item.slot.name(), Color::WHITE).right(item.rarity.name(), theme::DIM),
@@ -933,14 +1057,7 @@ fn gear_tip(item: &data::ItemDef, owned: usize) -> Tooltip {
         format!("Dropped by {boss}, {}", data::MAPS[item.zone].name),
         theme::DIM,
     ));
-    lines.push(TipLine::new(
-        if owned > 1 {
-            format!("Click for the next of your {owned}.")
-        } else {
-            "Click to take it off.".to_string()
-        },
-        theme::GOLD,
-    ));
+    lines.push(TipLine::new(hint, theme::GOLD));
     Tooltip(lines)
 }
 
@@ -965,10 +1082,15 @@ fn bonus_text(b: &data::Bonus) -> String {
         b.stat,
         Stat::Might | Stat::Haste | Stat::Area | Stat::Growth | Stat::Crit | Stat::DamageReduction
     );
+    // One decimal, dropped when it is a zero: "25", "1.5".
+    let n = |v: f32| {
+        let t = format!("{v:.1}");
+        t.strip_suffix(".0").map(str::to_string).unwrap_or(t)
+    };
     match b.amount {
-        Amount::Percent(v) => format!("{:.0}% {what}", v * 100.0),
-        Amount::Flat(v) if fraction => format!("{:.1}% {what}", v * 100.0),
-        Amount::Flat(v) => format!("{v:.1} {what}"),
+        Amount::Percent(v) => format!("{}% {what}", n(v * 100.0)),
+        Amount::Flat(v) if fraction => format!("{}% {what}", n(v * 100.0)),
+        Amount::Flat(v) => format!("{} {what}", n(v)),
     }
 }
 
@@ -1035,7 +1157,14 @@ fn refresh_equipment(
                         .as_deref()
                         .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
                         .unwrap_or(empty),
-                    gear_tip(item, owned),
+                    gear_tip(
+                        item,
+                        if owned > 1 {
+                            format!("Click for the next of the {owned} you own.")
+                        } else {
+                            "Click to take it off.".to_string()
+                        },
+                    ),
                 ),
                 None => {
                     let piece = outfit.iter().find(|w| w.slot == slot);
@@ -1067,6 +1196,283 @@ fn refresh_equipment(
                     .entity(b)
                     .insert(BorderColor::all(hud::rgb(item.rarity.color())));
             }
+        }
+    });
+}
+
+/// The page picked shows in the columns' place, and its tab is lit.
+fn show_pages(
+    page: Res<Page>,
+    mut roots: Query<(&PageRoot, &mut Node)>,
+    mut tabs: Query<(&TabButton, &mut kit::Selected)>,
+) {
+    if !page.is_changed() {
+        return;
+    }
+    for (root, mut node) in &mut roots {
+        let want = if root.0 == page.0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != want {
+            node.display = want;
+        }
+    }
+    for (tab, mut selected) in &mut tabs {
+        let want = tab.0 == page.0 || (page.0 == ARMORY && tab.0 == CHARACTER);
+        if selected.0 != want {
+            selected.0 = want;
+        }
+    }
+}
+
+/// "+25 max health · +1% critical strike": the collection's bonuses added up, for one line.
+fn bonus_summary(bonuses: &[data::Bonus]) -> String {
+    let lines: Vec<String> = data::sum_bonuses(bonuses)
+        .iter()
+        .map(|b| format!("+{}", bonus_text(b)))
+        .collect();
+    if lines.is_empty() {
+        "Find gear to grow your collection: every piece found adds a bonus to every run.".into()
+    } else {
+        lines.join(" · ")
+    }
+}
+
+/// The Collection tab, every zone's five pieces, found or not; and the bar under the equipment.
+#[allow(clippy::too_many_arguments)]
+fn refresh_collection(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    store: Res<ProfileStore>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
+    body: Query<Entity, With<CollectionBody>>,
+    bar: Query<Entity, With<CollectionBar>>,
+    mut shown: Local<Option<(usize, Option<usize>, bool)>>,
+) {
+    let (Some(fonts), Ok(body), Ok(bar)) = (fonts, body.single(), bar.single()) else {
+        return;
+    };
+    let collected = store.profile.collected();
+    let view = (collected.len(), selection.class, displays.is_some());
+    if *shown == Some(view) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    let total = data::ITEMS.len();
+    let summary = bonus_summary(&store.profile.collection_bonuses());
+    let progress = || kit::Progress {
+        value: collected.len() as f32,
+        max: total as f32,
+    };
+    commands.entity(bar).despawn_related::<Children>();
+    commands.entity(bar).with_children(|b| {
+        kit::progress_bar(b, f, "Collection", progress());
+        b.spawn(kit::text(&f.body, summary.clone(), 11.0, theme::GREEN));
+    });
+    let class = selection.class_def();
+    commands.entity(body).despawn_related::<Children>();
+    commands.entity(body).with_children(|p| {
+        kit::progress_bar(p, f, "Collection", progress());
+        p.spawn(kit::text(&f.body, summary.clone(), 12.0, theme::GREEN));
+        p.spawn(kit::text(
+            &f.body,
+            "Each boss drops its own piece. Every piece found adds a quarter of its first bonus \
+             to every run from then on, worn or not.",
+            12.0,
+            theme::DIM,
+        ));
+        for (z, map) in data::MAPS.iter().enumerate() {
+            let table = data::zone_items(z);
+            let found = table.iter().filter(|i| collected.contains(i)).count();
+            p.spawn(Node {
+                column_gap: Val::Px(10.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Px(190.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.title, map.name, 16.0, theme::GOLD));
+                    c.spawn(kit::text(
+                        &f.body,
+                        format!("{found} of {} found", table.len()),
+                        11.0,
+                        theme::DIM,
+                    ));
+                });
+                for item in &table {
+                    let have = collected.contains(item);
+                    let icon = if have {
+                        displays
+                            .as_deref()
+                            .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| "Interface\\Icons\\INV_Misc_QuestionMark".to_string());
+                    let boss = data::roster(z).bosses[item.boss].name;
+                    let tip = if have {
+                        let mut lines = vec![
+                            TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
+                            TipLine::new(item.slot.name(), Color::WHITE)
+                                .right(item.rarity.name(), theme::DIM),
+                        ];
+                        for b in &item.bonuses {
+                            lines.push(TipLine::new(format!("+{}", bonus_text(b)), theme::GREEN));
+                        }
+                        lines.push(TipLine::new(
+                            format!(
+                                "Collected: +{} every run",
+                                bonus_text(&data::collection_bonus(item))
+                            ),
+                            theme::GOLD,
+                        ));
+                        Tooltip(lines)
+                    } else {
+                        Tooltip(vec![
+                            TipLine::new("Not found yet", Color::WHITE).header(),
+                            TipLine::new(
+                                format!("{} · dropped by {boss}", item.slot.name()),
+                                theme::DIM,
+                            ),
+                        ])
+                    };
+                    let e = kit::icon(row, IconSource::Texture(icon), 34.0, Some(tip));
+                    if have {
+                        row.commands()
+                            .entity(e)
+                            .insert(BorderColor::all(hud::rgb(item.rarity.color())));
+                    } else {
+                        row.commands()
+                            .entity(e)
+                            .insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)));
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// The Armory: every slot with every piece owned for it, the worn one lit; a click wears one.
+#[allow(clippy::too_many_arguments)]
+fn refresh_armory(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    selection: Res<Selection>,
+    store: Res<ProfileStore>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
+    body: Query<Entity, With<ArmoryBody>>,
+    mut shown: Local<Option<(Vec<String>, usize, Option<usize>, bool)>>,
+) {
+    let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
+        return;
+    };
+    let gear = store.profile.gear();
+    let view = (
+        gear.iter().map(|i| i.name.clone()).collect::<Vec<_>>(),
+        store.profile.inventory.len(),
+        selection.class,
+        displays.is_some(),
+    );
+    if shown.as_ref() == Some(&view) {
+        return;
+    }
+    *shown = Some(view);
+    let f = &*fonts;
+    let class = selection.class_def();
+    commands.entity(body).despawn_related::<Children>();
+    commands.entity(body).with_children(|p| {
+        p.spawn(Node {
+            column_gap: Val::Px(10.0),
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|r| {
+            kit::button(
+                r,
+                f,
+                "Back",
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Back,
+            );
+            r.spawn(kit::text(
+                &f.body,
+                "What you wear shows on your hero and adds to every run.",
+                12.0,
+                theme::DIM,
+            ));
+        });
+        for (k, slot) in data::GearSlot::ALL.iter().enumerate() {
+            let owned = store.profile.owned_for(*slot);
+            let worn = gear.iter().find(|i| i.slot == *slot).copied();
+            p.spawn(Node {
+                column_gap: Val::Px(6.0),
+                align_items: AlignItems::Center,
+                flex_wrap: FlexWrap::Wrap,
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    width: Val::Px(110.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.title, slot.name(), 15.0, theme::GOLD));
+                });
+                let none = kit::button(
+                    row,
+                    f,
+                    "None",
+                    None,
+                    kit::ButtonLook::PLAIN,
+                    ScreenAction::Unwear(k),
+                );
+                row.commands()
+                    .entity(none)
+                    .insert(kit::Selected(worn.is_none()));
+                if owned.is_empty() {
+                    row.spawn(kit::text(&f.body, "Nothing found yet.", 11.0, theme::DIM));
+                }
+                for item in owned {
+                    let Some(index) = data::ITEMS.iter().position(|i| i == item) else {
+                        continue;
+                    };
+                    let icon = displays
+                        .as_deref()
+                        .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
+                        .unwrap_or_else(|| "Interface\\Icons\\INV_Misc_QuestionMark".to_string());
+                    let b = kit::icon_button(
+                        row,
+                        f,
+                        IconSource::Texture(icon),
+                        32.0,
+                        None,
+                        worn == Some(item),
+                        ScreenAction::Wear(index),
+                    );
+                    let n = store
+                        .profile
+                        .inventory
+                        .get(&item.name)
+                        .copied()
+                        .unwrap_or(0);
+                    let hint = if worn == Some(item) {
+                        format!("Worn · found {n}×")
+                    } else {
+                        format!("Click to wear it · found {n}×")
+                    };
+                    row.commands().entity(b).insert(gear_tip(item, hint));
+                }
+            });
         }
     });
 }
@@ -1379,6 +1785,27 @@ mod tests {
         assert_eq!(mmss(0.0), "0:00");
         assert_eq!(mmss(900.0), "15:00");
         assert_eq!(mmss(135.4), "2:15");
+    }
+
+    #[test]
+    fn the_collection_line_adds_up() {
+        assert!(bonus_summary(&[]).starts_with("Find gear"));
+        let line = bonus_summary(&[
+            data::Bonus::flat(data::Stat::MaxHp, 10.0),
+            data::Bonus::flat(data::Stat::MaxHp, 15.0),
+            data::Bonus::flat(data::Stat::Crit, 0.01),
+        ]);
+        assert_eq!(line, "+25 max health · +1% critical strike");
+        assert_eq!(
+            bonus_text(&data::Bonus::pct(data::Stat::Magnet, 0.08)),
+            "8% pickup range"
+        );
+        assert_eq!(
+            bonus_text(&data::Bonus::flat(data::Stat::Armor, 1.5)),
+            "1.5 damage blocked per hit"
+        );
+        assert!(BUILT_TABS.iter().all(|&t| t < TABS.len()));
+        assert!(!BUILT_TABS.contains(&ARMORY));
     }
 
     #[test]
