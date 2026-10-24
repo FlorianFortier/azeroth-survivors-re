@@ -336,6 +336,7 @@ mod tests {
             race: 8,
             sex: 1,
             zone: "Elwynn Forest".into(),
+            name: "Nirkashed".into(),
         };
         p.record(&result("Elwynn Forest", true, 12, 300));
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
