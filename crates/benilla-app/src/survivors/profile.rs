@@ -40,6 +40,8 @@ pub(super) struct HeroPick {
     pub sex: u8,
     /// [`data::MapDef::name`] of the zone.
     pub zone: String,
+    /// The hero's name, as typed or rolled on the main screen; empty for none yet.
+    pub name: String,
 }
 
 /// One zone's record.
@@ -156,6 +158,7 @@ impl Profile {
                 race: u8::try_from(race).ok()?,
                 sex: u8::try_from(sex).ok()?,
                 zone: zone.name.to_string(),
+                name: String::new(),
             },
             ..Self::default()
         })

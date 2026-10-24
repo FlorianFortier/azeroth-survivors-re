@@ -1071,12 +1071,17 @@ fn after_run(session: &super::Session) -> Phase {
 
 pub(super) fn keys(
     keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<super::kit::KitFocus>,
     phase: Res<State<Phase>>,
     session: Res<super::Session>,
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
 ) {
+    // A name being typed keeps its keys.
+    if focus.typing() {
+        return;
+    }
     match phase.get() {
         Phase::Menu => {
             if keys.just_pressed(KeyCode::Enter) {

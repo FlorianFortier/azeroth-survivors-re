@@ -70,6 +70,7 @@ pub(super) fn save_pick(sel: &Selection, store: &mut ProfileStore) {
         race,
         sex,
         zone: sel.map_def().name.to_string(),
+        name: store.profile.hero.name.clone(),
     };
     store.edit(|p| p.hero = hero);
 }
@@ -116,6 +117,41 @@ fn find(looks: &[(u32, u8, u8)], race: Option<u8>, sex: Option<u8>) -> Option<us
     looks
         .iter()
         .position(|&(_, r, s)| race.is_none_or(|x| x == r) && sex.is_none_or(|x| x == s))
+}
+
+/// The picked look's race and sex.
+pub(super) fn current_look(sel: &Selection) -> Option<(u8, u8)> {
+    sel.look
+        .and_then(|i| sel.looks.get(i))
+        .map(|&(_, r, s)| (r, s))
+}
+
+/// Pick a race, keeping the class where the race can be it, else taking the first class it can.
+pub(super) fn pick_race(sel: &mut Selection, all: &[Vec<(u32, u8, u8)>], race: u8) {
+    let sex = current_look(sel).map_or(0, |c| c.1);
+    let classes: Vec<usize> = sel.class.into_iter().chain(0..all.len()).collect();
+    for c in classes {
+        let l = find(&all[c], Some(race), Some(sex)).or_else(|| find(&all[c], Some(race), None));
+        if let Some(l) = l {
+            set(sel, all, c, l);
+            return;
+        }
+    }
+}
+
+/// Pick a sex, keeping the class and race.
+pub(super) fn pick_sex(sel: &mut Selection, all: &[Vec<(u32, u8, u8)>], sex: u8) {
+    let race = current_look(sel).map(|c| c.0);
+    if let Some(c) = sel.class {
+        if let Some(l) = find(&all[c], race, Some(sex)) {
+            set(sel, all, c, l);
+        }
+    }
+}
+
+/// Whether `race` can be any class at all with the looks known.
+pub(super) fn race_playable(all: &[Vec<(u32, u8, u8)>], race: u8) -> bool {
+    all.iter().any(|l| find(l, Some(race), None).is_some())
 }
 
 /// Pick a class, keeping the race and gender where the class has them.
@@ -554,11 +590,6 @@ pub(super) fn menu_clicks(
         return;
     };
     let all = all_looks(creatures);
-    let cur = selection
-        .look
-        .and_then(|i| selection.looks.get(i))
-        .map(|&(_, r, s)| (r, s));
-    let (race, sex) = (cur.map(|c| c.0), cur.map_or(0, |c| c.1));
     match action {
         MenuAction::Map(i) => {
             if selection.map != i {
@@ -588,23 +619,8 @@ pub(super) fn menu_clicks(
         // The class keeps the race and gender where it can.
         MenuAction::Class(c) => pick_class(&mut selection, &all, c),
         // The race keeps the class where it can, else takes the first class it has.
-        MenuAction::Race(r) => {
-            let classes = selection.class.into_iter().chain(0..all.len());
-            for c in classes {
-                let l = find(&all[c], Some(r), Some(sex)).or_else(|| find(&all[c], Some(r), None));
-                if let Some(l) = l {
-                    set(&mut selection, &all, c, l);
-                    break;
-                }
-            }
-        }
-        MenuAction::Sex(s) => {
-            if let Some(c) = selection.class {
-                if let Some(l) = find(&all[c], race, Some(s)) {
-                    set(&mut selection, &all, c, l);
-                }
-            }
-        }
+        MenuAction::Race(r) => pick_race(&mut selection, &all, r),
+        MenuAction::Sex(s) => pick_sex(&mut selection, &all, s),
     }
     save_pick(&selection, &mut store);
 }

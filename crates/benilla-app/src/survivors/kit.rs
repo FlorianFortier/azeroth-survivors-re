@@ -593,7 +593,8 @@ pub(super) fn big_button<A: Bundle>(
     labelled_button(p, fonts, title, 30.0, Some(sub), ButtonLook::ACTION, action)
 }
 
-/// A square icon button, with an optional label under it (the class grid).
+/// A square icon button, with an optional label under it (the class grid). Returns the button
+/// itself, the one that takes hovers and clicks, for a tooltip or a state.
 pub(super) fn icon_button<A: Bundle>(
     p: &mut ChildSpawnerCommands,
     fonts: &KitFonts,
@@ -603,6 +604,7 @@ pub(super) fn icon_button<A: Bundle>(
     selected: bool,
     action: A,
 ) -> Entity {
+    let mut button = Entity::PLACEHOLDER;
     p.spawn(Node {
         flex_direction: FlexDirection::Column,
         align_items: AlignItems::Center,
@@ -610,33 +612,35 @@ pub(super) fn icon_button<A: Bundle>(
         ..default()
     })
     .with_children(|c| {
-        c.spawn((
-            Button,
-            ButtonLook::BARE,
-            Selected(selected),
-            Disabled(false),
-            action,
-            Node {
-                width: Val::Px(size + 4.0),
-                height: Val::Px(size + 4.0),
-                padding: UiRect::all(Val::Px(2.0)),
-                border: UiRect::all(Val::Px(1.5)),
-                border_radius: BorderRadius::all(Val::Px(4.0)),
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-            BorderColor::all(ButtonLook::BARE.edge),
-            BoxShadow::new(
-                Color::NONE,
-                Val::Px(0.0),
-                Val::Px(0.0),
-                Val::Px(2.0),
-                Val::Px(10.0),
-            ),
-        ))
-        .with_children(|b| {
-            icon_image(b, &icon, size);
-        });
+        button = c
+            .spawn((
+                Button,
+                ButtonLook::BARE,
+                Selected(selected),
+                Disabled(false),
+                action,
+                Node {
+                    width: Val::Px(size + 4.0),
+                    height: Val::Px(size + 4.0),
+                    padding: UiRect::all(Val::Px(2.0)),
+                    border: UiRect::all(Val::Px(1.5)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::NONE),
+                BorderColor::all(ButtonLook::BARE.edge),
+                BoxShadow::new(
+                    Color::NONE,
+                    Val::Px(0.0),
+                    Val::Px(0.0),
+                    Val::Px(2.0),
+                    Val::Px(10.0),
+                ),
+            ))
+            .with_children(|b| {
+                icon_image(b, &icon, size);
+            })
+            .id();
         if let Some(label) = label {
             c.spawn(text(
                 &fonts.body,
@@ -645,8 +649,8 @@ pub(super) fn icon_button<A: Bundle>(
                 if selected { theme::GOLD } else { theme::TEXT },
             ));
         }
-    })
-    .id()
+    });
+    button
 }
 
 /// A plain icon, not a button (a spell pool, a racial), with a tooltip if given.
@@ -870,12 +874,197 @@ pub(super) fn bonus_line(
         .id()
 }
 
+// ── Text fields ──────────────────────────────────────────────────────────────────────────────
+
+/// A one-line text field: click it to type, then Enter, Escape, Tab or a click elsewhere to
+/// finish, which sends [`FieldDone`]. `accept` filters what can be typed.
+#[derive(Component)]
+pub(super) struct TextField {
+    pub value: String,
+    pub max: usize,
+    pub accept: fn(char) -> bool,
+}
+
+/// The field being typed in, if any. While it is set, screens leave the keyboard alone: Enter
+/// does not start a run, G and C do not toggle anything.
+#[derive(Resource, Default)]
+pub(super) struct KitFocus(pub Option<Entity>);
+
+impl KitFocus {
+    pub fn typing(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+/// A field was finished, with this value.
+#[derive(Message, Clone, Debug, PartialEq)]
+pub(super) struct FieldDone {
+    pub field: Entity,
+    pub value: String,
+}
+
+#[derive(Component)]
+struct FieldText;
+
+/// The look of a field's box.
+const FIELD: ButtonLook = ButtonLook {
+    rest: Color::srgba(0.02, 0.015, 0.01, 0.92),
+    hot: Color::srgba(0.06, 0.045, 0.02, 0.95),
+    edge: theme::BRASS,
+    edge_selected: theme::GOLD,
+};
+
+/// A text field holding `value`, `width` wide, with the caller's components on it.
+pub(super) fn text_field<A: Bundle>(
+    p: &mut ChildSpawnerCommands,
+    fonts: &KitFonts,
+    value: &str,
+    width: f32,
+    max: usize,
+    accept: fn(char) -> bool,
+    extra: A,
+) -> Entity {
+    p.spawn((
+        Button,
+        FIELD,
+        Selected(false),
+        Disabled(false),
+        TextField {
+            value: value.to_string(),
+            max,
+            accept,
+        },
+        extra,
+        Node {
+            width: Val::Px(width),
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+            border: UiRect::all(Val::Px(1.5)),
+            border_radius: BorderRadius::all(Val::Px(3.0)),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(FIELD.rest),
+        BorderColor::all(FIELD.edge),
+    ))
+    .with_children(|b| {
+        b.spawn((FieldText, text(&fonts.body, value, 20.0, Color::WHITE)));
+    })
+    .id()
+}
+
+/// A click on a field focuses it; a click anywhere else, or Enter, Escape or Tab, finishes it.
+#[allow(clippy::too_many_arguments)]
+fn edit_fields(
+    clicks: Res<KitClicks>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut keys: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    mut focus: ResMut<KitFocus>,
+    mut fields: Query<(Entity, &mut TextField, &mut Selected)>,
+    mut done: MessageWriter<FieldDone>,
+) {
+    use bevy::input::keyboard::Key;
+    use bevy::input::ButtonState;
+
+    // A focused field that went away lets the keyboard go.
+    if let Some(f) = focus.0 {
+        if fields.get(f).is_err() {
+            focus.0 = None;
+        }
+    }
+    let clicked = fields.iter().map(|(e, ..)| e).find(|e| clicks.hit(*e));
+    let finish = |focus: &mut KitFocus,
+                  fields: &mut Query<(Entity, &mut TextField, &mut Selected)>,
+                  done: &mut MessageWriter<FieldDone>| {
+        if let Some(f) = focus.0.take() {
+            if let Ok((_, field, mut sel)) = fields.get_mut(f) {
+                sel.0 = false;
+                done.write(FieldDone {
+                    field: f,
+                    value: field.value.clone(),
+                });
+            }
+        }
+    };
+    if let Some(f) = clicked {
+        if focus.0 != Some(f) {
+            finish(&mut focus, &mut fields, &mut done);
+            focus.0 = Some(f);
+            if let Ok((_, _, mut sel)) = fields.get_mut(f) {
+                sel.0 = true;
+            }
+        }
+    } else if focus.0.is_some() && mouse.just_pressed(MouseButton::Left) {
+        finish(&mut focus, &mut fields, &mut done);
+    }
+    let Some(f) = focus.0 else {
+        keys.clear();
+        return;
+    };
+    for ev in keys.read() {
+        if ev.state != ButtonState::Pressed {
+            continue;
+        }
+        match &ev.logical_key {
+            Key::Enter | Key::Escape | Key::Tab => {
+                finish(&mut focus, &mut fields, &mut done);
+                break;
+            }
+            Key::Backspace => {
+                if let Ok((_, mut field, _)) = fields.get_mut(f) {
+                    field.value.pop();
+                }
+            }
+            _ => {
+                if let (Some(t), Ok((_, mut field, _))) = (&ev.text, fields.get_mut(f)) {
+                    for c in t.chars().filter(|c| !c.is_control()) {
+                        if (field.accept)(c) && field.value.chars().count() < field.max {
+                            field.value.push(c);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A field shows its value, with a caret while it is typed in.
+fn show_fields(
+    focus: Res<KitFocus>,
+    fields: Query<(Entity, Ref<TextField>, &Children)>,
+    mut texts: Query<&mut Text, With<FieldText>>,
+) {
+    for (e, field, children) in &fields {
+        if !field.is_changed() && !focus.is_changed() {
+            continue;
+        }
+        let shown = if focus.0 == Some(e) {
+            format!("{}|", field.value)
+        } else {
+            field.value.clone()
+        };
+        for c in children.iter() {
+            if let Ok(mut t) = texts.get_mut(c) {
+                if t.0 != shown {
+                    t.0.clone_from(&shown);
+                }
+            }
+        }
+    }
+}
+
 // ── Wiring ───────────────────────────────────────────────────────────────────────────────────
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<KitClicks>()
+        .init_resource::<KitFocus>()
+        .add_message::<FieldDone>()
         .add_systems(Startup, load_fonts)
-        .add_systems(PreUpdate, read_clicks.after(bevy::ui::UiSystems::Focus))
+        .add_systems(
+            PreUpdate,
+            (read_clicks, edit_fields)
+                .chain()
+                .after(bevy::ui::UiSystems::Focus),
+        )
         .add_systems(
             Update,
             (
@@ -883,6 +1072,7 @@ pub(super) fn plugin(app: &mut App) {
                 fill_texture_icons,
                 refresh_progress,
                 show_tooltips,
+                show_fields,
             ),
         );
     if crate::webenv::var("WOW_UI_KIT").is_some_and(|v| v != "0") {
@@ -1208,6 +1398,76 @@ mod tests {
             .world_mut()
             .query_filtered::<&Text, With<ProgressCount>>();
         assert_eq!(counts.iter(app.world()).next().unwrap().0, "30 / 60");
+    }
+
+    fn field_app() -> App {
+        let mut app = app();
+        app.init_resource::<KitFocus>()
+            .add_message::<FieldDone>()
+            .add_message::<bevy::input::keyboard::KeyboardInput>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(
+                Update,
+                (edit_fields, show_fields).chain().after(read_clicks),
+            );
+        app
+    }
+
+    fn press(app: &mut App, key: bevy::input::keyboard::Key, text: Option<&str>) {
+        use bevy::input::keyboard::{KeyCode, KeyboardInput};
+        use bevy::input::ButtonState;
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::KeyA,
+            logical_key: key,
+            state: ButtonState::Pressed,
+            text: text.map(Into::into),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+    }
+
+    #[test]
+    fn a_field_takes_typing_until_enter_and_reports_its_value() {
+        use bevy::input::keyboard::Key;
+        let mut app = field_app();
+        let root = build(&mut app, |p, f| {
+            text_field(p, f, "Zul", 200.0, 6, |c| c.is_alphabetic(), Act(9));
+        });
+        let field = app.world().get::<Children>(root).unwrap()[0];
+        // Not focused: typing goes nowhere.
+        press(&mut app, Key::Character("x".into()), Some("x"));
+        app.update();
+        assert!(!app.world().resource::<KitFocus>().typing());
+        assert_eq!(app.world().get::<TextField>(field).unwrap().value, "Zul");
+        // Click to focus, type, a digit is refused and the length is capped.
+        *app.world_mut().get_mut::<Interaction>(field).unwrap() = Interaction::Pressed;
+        app.update();
+        assert!(app.world().resource::<KitFocus>().typing());
+        for t in ["j", "1", "i", "n", "n", "n"] {
+            press(&mut app, Key::Character(t.into()), Some(t));
+        }
+        app.update();
+        assert_eq!(app.world().get::<TextField>(field).unwrap().value, "Zuljin");
+        press(&mut app, Key::Backspace, None);
+        app.update();
+        assert_eq!(app.world().get::<TextField>(field).unwrap().value, "Zulji");
+        // Enter finishes: the focus goes and the value is reported.
+        press(&mut app, Key::Enter, None);
+        app.update();
+        assert!(!app.world().resource::<KitFocus>().typing());
+        let done: Vec<FieldDone> = app
+            .world()
+            .resource::<Messages<FieldDone>>()
+            .iter_current_update_messages()
+            .cloned()
+            .collect();
+        assert_eq!(
+            done,
+            vec![FieldDone {
+                field,
+                value: "Zulji".into()
+            }]
+        );
     }
 
     #[test]

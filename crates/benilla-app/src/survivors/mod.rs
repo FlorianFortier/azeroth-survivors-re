@@ -21,6 +21,7 @@ mod kit;
 mod menu;
 mod minimap;
 mod mobility;
+mod names;
 mod net;
 mod profile;
 mod stats;
