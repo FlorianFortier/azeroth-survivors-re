@@ -2578,6 +2578,13 @@ pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock
     out
 });
 
+/// The gold a run earns: a coin for every eight kills, 25 for each boss reached, 100 for the win,
+/// all times the hero's gold multiplier ([`Stat::Gold`]).
+pub(crate) fn run_gold(kills: u32, bosses: u32, won: bool, gold: f32) -> u32 {
+    let base = kills / 8 + bosses * 25 + if won { 100 } else { 0 };
+    (base as f32 * gold.max(0.0)).round() as u32
+}
+
 /// The share of an item's first bonus its place in the collection gives for good, worn or not.
 pub(crate) const COLLECTION_SHARE: f32 = 0.25;
 
@@ -3331,5 +3338,12 @@ mod tests {
         assert_eq!(sum.len(), 10);
         let stats: HashSet<Stat> = sum.iter().map(|b| b.stat).collect();
         assert!(stats.contains(&Stat::Crit) && stats.contains(&Stat::MaxHp));
+    }
+
+    #[test]
+    fn a_run_earns_its_gold() {
+        assert_eq!(run_gold(0, 0, false, 1.0), 0);
+        assert_eq!(run_gold(800, 5, true, 1.0), 100 + 125 + 100);
+        assert_eq!(run_gold(80, 1, false, 1.5), 53);
     }
 }

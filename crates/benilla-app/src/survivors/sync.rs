@@ -109,6 +109,7 @@ pub(super) fn begin_run(
     selection: Res<Selection>,
     store: Res<super::profile::ProfileStore>,
     catalog: Option<Res<crate::entities::CharCreate>>,
+    talents: Option<Res<crate::ui_talent::Talents>>,
     world: WorldPoint,
     local: Query<Entity, (With<Hero>, With<LocalHero>)>,
 ) {
@@ -125,7 +126,11 @@ pub(super) fn begin_run(
     // The local hero brings in what the profile has earned. A guest's hero gets its racials,
     // which its race alone decides; the rest of a guest's profile crossing the wire is its own
     // task.
-    let (meta, procs) = store.profile.run_bonuses(run.me.race);
+    let (meta, procs) = store.profile.run_bonuses(
+        run.me.race,
+        run.me.class,
+        talents.as_deref().map(|t| &t.catalog),
+    );
     run.me = std::mem::take(&mut run.me).with_meta(meta, &procs);
     commands.entity(me).insert(HeroState {
         slot: session.slot,

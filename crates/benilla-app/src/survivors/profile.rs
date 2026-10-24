@@ -104,6 +104,12 @@ pub(super) struct Profile {
     pub inventory: BTreeMap<String, u32>,
     /// What the hero wears: item name by [`data::GearSlot::name`].
     pub equipped: BTreeMap<String, String>,
+    /// Gold in hand, earned by runs, spent on talent points.
+    pub gold: u64,
+    /// Talent points trained, the account's; each class spends them on its own trees.
+    pub talent_points: u32,
+    /// Each class's talents, by [`data::ClassDef::name`]: talent id to rank.
+    pub talents: BTreeMap<String, super::talents::Spent>,
 }
 
 impl Default for Profile {
@@ -115,6 +121,9 @@ impl Default for Profile {
             zones: BTreeMap::new(),
             inventory: BTreeMap::new(),
             equipped: BTreeMap::new(),
+            gold: 0,
+            talent_points: 0,
+            talents: BTreeMap::new(),
         }
     }
 }
@@ -130,6 +139,8 @@ pub(super) struct RunResult {
     pub damage_done: f64,
     /// The items the hero found, by name.
     pub loot: Vec<String>,
+    /// The gold the run earned.
+    pub gold: u32,
 }
 
 impl Profile {
@@ -197,6 +208,18 @@ impl Profile {
         for name in &r.loot {
             *self.inventory.entry(name.clone()).or_default() += 1;
         }
+        self.gold += u64::from(r.gold);
+    }
+
+    /// Train the next talent point with gold, if there is enough and a point left.
+    pub fn train_point(&mut self) -> bool {
+        let cost = super::talents::point_cost(self.talent_points);
+        if self.talent_points >= super::talents::MAX_POINTS || self.gold < cost {
+            return false;
+        }
+        self.gold -= cost;
+        self.talent_points += 1;
+        true
     }
 
     /// The gear worn, slot by slot; a name the tables no longer have, or one no longer owned, is
@@ -274,14 +297,23 @@ impl Profile {
 
     /// What the profile brings into a run for a hero of `race` (the hero actually spawned, which
     /// a lobby may have changed): the bonuses that hold all run and the effects that fire on
-    /// their own. The race's three racials, the gear worn and the collection; talents add theirs
-    /// here as they land.
-    pub fn run_bonuses(&self, race: u8) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
+    /// their own: the race's three racials, the gear worn, the collection, and the class's
+    /// talents (with the client's talent tables).
+    pub fn run_bonuses(
+        &self,
+        race: u8,
+        class: &data::ClassDef,
+        talents: Option<&benilla_formats::TalentCatalog>,
+    ) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
         let (mut bonuses, procs) = data::racial_bonuses(race);
         for item in self.gear() {
             bonuses.extend_from_slice(&item.bonuses);
         }
         bonuses.extend(self.collection_bonuses());
+        if let (Some(catalog), Some(spent)) = (talents, self.talents.get(class.name)) {
+            let trees = super::talents::trees(catalog, race, class.id);
+            bonuses.extend(super::talents::bonuses(spent, &trees));
+        }
         (bonuses, procs)
     }
 
@@ -488,6 +520,7 @@ fn record_run(run: Res<Run>, selection: Res<Selection>, mut store: ResMut<Profil
         kills: run.kills,
         damage_done: run.damage_done,
         loot: run.loot.iter().map(|i| i.name.clone()).collect(),
+        gold: data::run_gold(run.kills, run.bosses, run.won, run.stats().gold),
     };
     store.edit(|p| p.record(&result));
     // A finished run is worth writing at once.
@@ -507,7 +540,30 @@ mod tests {
             kills,
             damage_done: 1000.0,
             loot: Vec::new(),
+            gold: 0,
         }
+    }
+
+    fn warrior() -> &'static data::ClassDef {
+        data::CLASSES.iter().find(|c| c.id == 1).unwrap()
+    }
+
+    #[test]
+    fn gold_comes_from_runs_and_buys_points() {
+        let mut p = Profile::default();
+        assert!(!p.train_point());
+        let mut r = result("Elwynn Forest", true, 20, 800);
+        r.gold = 55;
+        p.record(&r);
+        assert_eq!(p.gold, 55);
+        assert!(p.train_point());
+        assert_eq!((p.gold, p.talent_points), (35, 1));
+        // The second costs 30: not enough.
+        assert!(!p.train_point());
+        p.gold = 1_000_000;
+        while p.train_point() {}
+        assert_eq!(p.talent_points, super::super::talents::MAX_POINTS);
+        assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
     }
 
     #[test]
@@ -530,12 +586,12 @@ mod tests {
         // Found, so collected: two items, two collection bonuses, worn or not.
         assert_eq!(p.collected(), [helm, other]);
         assert_eq!(p.collection_bonuses().len(), 2);
-        let bare = p.run_bonuses(1).0.len();
+        let bare = p.run_bonuses(1, warrior(), None).0.len();
         assert_eq!(bare, data::racial_bonuses(1).0.len() + 2);
         // Cycling the slot: the first owned, the next, then nothing.
         p.equip_next(data::GearSlot::Head);
         assert_eq!(p.gear(), [helm]);
-        assert_eq!(p.run_bonuses(1).0.len(), bare + helm.bonuses.len());
+        assert_eq!(p.run_bonuses(1, warrior(), None).0.len(), bare + helm.bonuses.len());
         p.equip_next(data::GearSlot::Head);
         assert_eq!(p.gear(), [other]);
         p.equip_next(data::GearSlot::Head);
@@ -566,7 +622,7 @@ mod tests {
     #[test]
     fn a_troll_brings_its_racials() {
         let p = Profile::default();
-        let (bonuses, procs) = p.run_bonuses(8);
+        let (bonuses, procs) = p.run_bonuses(8, warrior(), None);
         assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Regen, 1.5)));
         assert!(bonuses.contains(&data::Bonus::flat(data::Stat::Crit, 0.03)));
         assert_eq!(
@@ -574,7 +630,7 @@ mod tests {
             ["berserking"]
         );
         // A Gnome's racials always hold, none fires.
-        let (bonuses, procs) = p.run_bonuses(7);
+        let (bonuses, procs) = p.run_bonuses(7, warrior(), None);
         assert_eq!(bonuses.len(), 3);
         assert!(procs.is_empty());
     }

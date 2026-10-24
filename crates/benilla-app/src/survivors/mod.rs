@@ -27,6 +27,7 @@ mod outfit;
 mod profile;
 mod stats;
 mod sync;
+mod talents;
 mod units;
 
 use benilla_world::schedule::WorldStage;

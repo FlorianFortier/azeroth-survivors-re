@@ -53,6 +53,10 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 - **A collection of all 60 pieces** (the **Collection** tab, and its bar under the equipment):
   every piece found adds a quarter of its first bonus to every run from then on, worn or not.
   The **Armory** lists every piece you own, slot by slot, to wear one with a click.
+- **Gold and talents**: every run earns gold (kills, bosses reached, the win). Gold trains talent
+  points, up to vanilla's 51, shared by every class; the **Talents** tab lays out the class's
+  three real trees from the client's `Talent.dbc` (names, icons, tiers, prerequisites), each
+  talent giving a stat of its tree's theme per rank.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.
