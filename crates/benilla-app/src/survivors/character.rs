@@ -289,7 +289,7 @@ fn clicks(
             }
         }
         ScreenAction::Zone(i) => {
-            if selection.map != i {
+            if selection.map != i && store.profile.zone_open(i) {
                 selection.map = i;
                 selection.version += 1;
                 menu::save_pick(&selection, &mut store);
@@ -299,11 +299,20 @@ fn clicks(
         ScreenAction::Enter => {
             if session.in_lobby {
                 next.set(Phase::Lobby);
-            } else if hud::start_run(&mut run, &mut selection) {
+            } else if store.profile.zone_open(selection.map)
+                && hud::start_run(&mut run, &mut selection)
+            {
                 next.set(Phase::Playing);
             }
         }
     }
+}
+
+/// How many of the campaign's zones the profile has opened.
+fn open_zones(store: &ProfileStore) -> usize {
+    (0..data::MAPS.len())
+        .filter(|&i| store.profile.zone_open(i))
+        .count()
 }
 
 /// What the class column shows, to rebuild it only when that changes.
@@ -313,6 +322,7 @@ struct ClassView {
     race: u8,
     spells_ready: bool,
     bonuses: usize,
+    open: usize,
 }
 
 /// The class column, rebuilt when the pick, the profile or the spell names change.
@@ -339,6 +349,7 @@ fn refresh_class_column(
         race,
         spells_ready: spells.is_some(),
         bonuses: meta.len() + procs.len(),
+        open: open_zones(&store),
     };
     if shown.as_ref() == Some(&view) {
         return;
@@ -382,8 +393,12 @@ fn refresh_class_column(
                 "Starts with",
                 &hud::spell_name(spells, start.spell, start.key),
             );
-            let zones = data::MAPS.len();
-            kit::stat_tile(r, f, "Zones open", &format!("{zones} of {zones}"));
+            kit::stat_tile(
+                r,
+                f,
+                "Zones open",
+                &format!("{} of {}", open_zones(&store), data::MAPS.len()),
+            );
         });
         p.spawn(kit::text(&f.body, "SPELL POOL", 10.0, theme::DIM));
         p.spawn(Node {
@@ -845,16 +860,12 @@ fn mmss(secs: f32) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
-/// A zone's bosses and when each comes, under the solo rules: `(time, name)`.
+/// A zone's bosses and when each comes, under the solo rules: `(time, name)`, the final boss last.
 fn boss_timeline(zone: usize) -> Vec<(f32, &'static str)> {
     let rules = data::Rules::SOLO;
     let roster = data::roster(zone);
-    let n = rules.bosses_due(rules.duration);
-    (0..n)
-        .map(|k| {
-            let (def, _) = rules.boss(roster, k);
-            ((k + 1) as f32 * rules.boss_every, def.name)
-        })
+    (0..roster.bosses.len())
+        .map(|k| (rules.boss_time(k), roster.bosses[k].name))
         .collect()
 }
 
@@ -869,20 +880,21 @@ fn enemy_names(zone: usize) -> Vec<&'static str> {
     out
 }
 
-/// The zone rows: the picked one opened (where it is, the horde, the bosses and when they come,
-/// what winning means), the others as a name to pick.
+/// The zone rows: the picked one opened (its title, the horde, the bosses and when they come,
+/// what winning means), the other open ones as a name to pick, the locked ones with what opens
+/// them.
 fn refresh_zone_list(
     mut commands: Commands,
     fonts: Option<Res<KitFonts>>,
     selection: Res<Selection>,
     store: Res<ProfileStore>,
     list: Query<Entity, With<ZoneList>>,
-    mut shown: Local<Option<(usize, usize)>>,
+    mut shown: Local<Option<(usize, usize, usize)>>,
 ) {
     let (Some(fonts), Ok(list)) = (fonts, list.single()) else {
         return;
     };
-    let view = (selection.map, store.profile.zones.len());
+    let view = (selection.map, store.profile.zones.len(), open_zones(&store));
     if *shown == Some(view) {
         return;
     }
@@ -891,14 +903,15 @@ fn refresh_zone_list(
     commands.entity(list).despawn_related::<Children>();
     commands.entity(list).with_children(|l| {
         for (i, map) in data::MAPS.iter().enumerate() {
-            let picked = i == selection.map;
+            let open = store.profile.zone_open(i);
+            let picked = open && i == selection.map;
             let record = store.profile.zones.get(map.name);
             let button = l
                 .spawn((
                     Button,
                     kit::ButtonLook::PLAIN,
                     kit::Selected(picked),
-                    kit::Disabled(false),
+                    kit::Disabled(!open),
                     ScreenAction::Zone(i),
                     Node {
                         flex_direction: FlexDirection::Column,
@@ -924,8 +937,19 @@ fn refresh_zone_list(
                     &f.title,
                     map.name,
                     if picked { 22.0 } else { 17.0 },
-                    if picked { theme::GOLD } else { theme::TEXT },
+                    if picked {
+                        theme::GOLD
+                    } else if open {
+                        theme::TEXT
+                    } else {
+                        theme::DIM
+                    },
                 ));
+                if !open {
+                    let hint = data::unlock_hint(i).unwrap_or_default();
+                    b.spawn(kit::text(&f.body, format!("Locked · {hint}"), 11.0, theme::RED));
+                    return;
+                }
                 let mut sub = map.zone.to_string();
                 if let Some(r) = record {
                     if r.wins > 0 {
@@ -959,13 +983,15 @@ fn refresh_zone_list(
                     for (k, (t, name)) in timeline.iter().enumerate() {
                         kit::chip(chips, f, &format!("{} · {name}", mmss(*t)), k == last);
                     }
-                    kit::chip(
-                        chips,
-                        f,
-                        &format!("{} · Victory", mmss(data::Rules::SOLO.duration)),
-                        true,
-                    );
                 });
+                if let Some((_, final_boss)) = boss_timeline(i).last() {
+                    b.spawn(kit::text(
+                        &f.body,
+                        format!("Defeat {final_boss} to win."),
+                        11.0,
+                        theme::GOLD,
+                    ));
+                }
             });
         }
     });
@@ -977,20 +1003,23 @@ fn refresh_bottom_bar(
     fonts: Option<Res<KitFonts>>,
     selection: Res<Selection>,
     session: Res<super::Session>,
+    store: Res<ProfileStore>,
     bar: Query<Entity, With<BottomBar>>,
-    mut shown: Local<Option<(usize, bool)>>,
+    mut shown: Local<Option<(usize, bool, bool)>>,
 ) {
     let (Some(fonts), Ok(bar)) = (fonts, bar.single()) else {
         return;
     };
-    let view = (selection.map, session.in_lobby);
+    let open = store.profile.zone_open(selection.map);
+    let view = (selection.map, session.in_lobby, open);
     if *shown == Some(view) {
         return;
     }
     *shown = Some(view);
     let f = &*fonts;
     let map = selection.map_def();
-    let bosses = boss_timeline(selection.map).len();
+    let timeline = boss_timeline(selection.map);
+    let final_boss = timeline.last().map_or("", |t| t.1);
     commands.entity(bar).despawn_related::<Children>();
     commands.entity(bar).with_children(|r| {
         let options = kit::button(
@@ -1005,16 +1034,25 @@ fn refresh_bottom_bar(
             kit::Disabled(true),
             Tooltip::simple("Run Options", "Difficulty and run modifiers arrive soon."),
         ));
-        kit::big_button(
+        let sub = if open || session.in_lobby {
+            format!(
+                "Defeat {final_boss} at {} · {} bosses on the way",
+                mmss(data::Rules::SOLO.duration),
+                timeline.len()
+            )
+        } else {
+            data::unlock_hint(selection.map).unwrap_or_default()
+        };
+        let enter = kit::big_button(
             r,
             f,
             &format!("Enter {}", map.name),
-            &format!(
-                "Survive {} · {bosses} bosses on the way",
-                mmss(data::Rules::SOLO.duration)
-            ),
+            &sub,
             ScreenAction::Enter,
         );
+        if !open && !session.in_lobby {
+            r.commands().entity(enter).insert(kit::Disabled(true));
+        }
         let (title, sub) = if session.in_lobby {
             ("Co-op", "Back to your lobby")
         } else {
@@ -1090,16 +1128,28 @@ mod tests {
     }
 
     #[test]
-    fn every_zone_shows_its_bosses_in_order_before_the_bell() {
+    fn every_zone_shows_its_bosses_in_order_ending_on_the_final_one() {
         for i in 0..data::MAPS.len() {
             let t = boss_timeline(i);
-            assert!(!t.is_empty(), "{}", data::MAPS[i].name);
+            assert_eq!(t.len(), data::BOSS_TIMES.len(), "{}", data::MAPS[i].name);
             assert!(t.windows(2).all(|w| w[0].0 < w[1].0));
-            assert!(t.last().unwrap().0 < data::Rules::SOLO.duration);
+            assert_eq!(mmss(t.last().unwrap().0), "16:00");
             assert!(!enemy_names(i).is_empty());
         }
-        // The first boss comes at 2:15.
-        assert_eq!(mmss(boss_timeline(0)[0].0), "2:15");
+        let elwynn: Vec<String> = boss_timeline(0)
+            .iter()
+            .map(|(t, n)| format!("{} {n}", mmss(*t)))
+            .collect();
+        assert_eq!(
+            elwynn,
+            [
+                "3:00 Hogger",
+                "6:00 Mother Fang",
+                "9:00 Rhahk'Zor",
+                "12:00 Mr. Smite",
+                "16:00 Edwin VanCleef",
+            ]
+        );
     }
 
     #[test]

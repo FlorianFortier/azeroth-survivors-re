@@ -1722,10 +1722,13 @@ pub(crate) static BOSSES: &[EnemyDef] = &[
     },
 ];
 
-/// Survive this long to win.
-pub(crate) const VICTORY_SECS: f32 = 900.0;
-/// A boss every two and a quarter minutes, the last of six at 13:30, a fight before the bell.
-pub(crate) const BOSS_EVERY_SECS: f32 = 135.0;
+/// When the final boss comes; the run is won when it falls.
+pub(crate) const FINAL_BOSS_SECS: f32 = 960.0;
+/// When each of a zone's five bosses comes under the solo rules, the last the final boss. A
+/// lobby's own length stretches or shrinks them all alike.
+pub(crate) const BOSS_TIMES: [f32; 5] = [180.0, 360.0, 540.0, 720.0, FINAL_BOSS_SECS];
+/// A closing ring of the horde every two and a quarter minutes, half way into each interval.
+pub(crate) const AMBUSH_EVERY_SECS: f32 = 135.0;
 /// Experience per gem: every level of the curve comes at the run's pace.
 pub(crate) const XP_RATE: f32 = 2.0;
 
@@ -1736,9 +1739,10 @@ pub(crate) const HARD_CROWD_CAP: usize = 400;
 /// A run's tunable rules: the solo defaults, or a lobby's settings for its number of heroes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Rules {
-    /// Survive this long to win.
+    /// When the final boss comes ([`FINAL_BOSS_SECS`] solo); every boss's time scales with it.
     pub duration: f32,
-    pub boss_every: f32,
+    /// How often the horde closes a ring around every hero.
+    pub ambush_every: f32,
     /// Multipliers on enemy health, enemy damage and the crowd's size.
     pub health: f32,
     pub damage: f32,
@@ -1760,8 +1764,8 @@ impl Default for Rules {
 
 impl Rules {
     pub const SOLO: Self = Self {
-        duration: VICTORY_SECS,
-        boss_every: BOSS_EVERY_SECS,
+        duration: FINAL_BOSS_SECS,
+        ambush_every: AMBUSH_EVERY_SECS,
         health: 1.0,
         damage: 1.0,
         density: 1.0,
@@ -1771,7 +1775,7 @@ impl Rules {
         revive: false,
     };
 
-    /// How far through the run, 0 at the start and 1 at the bell.
+    /// How far through the run, 0 at the start and 1 when the final boss comes.
     pub fn progress(&self, elapsed: f32) -> f32 {
         (elapsed / self.duration.max(1.0)).max(0.0)
     }
@@ -1811,23 +1815,28 @@ impl Rules {
         (1.0 + self.progress(elapsed) * 0.9) * self.damage
     }
 
-    /// Bosses due by `elapsed`: one every `boss_every`, none at or after the bell.
-    pub fn bosses_due(&self, elapsed: f32) -> u32 {
-        let every = self.boss_every.max(1.0);
-        let last = ((self.duration - 1.0) / every).floor().max(0.0) as u32;
-        ((elapsed / every) as u32).min(last)
+    /// When the `n`th boss (from 0) comes: its [`BOSS_TIMES`] slot, scaled to the run's length.
+    pub fn boss_time(&self, n: usize) -> f32 {
+        let slot = BOSS_TIMES[n.min(BOSS_TIMES.len() - 1)];
+        slot * self.duration.max(1.0) / FINAL_BOSS_SECS
     }
 
-    /// The `n`th boss (from 0) of a roster, and the health multiplier its lap earns: a run with
-    /// more boss slots than the roster has bosses goes round again, tougher each lap.
-    pub fn boss<'a>(&self, roster: &'a Roster, n: u32) -> (&'a EnemyDef, f32) {
-        let len = roster.bosses.len().max(1) as u32;
-        let lap = n / len;
-        (&roster.bosses[(n % len) as usize], 1.0 + 0.6 * lap as f32)
+    /// Bosses due by `elapsed`, the final boss among them once its time has come.
+    pub fn bosses_due(&self, elapsed: f32) -> u32 {
+        (0..BOSS_TIMES.len())
+            .take_while(|&n| self.boss_time(n) <= elapsed)
+            .count() as u32
+    }
+
+    /// The `n`th boss (from 0) of a roster, and whether it is the final one.
+    pub fn boss<'a>(&self, roster: &'a Roster, n: u32) -> (&'a EnemyDef, bool) {
+        let last = roster.bosses.len().saturating_sub(1);
+        let n = (n as usize).min(last);
+        (&roster.bosses[n], n == last)
     }
 }
 
-/// How far through a solo run, 0 at the start and 1 at [`VICTORY_SECS`].
+/// How far through a solo run, 0 at the start and 1 at [`FINAL_BOSS_SECS`].
 pub(crate) fn progress(elapsed: f32) -> f32 {
     Rules::SOLO.progress(elapsed)
 }
@@ -1898,7 +1907,7 @@ const fn giant(name: &'static str, display: u32, level: u32, speed: f32, scale: 
 /// Where a run is fought.
 pub(crate) struct MapDef {
     pub name: &'static str,
-    /// The zone or continent under the name on the menu.
+    /// The campaign's title for the zone, under its name on the main screen.
     pub zone: &'static str,
     /// The `Map.dbc` row.
     pub map: u32,
@@ -1908,32 +1917,112 @@ pub(crate) struct MapDef {
     pub leash: f32,
     /// The results screen's line on a win.
     pub victory: &'static str,
-    /// Weakest first; empty for The Barrens, which keeps its hand-tuned [`ENEMIES`].
+    /// The multiplier on the ladder's health and damage: the campaign hardens zone by zone.
+    pub might: f32,
+    /// Weakest first, numbered off The Barrens' tuned [`ENEMIES`].
     foes: &'static [Foe],
-    /// One every [`BOSS_EVERY_SECS`], in order; empty for The Barrens' [`BOSSES`].
+    /// One per [`BOSS_TIMES`] slot, in order, numbered off [`BOSSES`]; the last is the final
+    /// boss, whose fall wins the run.
     bosses: &'static [Foe],
 }
 
+/// Whether the campaign's zone `i` is open: the first always, any other once the zone before it
+/// has been won (`won` says, by zone name, whether a zone's final boss has fallen).
+pub(crate) fn unlocked(i: usize, won: impl Fn(&str) -> bool) -> bool {
+    i == 0 || MAPS.get(i - 1).is_some_and(|prev| won(prev.name))
+}
+
+/// What opens zone `i`, as the main screen words it: "Defeat Edwin VanCleef in Elwynn Forest".
+pub(crate) fn unlock_hint(i: usize) -> Option<String> {
+    let prev = MAPS.get(i.checked_sub(1)?)?;
+    let last = prev.bosses.last()?;
+    Some(format!("Defeat {} in {}", last.name, prev.name))
+}
+
+/// The campaign, in order: each zone opens once the one before it has fallen to its final boss
+/// ([`unlocked`]). A creature whose own look the tables do not have yet wears a close one's
+/// (`// look:` names it), so every display here is one the client already draws.
 pub(crate) static MAPS: &[MapDef] = &[
     MapDef {
-        name: "The Barrens",
-        zone: "Kalimdor",
-        map: 1,
-        // The plains south of the Crossroads.
-        center: [-950.0, -2700.0, 92.0],
+        name: "Elwynn Forest",
+        zone: "The Defias Uprising",
+        map: 0,
+        // Open, level ground among Elwynn Forest's own creatures: no building or big prop near.
+        center: [-9548.5, 115.0, 60.0],
         leash: 150.0,
-        victory: "The Barrens are yours.",
-        foes: &[],
-        bosses: &[],
+        victory: "Edwin VanCleef has fallen; Elwynn Forest is safe once more.",
+        might: 1.0,
+        foes: &[
+            // look: Kobold Tunneler
+            foe("Kobold Vermin", 139, 2, 4.2, 1.0),
+            foe("Young Wolf", 447, 2, 5.4, 1.0),
+            foe("Murloc Streamrunner", 527, 4, 4.2, 1.0),
+            // look: Kobold Miner
+            foe("Kobold Geomancer", 373, 7, 3.8, 1.0),
+            foe("Defias Thug", 5035, 8, 4.2, 1.15),
+            foe("Riverpaw Brute", 384, 9, 4.2, 1.0),
+            // look: Gray Forest Wolf
+            foe("Prowler", 380, 9, 5.4, 1.0),
+            foe("Defias Rogue Wizard", 2359, 10, 3.8, 1.1),
+            // look: Defias Bandit
+            foe("Defias Enforcer", 2357, 11, 4.2, 1.2),
+        ],
+        bosses: &[
+            foe("Hogger", 384, 11, 4.2, 1.9),
+            foe("Mother Fang", 2541, 12, 4.6, 1.9),
+            // look: Dreadmaul Mauler, an ogre
+            foe("Rhahk'Zor", 14401, 19, 4.2, 2.0),
+            // look: Defias Highwayman
+            foe("Mr. Smite", 2342, 20, 4.2, 2.1),
+            // look: Thuros Lightfingers
+            foe("Edwin VanCleef", 3341, 21, 4.6, 2.3),
+        ],
     },
     MapDef {
-        name: "The Dark Portal",
-        zone: "Blasted Lands",
+        name: "Duskwood",
+        zone: "The Curse of Darkshire",
         map: 0,
-        // The basin before the Portal, ringed by cliffs.
-        center: [-11840.0, -3197.0, -30.0],
-        leash: 75.0,
-        victory: "The Dark Portal stands silent.",
+        // Open, level ground among Duskwood's own creatures: no building or big prop near.
+        center: [-10051.8, -792.5, 36.5],
+        leash: 150.0,
+        victory: "Morbent Fel is no more; Duskwood's curse lifts.",
+        might: 1.2,
+        foes: &[
+            foe("Pygmy Venom Web Spider", 958, 19, 4.6, 1.0),
+            foe("Venom Web Spider", 955, 20, 4.6, 1.0),
+            foe("Skeletal Warrior", 200, 22, 4.2, 1.2),
+            foe("Green Recluse", 2541, 22, 4.6, 1.0),
+            foe("Skeletal Mage", 9783, 23, 4.2, 1.0),
+            foe("Young Black Ravager", 246, 24, 5.4, 1.0),
+            foe("Skeletal Horror", 9786, 24, 3.6, 1.0),
+            foe("Black Widow Hatchling", 368, 25, 4.6, 1.0),
+            foe("Black Ravager", 741, 25, 5.4, 1.0),
+            foe("Black Ravager Mastiff", 9562, 26, 5.4, 1.0),
+            foe("Nightbane Worgen", 657, 27, 5.4, 1.0),
+            foe("Nightbane Shadow Weaver", 203, 28, 5.4, 1.0),
+            foe("Nightbane Dark Runner", 736, 29, 5.4, 1.0),
+            foe("Nightbane Vile Fang", 522, 30, 5.4, 1.0),
+            foe("Fetid Corpse", 559, 30, 3.6, 1.3),
+            foe("Nightbane Tainted One", 1098, 31, 5.4, 1.0),
+        ],
+        bosses: &[
+            foe("Lupos", 11412, 23, 5.4, 1.9),
+            foe("Naraxis", 963, 27, 4.6, 1.9),
+            foe("Fenros", 11179, 32, 5.4, 1.9),
+            foe("Nefaru", 11181, 34, 5.4, 1.9),
+            // look: Necromancer
+            foe("Morbent Fel", 10427, 32, 4.2, 2.1),
+        ],
+    },
+    MapDef {
+        name: "Warsong Gulch",
+        zone: "The Legion's Gulch",
+        map: 489,
+        // Midfield, between the two flag rooms.
+        center: [1230.0, 1460.0, 312.0],
+        leash: 60.0,
+        victory: "Lord Kazzak is banished from the gulch.",
+        might: 1.4,
         foes: &[
             foe("Starving Snickerfang", 8050, 45, 4.6, 1.0),
             foe("Snickerfang Hyena", 2714, 49, 5.0, 1.15),
@@ -1941,7 +2030,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Redstone Crystalhide", 798, 51, 3.6, 1.3),
             foe("Shadowsworn Cultist", 7838, 51, 3.8, 1.3),
             foe("Felbeast", 7949, 50, 4.8, 0.85),
-            foe("Dreadmaul Mauler", 14401, 53, 3.6, 1.1),
             foe("Felhound", 1913, 54, 5.2, 1.0),
             foe("Felguard Sentry", 9017, 55, 4.2, 0.9),
             foe("Manahound", 6173, 60, 5.6, 1.15),
@@ -1952,58 +2040,21 @@ pub(crate) static MAPS: &[MapDef] = &[
         bosses: &[
             foe("Akubar the Seer", 10920, 54, 4.4, 2.6),
             foe("Lord Azrethoc", 4426, 55, 4.6, 1.35),
-            foe("Lord Hel'nurath", 14556, 62, 4.8, 1.65),
             giant("Teremus the Devourer", 6378, 60, 5.0, 0.55),
-            foe("Lord Banehollow", 8611, 62, 4.8, 1.95),
+            foe("Lord Hel'nurath", 14556, 62, 4.8, 1.65),
             giant("Lord Kazzak", 12449, 63, 4.6, 0.75),
         ],
     },
     MapDef {
-        name: "Gates of Ahn'Qiraj",
-        zone: "Silithus",
+        name: "Un'Goro Crater",
+        zone: "The Primal Crater",
         map: 1,
-        // The sands before the Scarab Wall.
-        center: [-8180.0, 1536.0, 5.0],
-        leash: 80.0,
-        victory: "The Qiraji retreat behind the Scarab Wall.",
-        foes: &[
-            foe("Sand Skitterer", 8014, 56, 5.0, 1.0),
-            foe("Stonelash Scorpid", 15383, 55, 4.6, 1.6),
-            foe("Dredge Striker", 15386, 56, 4.4, 1.0),
-            foe("Twilight Avenger", 11811, 58, 4.0, 1.1),
-            foe("Hive'Ashi Drone", 2303, 58, 5.4, 0.55),
-            foe("Stonelash Flayer", 15385, 57, 4.8, 1.75),
-            foe("Hive'Ashi Defender", 12153, 59, 4.2, 1.3),
-            foe("Dust Stormer", 8715, 57, 4.6, 1.05),
-            foe("Twilight Stonecaller", 11815, 59, 3.8, 1.1),
-            foe("Hive'Zora Wasp", 11088, 59, 5.6, 0.6),
-            foe("Hive'Zora Reaver", 11085, 60, 4.8, 1.0),
-            foe("Hive'Regal Ambusher", 11106, 60, 5.2, 1.05),
-            foe("Vekniss Wasp", 15335, 60, 5.6, 0.65),
-            foe("Qiraji Gladiator", 15741, 61, 4.4, 0.75),
-            foe("Vekniss Warrior", 15334, 61, 4.6, 1.15),
-            giant("Obsidian Destroyer", 15343, 61, 3.8, 1.2),
-            giant("Qiraji Champion", 15340, 63, 4.6, 0.95),
-            giant("Anubisath Sentinel", 15347, 61, 4.0, 0.62),
-        ],
-        bosses: &[
-            giant("Kurinnaxx", 15742, 62, 5.0, 1.15),
-            foe("General Rajaxx", 15376, 63, 4.8, 1.15),
-            foe("Moam", 15392, 63, 4.2, 1.6),
-            giant("Buru the Gorger", 15654, 63, 4.4, 0.85),
-            giant("Princess Huhuran", 15739, 63, 5.0, 0.55),
-            foe("Ossirian the Unscarred", 15432, 63, 4.6, 0.82),
-        ],
-    },
-    MapDef {
-        name: "Fire Plume Ridge",
-        zone: "Un'Goro Crater",
-        map: 1,
-        // The summit plateau, its lava lake on the west rim; the crater floor's canopy would
-        // hide the fight from above.
+        // Fire Plume Ridge's summit plateau, its lava lake on the west rim; the crater floor's
+        // canopy would hide the fight from above.
         center: [-7136.0, -1309.0, -184.0],
         leash: 32.0,
         victory: "Even King Mosh has fallen.",
+        might: 1.6,
         foes: &[
             foe("Bloodpetal Lasher", 11634, 49, 3.6, 0.9),
             foe("Young Diemetradon", 8510, 48, 4.4, 0.55),
@@ -2029,20 +2080,112 @@ pub(crate) static MAPS: &[MapDef] = &[
         bosses: &[
             foe("Ravasaur Matriarch", 11319, 56, 5.6, 1.55),
             foe("Uhk'loc", 8129, 59, 4.8, 2.4),
-            foe("Blazerunner", 1204, 57, 4.6, 1.8),
             foe("Baron Charr", 14517, 58, 4.6, 1.95),
             giant("Tyrant Devilsaur", 5240, 60, 5.0, 1.0),
             giant("King Mosh", 5305, 61, 5.0, 1.2),
         ],
     },
     MapDef {
+        name: "Arathi Basin",
+        zone: "The Syndicate's Claim",
+        map: 529,
+        // The Blacksmith, the basin's middle.
+        center: [977.0, 1046.0, -44.0],
+        leash: 70.0,
+        victory: "Lord Aliden Perenolde's claim on Arathi is broken.",
+        might: 1.8,
+        foes: &[
+            // look: Defias Trapper
+            foe("Syndicate Spy", 2331, 30, 4.2, 1.1),
+            // look: Razzashi Raptor
+            foe("Highland Strider", 2571, 31, 5.6, 0.9),
+            // look: Defias Highwayman
+            foe("Syndicate Highwayman", 2342, 32, 4.2, 1.15),
+            // look: Redridge Brute, a gnoll
+            foe("Mudsnout Gnoll", 500, 32, 4.2, 1.0),
+            // look: Gurubashi Axe Thrower
+            foe("Witherbark Axe Thrower", 11074, 34, 4.2, 1.1),
+            // look: Blackrock Hunter
+            foe("Defiler Scout", 6031, 35, 4.2, 1.0),
+            // look: Dreadmaul Mauler
+            foe("Boulderfist Ogre", 14401, 36, 3.6, 1.1),
+            // look: Blackrock Summoner
+            foe("Defiler Shaman", 6030, 37, 3.8, 1.0),
+            // look: Harvest Golem
+            giant("Arathor Farm Golem", 367, 37, 3.6, 1.1),
+            // look: Blackrock Champion
+            foe("Defiler Elite", 6044, 39, 4.2, 1.1),
+            // look: Dreadmaul Mauler
+            giant("Boulderfist Enforcer", 14401, 40, 3.6, 1.3),
+        ],
+        bosses: &[
+            // look: Gurubashi Axe Thrower
+            foe("Nimar the Slayer", 11074, 37, 4.6, 2.0),
+            // look: Dreadmaul Mauler
+            foe("Kovork", 14401, 38, 4.2, 1.9),
+            // look: Klaven Mortwake
+            foe("Marshal Redpath", 5805, 40, 4.2, 2.18),
+            // look: Dreadmaul Mauler
+            foe("Molok the Crusher", 14401, 41, 4.2, 2.2),
+            // look: Brainwashed Noble
+            foe("Lord Aliden Perenolde", 3267, 42, 4.4, 2.3),
+        ],
+    },
+    MapDef {
+        name: "Feralas",
+        zone: "The Gordok Tribute",
+        map: 1,
+        // The wilds south of Camp Mojache.
+        center: [-4500.0, 150.0, 30.0],
+        leash: 80.0,
+        victory: "King Gordok's tribute is paid in full.",
+        might: 2.0,
+        foes: &[
+            // look: Rot Hide Mongrel
+            foe("Woodpaw Mongrel", 847, 40, 4.2, 1.0),
+            // look: Riverpaw Bandit
+            foe("Woodpaw Trapper", 383, 41, 4.2, 1.0),
+            // look: Riverpaw Mystic
+            foe("Woodpaw Mystic", 502, 42, 3.8, 1.0),
+            // look: Wendigo
+            foe("Rage Scar Yeti", 950, 43, 4.2, 1.1),
+            // look: Jadefire Rogue, a satyr
+            foe("Wildspawn Rogue", 8575, 44, 5.2, 1.0),
+            // look: Riverpaw Brute
+            foe("Woodpaw Alpha", 384, 45, 4.2, 1.1),
+            // look: Dreadmaul Mauler
+            foe("Gordunni Ogre", 14401, 45, 3.6, 1.1),
+            // look: Jadefire Felsworn
+            foe("Wildspawn Felsworn", 11334, 46, 4.8, 1.1),
+            // look: Wendigo
+            foe("Feral Scar Yeti", 950, 47, 4.2, 1.25),
+            // look: Ice Claw Bear
+            giant("Ironfur Bear", 8840, 47, 4.6, 1.1),
+            // look: Dreadmaul Mauler
+            giant("Gordunni Mauler", 14401, 48, 3.6, 1.3),
+        ],
+        bosses: &[
+            // look: Ice Claw Bear
+            giant("Old Grizzlegut", 8840, 46, 4.6, 1.9),
+            // look: Jadefire Felsworn
+            foe("Zevrim Thornhoof", 11334, 57, 4.8, 2.0),
+            // look: Oakenscowl
+            foe("Tendris Warpwood", 2567, 60, 4.2, 2.6),
+            // look: Dreadmaul Mauler
+            foe("Captain Kromcrush", 14401, 61, 4.2, 2.2),
+            // look: Dreadmaul Mauler
+            foe("King Gordok", 14401, 62, 4.4, 2.6),
+        ],
+    },
+    MapDef {
         name: "Gurubashi Arena",
-        zone: "Stranglethorn Vale",
+        zone: "The Blood God's Arena",
         map: 0,
         // The arena floor; the stands ring it.
         center: [-13205.0, 272.0, 22.0],
         leash: 30.0,
-        victory: "The arena roars your name.",
+        victory: "Hakkar the Soulflayer is cast out; the arena roars your name.",
+        might: 2.2,
         foes: &[
             foe("Shadowmaw Panther", 11452, 37, 5.6, 1.4),
             foe("Cold Eye Basilisk", 8797, 39, 3.8, 1.0),
@@ -2066,367 +2209,173 @@ pub(crate) static MAPS: &[MapDef] = &[
         ],
         bosses: &[
             giant("King Bangalash", 616, 43, 5.8, 3.0),
-            foe("Mokk the Savage", 840, 44, 4.8, 2.4),
             foe("Bloodlord Mandokir", 11288, 63, 5.0, 2.1),
             foe("High Priest Thekal", 15216, 63, 5.0, 2.3),
             foe("Jin'do the Hexxer", 11311, 63, 4.6, 2.5),
-            giant("Hakkar", 15295, 63, 4.4, 2.7),
+            giant("Hakkar the Soulflayer", 15295, 63, 4.4, 2.7),
         ],
     },
     MapDef {
-        name: "Elwynn Forest",
-        zone: "Eastern Kingdoms",
+        name: "Scarlet Monastery",
+        zone: "The Scarlet Crusade",
         map: 0,
-        // Open, level ground among Elwynn Forest's own creatures: no building or big prop near.
-        center: [-9548.5, 115.0, 60.0],
-        leash: 150.0,
-        victory: "Elwynn Forest is safe once more.",
+        // The fields below the monastery's walls, in Tirisfal Glades.
+        center: [2800.0, -680.0, 130.0],
+        leash: 50.0,
+        victory: "High Inquisitor Whitemane's crusade ends at her own gates.",
+        might: 2.4,
         foes: &[
-            foe("Young Wolf", 447, 1, 5.4, 1.0),
-            foe("Timber Wolf", 604, 2, 5.4, 1.0),
-            foe("Defias Thug", 5035, 4, 4.2, 1.15),
-            foe("Mangy Wolf", 903, 6, 5.4, 1.0),
-            foe("Stonetusk Boar", 503, 6, 4.6, 1.0),
-            foe("Kobold Tunneler", 139, 6, 4.2, 1.0),
-            foe("Defias Cutpurse", 2361, 6, 4.2, 1.15),
-            foe("Forest Spider", 382, 6, 4.2, 1.0),
-            foe("Murloc", 617, 7, 4.2, 1.0),
-            foe("Kobold Miner", 373, 7, 4.2, 1.0),
-            foe("Murloc Streamrunner", 527, 7, 4.2, 1.0),
-            foe("Rockhide Boar", 389, 8, 4.6, 1.0),
-            foe("Gray Forest Wolf", 380, 8, 5.4, 1.0),
-            foe("Defias Bandit", 2357, 9, 4.2, 1.15),
-            giant("Young Forest Bear", 1006, 9, 4.6, 1.0),
-            foe("Defias Rogue Wizard", 2359, 10, 3.8, 1.1),
+            foe("Rattlecage Soldier", 200, 30, 4.2, 1.2),
+            foe("Rotting Dead", 1200, 30, 3.6, 1.0),
+            foe("Vampiric Duskbat", 8808, 31, 5.2, 0.8),
+            // look: Scarlet Missionary
+            foe("Scarlet Scout", 2468, 32, 4.2, 1.15),
+            foe("Darkeye Bonecaster", 11398, 32, 3.8, 1.0),
+            foe("Cursed Darkhound", 9020, 33, 4.2, 1.4),
+            // look: Scarlet Zealot
+            foe("Scarlet Myrmidon", 2483, 34, 4.2, 1.15),
+            foe("Hungering Dead", 1202, 34, 3.6, 1.0),
+            // look: Scarlet Missionary
+            foe("Scarlet Adept", 2468, 35, 3.8, 1.15),
+            foe("Shambling Horror", 1197, 36, 3.6, 1.1),
+            // look: Scarlet Zealot
+            foe("Scarlet Champion", 2483, 37, 4.4, 1.3),
         ],
         bosses: &[
-            foe("Mother Fang", 2541, 10, 4.6, 1.9),
-            foe("Narg the Taskmaster", 774, 10, 4.2, 1.9),
-            foe("Hogger", 384, 11, 4.2, 1.9),
-            foe("Thuros Lightfingers", 3341, 11, 4.2, 2.18),
-            foe("Fedfennel", 175, 12, 4.2, 1.9),
-            foe("Gruff Swiftbite", 175, 12, 4.2, 1.9),
+            // look: Scarlet Zealot
+            foe("Interrogator Vishas", 2483, 32, 4.2, 2.0),
+            // look: Cursed Darkhound
+            foe("Houndmaster Loksey", 9020, 34, 5.0, 2.4),
+            // look: Scarlet Missionary
+            foe("Arcanist Doan", 2468, 37, 4.0, 2.1),
+            // look: Scarlet Zealot
+            foe("Herod", 2483, 40, 4.4, 2.4),
+            // look: Scarlet Missionary
+            foe("High Inquisitor Whitemane", 2468, 42, 4.4, 2.3),
         ],
     },
     MapDef {
-        name: "Durotar",
-        zone: "Kalimdor",
-        map: 1,
-        // Open, level ground among Durotar's own creatures: no building or big prop near.
-        center: [587.5, -4311.4, 19.0],
-        leash: 150.0,
-        victory: "Durotar is quiet again.",
-        foes: &[
-            foe("Vile Familiar", 1185, 4, 4.2, 1.0),
-            foe("Felstalker", 850, 4, 4.2, 1.0),
-            foe("Clattering Scorpid", 2486, 6, 4.6, 1.5),
-            foe("Pygmy Surf Crawler", 1307, 6, 4.6, 1.0),
-            foe("Dire Mottled Boar", 381, 7, 4.6, 1.0),
-            foe("Razormane Quilboar", 1218, 7, 4.6, 1.0),
-            foe("Armored Scorpid", 2487, 8, 4.6, 1.5),
-            foe("Bloodtalon Taillasher", 1960, 8, 5.4, 0.85),
-            foe("Razormane Scout", 1252, 8, 4.6, 1.0),
-            foe("Dustwind Harpy", 3012, 8, 4.2, 1.0),
-            foe("Dustwind Pillager", 6814, 8, 4.2, 1.0),
-            foe("Razormane Dustrunner", 6088, 9, 4.6, 1.0),
-            foe("Elder Mottled Boar", 193, 9, 4.6, 1.0),
-            foe("Razormane Battleguard", 1964, 10, 4.6, 1.0),
-            foe("Burning Blade Neophyte", 4186, 10, 3.8, 1.0),
-            foe("Burning Blade Cultist", 4194, 11, 3.8, 1.0),
-        ],
-        bosses: &[
-            foe("Geolord Mottle", 6113, 9, 4.6, 1.9),
-            foe("Razormane Dustrunner", 6088, 9, 4.6, 1.9),
-            foe("Razormane Battleguard", 1964, 10, 4.6, 1.9),
-            foe("Burning Blade Neophyte", 4186, 10, 3.8, 1.9),
-            foe("Death Flayer", 2491, 11, 4.6, 2.85),
-            foe("Burning Blade Cultist", 4194, 11, 3.8, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Teldrassil",
-        zone: "Kalimdor",
-        map: 1,
-        // Open, level ground among Teldrassil's own creatures: no building or big prop near.
-        center: [9737.5, 649.8, 1298.5],
-        leash: 150.0,
-        victory: "Teldrassil blooms again.",
-        foes: &[
-            foe("Young Nightsaber", 11454, 1, 5.4, 1.5),
-            foe("Young Thistle Boar", 8869, 2, 4.6, 1.0),
-            foe("Grell", 6806, 3, 4.2, 1.0),
-            foe("Grellkin", 3023, 4, 4.2, 1.0),
-            foe("Nightsaber", 6805, 6, 5.4, 1.5),
-            foe("Strigid Owl", 10832, 6, 5.2, 1.0),
-            foe("Webwood Lurker", 760, 6, 4.2, 1.0),
-            foe("Timberling", 3033, 6, 4.2, 1.15),
-            foe("Gnarlpine Gardener", 6799, 6, 3.8, 1.0),
-            foe("Gnarlpine Warrior", 6800, 7, 4.2, 1.0),
-            foe("Gnarlpine Ambusher", 3024, 7, 4.2, 1.0),
-            foe("Vicious Grell", 6811, 7, 4.2, 1.0),
-            foe("Gnarlpine Defender", 6801, 8, 4.2, 1.0),
-            foe("Gnarlpine Shaman", 897, 8, 3.8, 1.0),
-            foe("Timberling Bark Ripper", 6817, 8, 4.2, 1.15),
-            foe("Gnarlpine Augur", 3024, 9, 3.8, 1.0),
-        ],
-        bosses: &[
-            foe("Threggil", 904, 6, 4.2, 1.9),
-            foe("Uruson", 6818, 7, 4.2, 1.9),
-            foe("Gnarlpine Defender", 6801, 8, 4.2, 1.9),
-            foe("Duskstalker", 11453, 9, 5.4, 2.85),
-            foe("Oakenscowl", 2567, 9, 4.2, 2.18),
-            foe("Gnarlpine Augur", 3024, 9, 3.8, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Dun Morogh",
-        zone: "Eastern Kingdoms",
-        map: 0,
-        // Open, level ground among Dun Morogh's own creatures: no building or big prop near.
-        center: [-5400.8, -739.9, 396.7],
-        leash: 150.0,
-        victory: "Dun Morogh thaws in your wake.",
-        foes: &[
-            foe("Crag Boar", 607, 6, 4.6, 1.0),
-            giant("Young Black Bear", 8843, 6, 4.6, 1.0),
-            foe("Juvenile Snow Leopard", 748, 6, 5.4, 1.5),
-            foe("Young Wendigo", 929, 6, 4.2, 1.0),
-            foe("Wendigo", 950, 7, 4.2, 1.0),
-            foe("Large Crag Boar", 381, 7, 4.6, 1.0),
-            foe("Snow Tracker Wolf", 604, 7, 5.4, 1.0),
-            foe("Snow Leopard", 954, 8, 5.4, 1.5),
-            foe("Elder Crag Boar", 744, 8, 4.6, 1.0),
-            foe("Winter Wolf", 785, 8, 5.4, 1.0),
-            giant("Ice Claw Bear", 8840, 8, 4.6, 1.0),
-            foe("Frostmane Seer", 5610, 9, 3.8, 1.2),
-            foe("Frostmane Snowstrider", 5607, 9, 4.2, 1.2),
-        ],
-        bosses: &[
-            foe("Edan the Howler", 931, 9, 4.2, 1.9),
-            foe("Timber", 11422, 10, 5.4, 1.9),
-            foe("Great Father Arctikus", 5625, 11, 4.2, 2.28),
-            foe("Old Icebeard", 1050, 11, 4.2, 1.9),
-            foe("Vagash", 1050, 11, 4.2, 1.9),
-            giant("Bjarn", 913, 12, 4.6, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Mulgore",
-        zone: "Kalimdor",
-        map: 1,
-        // Open, level ground among Mulgore's own creatures: no building or big prop near.
-        center: [-1809.9, -220.6, -8.4],
-        leash: 150.0,
-        victory: "Mulgore's herds roam free.",
-        foes: &[
-            foe("Plainstrider", 1219, 2, 5.4, 1.0),
-            foe("Battleboar", 8869, 4, 4.6, 1.0),
-            foe("Prairie Wolf", 1100, 6, 5.4, 1.0),
-            foe("Palemane Tanner", 550, 6, 4.2, 1.0),
-            foe("Venture Co. Hireling", 7243, 6, 4.2, 1.3),
-            foe("Adult Plainstrider", 1220, 7, 5.4, 1.0),
-            foe("Wiry Swoop", 1228, 7, 5.2, 0.8),
-            foe("Venture Co. Laborer", 7244, 7, 4.2, 1.3),
-            foe("Palemane Skinner", 1216, 7, 4.2, 1.0),
-            foe("Prairie Stalker", 643, 8, 5.4, 1.0),
-            foe("Flatland Cougar", 1059, 8, 5.4, 1.5),
-            foe("Palemane Poacher", 1217, 8, 4.2, 1.0),
-            foe("Venture Co. Taskmaster", 7246, 8, 4.2, 1.3),
-            foe("Swoop", 1229, 9, 5.2, 0.8),
-            foe("Elder Plainstrider", 1221, 9, 5.4, 1.0),
-        ],
-        bosses: &[
-            foe("Prairie Stalker", 643, 8, 5.4, 1.9),
-            foe("Mazzranache", 1961, 9, 5.4, 1.9),
-            foe("Snagglespear", 275, 9, 4.2, 1.9),
-            foe("Swoop", 1229, 9, 5.2, 1.52),
-            foe("Elder Plainstrider", 1221, 9, 5.4, 1.9),
-            foe("Ghost Howl", 720, 12, 5.4, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Tirisfal Glades",
-        zone: "Eastern Kingdoms",
-        map: 0,
-        // Open, level ground among Tirisfal Glades's own creatures: no building or big prop near.
-        center: [1993.0, -153.3, 35.4],
-        leash: 150.0,
-        victory: "Tirisfal is at peace.",
-        foes: &[
-            foe("Decrepit Darkhound", 9021, 6, 4.2, 1.4),
-            foe("Rotting Dead", 1200, 6, 3.6, 1.0),
-            foe("Greater Duskbat", 4734, 7, 5.2, 0.8),
-            foe("Ravaged Corpse", 1201, 7, 3.6, 1.0),
-            foe("Rot Hide Graverobber", 10853, 7, 4.2, 1.0),
-            foe("Rot Hide Gnoll", 10852, 7, 4.2, 1.0),
-            foe("Rattlecage Soldier", 200, 7, 4.2, 1.2),
-            foe("Cursed Darkhound", 9020, 8, 4.2, 1.4),
-            foe("Rot Hide Mongrel", 847, 8, 4.2, 1.0),
-            foe("Hungering Dead", 1202, 8, 3.6, 1.0),
-            foe("Scarlet Missionary", 2468, 8, 3.8, 1.15),
-            foe("Darkeye Bonecaster", 11398, 8, 3.8, 1.0),
-            foe("Vampiric Duskbat", 8808, 9, 5.2, 0.8),
-            foe("Scarlet Zealot", 2483, 9, 4.2, 1.1),
-            foe("Shambling Horror", 1197, 9, 3.6, 1.0),
-        ],
-        bosses: &[
-            foe("Farmer Solliden", 3535, 8, 4.2, 2.18),
-            foe("Tormented Spirit", 9534, 9, 4.2, 1.52),
-            foe("Bayne", 7892, 10, 4.2, 2.66),
-            foe("Ressan the Needler", 9750, 11, 5.2, 1.52),
-            foe("Fellicent's Shade", 5430, 12, 4.2, 1.9),
-            foe("Gorefang", 11413, 13, 5.4, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Westfall",
-        zone: "Eastern Kingdoms",
-        map: 0,
-        // Open, level ground among Westfall's own creatures: no building or big prop near.
-        center: [-10252.2, 1483.5, 41.6],
-        leash: 150.0,
-        victory: "Westfall's fields are safe.",
-        foes: &[
-            foe("Young Fleshripper", 410, 11, 5.2, 0.8),
-            foe("Coyote", 643, 11, 5.4, 1.0),
-            foe("Defias Smuggler", 4418, 12, 4.2, 1.15),
-            giant("Harvest Golem", 367, 12, 3.6, 1.0),
-            foe("Young Goretusk", 8871, 13, 4.6, 1.0),
-            foe("Defias Trapper", 2331, 13, 4.2, 1.1),
-            foe("Fleshripper", 2305, 14, 5.2, 0.8),
-            foe("Goretusk", 3027, 15, 4.6, 1.0),
-            giant("Harvest Watcher", 378, 15, 3.6, 1.0),
-            foe("Riverpaw Brute", 384, 16, 4.2, 1.0),
-            foe("Riverpaw Bandit", 383, 17, 4.2, 1.0),
-            foe("Great Goretusk", 3035, 17, 4.6, 1.0),
-            foe("Riverpaw Taskmaster", 376, 18, 4.2, 1.0),
-            foe("Defias Highwayman", 2342, 18, 4.2, 1.15),
-            foe("Pygmy Venom Web Spider", 958, 19, 4.6, 1.0),
-            foe("Riverpaw Mystic", 502, 19, 3.8, 1.0),
-        ],
-        bosses: &[
-            foe("Brainwashed Noble", 3267, 18, 4.2, 2.18),
-            foe("Marisa du'Paige", 2355, 18, 4.2, 2.09),
-            foe("Sergeant Brashclaw", 383, 18, 4.2, 1.9),
-            foe("Klaven Mortwake", 5805, 23, 4.2, 2.18),
-            foe("Lupos", 11412, 23, 5.4, 1.9),
-            foe("Vultros", 507, 26, 5.2, 1.52),
-        ],
-    },
-    MapDef {
-        name: "Duskwood",
-        zone: "Eastern Kingdoms",
-        map: 0,
-        // Open, level ground among Duskwood's own creatures: no building or big prop near.
-        center: [-10051.8, -792.5, 36.5],
-        leash: 150.0,
-        victory: "Duskwood's curse lifts.",
-        foes: &[
-            foe("Pygmy Venom Web Spider", 958, 19, 4.6, 1.0),
-            foe("Venom Web Spider", 955, 20, 4.6, 1.0),
-            foe("Skeletal Warrior", 200, 22, 4.2, 1.2),
-            foe("Green Recluse", 2541, 22, 4.6, 1.0),
-            foe("Skeletal Mage", 9783, 23, 4.2, 1.0),
-            foe("Young Black Ravager", 246, 24, 5.4, 1.0),
-            foe("Skeletal Horror", 9786, 24, 3.6, 1.0),
-            foe("Black Widow Hatchling", 368, 25, 4.6, 1.0),
-            foe("Black Ravager", 741, 25, 5.4, 1.0),
-            foe("Black Ravager Mastiff", 9562, 26, 5.4, 1.0),
-            foe("Nightbane Worgen", 657, 27, 5.4, 1.0),
-            foe("Nightbane Shadow Weaver", 203, 28, 5.4, 1.0),
-            foe("Nightbane Dark Runner", 736, 29, 5.4, 1.0),
-            foe("Nightbane Vile Fang", 522, 30, 5.4, 1.0),
-            foe("Fetid Corpse", 559, 30, 3.6, 1.3),
-            foe("Nightbane Tainted One", 1098, 31, 5.4, 1.0),
-        ],
-        bosses: &[
-            foe("Lupos", 11412, 23, 5.4, 1.9),
-            foe("Naraxis", 963, 27, 4.6, 1.9),
-            foe("Nightbane Vile Fang", 522, 30, 5.4, 1.9),
-            foe("Nightbane Tainted One", 1098, 31, 5.4, 1.9),
-            foe("Fenros", 11179, 32, 5.4, 1.9),
-            foe("Nefaru", 11181, 34, 5.4, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Redridge Mountains",
-        zone: "Eastern Kingdoms",
-        map: 0,
-        // Open, level ground among Redridge Mountains's own creatures: no building or big prop near.
-        center: [-9199.8, -2767.5, 91.0],
-        leash: 150.0,
-        victory: "Redridge is safe once more.",
-        foes: &[
-            foe("Redridge Thrasher", 489, 15, 4.2, 1.0),
-            foe("Redridge Mongrel", 487, 16, 4.2, 1.0),
-            foe("Tarantula", 366, 16, 4.2, 1.0),
-            foe("Great Goretusk", 3035, 17, 4.6, 1.0),
-            foe("Redridge Poacher", 551, 17, 4.2, 1.0),
-            foe("Murloc Shorestriker", 1305, 17, 4.2, 1.0),
-            foe("Black Dragon Whelp", 387, 18, 4.2, 1.0),
-            foe("Redridge Brute", 500, 18, 4.2, 1.0),
-            foe("Redridge Mystic", 10789, 19, 3.8, 1.0),
-            foe("Dire Condor", 490, 19, 5.2, 0.8),
-            foe("Redridge Basher", 609, 20, 4.2, 1.0),
-            foe("Greater Tarantula", 520, 20, 4.2, 1.0),
-            foe("Redridge Drudger", 551, 21, 4.2, 1.0),
-            foe("Blackrock Summoner", 6030, 23, 3.8, 1.0),
-            foe("Blackrock Tracker", 6040, 24, 4.2, 1.0),
-            foe("Blackrock Champion", 6044, 25, 4.2, 1.0),
-        ],
-        bosses: &[
-            foe("Blackrock Hunter", 6031, 24, 4.2, 1.9),
-            foe("Singe", 497, 24, 4.2, 1.9),
-            foe("Tharil'zun", 6043, 24, 4.2, 1.9),
-            foe("Blackrock Gladiator", 6042, 25, 4.2, 1.9),
-            foe("Rohh the Silent", 10792, 26, 4.2, 1.9),
-            foe("Kazon", 6041, 27, 4.2, 1.9),
-        ],
-    },
-    MapDef {
-        name: "Mount Hyjal",
-        zone: "Kalimdor",
-        map: 1,
-        // A plateau below the World Tree.
-        center: [5478.0, -3729.0, 1593.0],
+        name: "Alterac Valley",
+        zone: "The Frozen Front",
+        map: 30,
+        // Snowfall, the valley's middle.
+        center: [-202.0, -112.0, 78.0],
         leash: 70.0,
-        victory: "Nordrassil endures.",
+        victory: "Azuregos takes wing from the valley.",
+        might: 2.6,
         foes: &[
-            foe("Cannibal Ghoul", 10626, 56, 4.6, 1.3),
-            foe("Jadefire Rogue", 8575, 52, 5.2, 1.0),
-            foe("Putrid Gargoyle", 7854, 56, 5.2, 0.85),
-            foe("Death Cultist", 10391, 56, 3.8, 1.1),
-            foe("Felbeast", 7949, 50, 4.8, 0.85),
-            foe("Torn Screamer", 984, 57, 5.0, 0.7),
-            foe("Necromancer", 10427, 57, 3.6, 1.15),
-            foe("Jadefire Felsworn", 11334, 54, 4.8, 1.1),
-            foe("Felhound", 1913, 54, 5.2, 1.0),
-            foe("Nerubian Overseer", 14698, 58, 4.4, 0.95),
-            foe("Felguard Sentry", 9017, 55, 4.2, 0.9),
-            foe("Hate Shrieker", 10751, 58, 5.0, 0.8),
-            foe("Hederine Manastalker", 6172, 58, 5.4, 1.15),
-            giant("Lesser Infernal", 10906, 55, 3.4, 1.0),
-            foe("Felguard Elite", 7970, 61, 4.4, 1.0),
-            giant("Stitched Horror", 1693, 58, 3.6, 1.25),
-            giant("Doomguard Commander", 4426, 61, 4.0, 1.1),
+            // look: Winter Wolf
+            foe("Frostwolf", 785, 51, 5.4, 1.1),
+            // look: Rot Hide Gnoll
+            foe("Wildpaw Gnoll", 10852, 51, 4.2, 1.0),
+            // look: Frostmane Snowstrider
+            foe("Winterax Sentry", 5607, 52, 4.2, 1.2),
+            // look: Wendigo
+            foe("Alterac Yeti", 950, 53, 4.2, 1.25),
+            // look: Frostmane Seer
+            foe("Winterax Seer", 5610, 54, 3.8, 1.2),
+            // look: Blackrock Tracker
+            foe("Frostwolf Bloodhound", 6040, 55, 4.6, 1.0),
+            // look: Blackrock Gladiator
+            foe("Frostwolf Guardian", 6042, 56, 4.2, 1.1),
+            // look: Ice Claw Bear
+            giant("Alterac Bear", 8840, 57, 4.6, 1.15),
+            // look: Blackrock Champion
+            foe("Frostwolf Champion", 6044, 58, 4.2, 1.2),
         ],
         bosses: &[
-            foe("Prince Xavalis", 11335, 57, 5.0, 1.85),
-            foe("Lady Hederine", 10925, 61, 4.8, 2.7),
-            giant("Taerar", 15363, 63, 4.8, 0.5),
-            giant("Lethon", 15365, 63, 4.8, 0.5),
-            giant("Emeriss", 15366, 63, 4.8, 0.53),
-            giant("Ysondre", 15364, 63, 4.8, 0.58),
+            // look: Frostmane Seer
+            foe("Korrak the Bloodrager", 5610, 59, 4.6, 2.2),
+            foe("Great Father Arctikus", 5625, 60, 4.2, 2.28),
+            // look: Oakenscowl
+            foe("Ivus the Forest Lord", 2567, 61, 4.2, 2.8),
+            // look: Blackrock Summoner
+            foe("Drek'Thar", 6030, 62, 4.0, 2.3),
+            // look: Ysondre
+            giant("Azuregos", 15364, 63, 4.8, 0.58),
+        ],
+    },
+    MapDef {
+        name: "Blackrock Mountain",
+        zone: "The Black Dragonflight",
+        map: 0,
+        // The Burning Steppes under the mountain.
+        center: [-7600.0, -1900.0, 135.0],
+        leash: 80.0,
+        victory: "Nefarian falls, and the mountain with him.",
+        might: 2.8,
+        foes: &[
+            foe("Black Dragon Whelp", 387, 52, 4.2, 1.0),
+            foe("Blackrock Hunter", 6031, 53, 4.2, 1.1),
+            foe("Blackrock Summoner", 6030, 54, 3.8, 1.1),
+            foe("Blackrock Tracker", 6040, 55, 4.2, 1.1),
+            foe("Scorching Elemental", 1070, 55, 4.2, 1.05),
+            foe("Blackrock Gladiator", 6042, 56, 4.2, 1.15),
+            foe("Black Slayer", 10824, 57, 5.0, 0.7),
+            foe("Blackrock Champion", 6044, 58, 4.2, 1.2),
+            // look: Lesser Infernal
+            giant("Molten Giant", 10906, 60, 3.4, 1.2),
+        ],
+        bosses: &[
+            // look: Dreadmaul Mauler
+            foe("Highlord Omokk", 14401, 59, 4.2, 2.3),
+            // look: Gurubashi Axe Thrower
+            foe("War Master Voone", 11074, 59, 4.6, 2.0),
+            // look: Scorching Elemental
+            foe("Pyroguard Emberseer", 1070, 60, 4.4, 2.4),
+            // look: Blackrock Champion
+            foe("Overlord Wyrmthalak", 6044, 61, 4.4, 2.3),
+            // look: Black Dragon Whelp
+            giant("Nefarian", 387, 63, 5.0, 3.5),
+        ],
+    },
+    MapDef {
+        name: "Gates of Ahn'Qiraj",
+        zone: "The War of the Shifting Sands",
+        map: 1,
+        // The sands before the Scarab Wall.
+        center: [-8180.0, 1536.0, 5.0],
+        leash: 80.0,
+        victory: "C'Thun's eye closes; the Qiraji retreat behind the Scarab Wall.",
+        might: 3.0,
+        foes: &[
+            foe("Sand Skitterer", 8014, 56, 5.0, 1.0),
+            foe("Stonelash Scorpid", 15383, 55, 4.6, 1.6),
+            foe("Dredge Striker", 15386, 56, 4.4, 1.0),
+            foe("Twilight Avenger", 11811, 58, 4.0, 1.1),
+            foe("Hive'Ashi Drone", 2303, 58, 5.4, 0.55),
+            foe("Stonelash Flayer", 15385, 57, 4.8, 1.75),
+            foe("Hive'Ashi Defender", 12153, 59, 4.2, 1.3),
+            foe("Dust Stormer", 8715, 57, 4.6, 1.05),
+            foe("Twilight Stonecaller", 11815, 59, 3.8, 1.1),
+            foe("Hive'Zora Wasp", 11088, 59, 5.6, 0.6),
+            foe("Hive'Zora Reaver", 11085, 60, 4.8, 1.0),
+            foe("Hive'Regal Ambusher", 11106, 60, 5.2, 1.05),
+            foe("Vekniss Wasp", 15335, 60, 5.6, 0.65),
+            foe("Qiraji Gladiator", 15741, 61, 4.4, 0.75),
+            foe("Vekniss Warrior", 15334, 61, 4.6, 1.15),
+            giant("Obsidian Destroyer", 15343, 61, 3.8, 1.2),
+            giant("Qiraji Champion", 15340, 63, 4.6, 0.95),
+            giant("Anubisath Sentinel", 15347, 61, 4.0, 0.62),
+        ],
+        bosses: &[
+            giant("Kurinnaxx", 15742, 62, 5.0, 1.15),
+            foe("General Rajaxx", 15376, 63, 4.8, 1.15),
+            foe("Moam", 15392, 63, 4.2, 1.6),
+            foe("Ossirian the Unscarred", 15432, 63, 4.6, 0.82),
+            // look: Buru the Gorger
+            giant("C'Thun", 15654, 63, 4.0, 1.1),
         ],
     },
     MapDef {
         name: "Naxxramas",
-        zone: "Eastern Plaguelands",
+        zone: "The Necropolis",
         map: 0,
         // Plaguewood, under the necropolis.
         center: [3010.0, -3790.0, 124.0],
         leash: 80.0,
         victory: "Kel'Thuzad's necropolis falls dark.",
+        might: 3.2,
         foes: &[
             foe("Scourge Soldier", 5231, 55, 4.4, 1.15),
             foe("Plagued Swine", 6121, 53, 5.0, 1.0),
@@ -2452,7 +2401,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             giant("Anub'Rekhan", 15931, 63, 4.6, 0.55),
             foe("Grand Widow Faerlina", 15940, 63, 4.8, 2.9),
             giant("Patchwerk", 16174, 63, 4.0, 1.7),
-            giant("Gluth", 16064, 63, 5.0, 0.62),
             giant("Thaddius", 16137, 63, 4.0, 0.98),
             foe("Kel'Thuzad", 15945, 63, 4.4, 2.1),
         ],
@@ -2465,19 +2413,19 @@ pub(crate) struct Roster {
     pub bosses: Vec<EnemyDef>,
 }
 
+/// How much tougher the final boss is than the boss ladder's top rung.
+pub(crate) const FINAL_BOSS_HEALTH: f32 = 1.5;
+
 static ROSTERS: std::sync::LazyLock<Vec<Roster>> = std::sync::LazyLock::new(|| {
     MAPS.iter()
         .map(|m| {
-            if m.foes.is_empty() {
-                Roster {
-                    enemies: ENEMIES.to_vec(),
-                    bosses: BOSSES.to_vec(),
-                }
-            } else {
-                Roster {
-                    enemies: ladder(m.foes, ENEMIES),
-                    bosses: ladder(m.bosses, BOSSES),
-                }
+            let mut bosses = ladder(m.bosses, BOSSES, m.might);
+            if let Some(last) = bosses.last_mut() {
+                last.hp = (last.hp * FINAL_BOSS_HEALTH).round();
+            }
+            Roster {
+                enemies: ladder(m.foes, ENEMIES, m.might),
+                bosses,
             }
         })
         .collect()
@@ -2488,8 +2436,9 @@ pub(crate) fn roster(map: usize) -> &'static Roster {
 }
 
 /// Number a roster off a tuned ladder: each creature takes the health, damage and experience at
-/// its own place along it, from the ladder's running peak so no later tier comes out softer.
-fn ladder(foes: &[Foe], tuned: &[EnemyDef]) -> Vec<EnemyDef> {
+/// its own place along it, from the ladder's running peak so no later tier comes out softer;
+/// `might` multiplies the health and damage, for the zone's place in the campaign.
+fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
     let mut peak = (0.0f32, 0.0f32, 0.0f32);
     let rungs: Vec<(f32, f32, f32)> = tuned
         .iter()
@@ -2517,9 +2466,9 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef]) -> Vec<EnemyDef> {
             EnemyDef {
                 name: f.name,
                 display: f.display,
-                hp: mix(lo.0, hi.0),
+                hp: (mix(lo.0, hi.0) * might).round(),
                 speed: f.speed,
-                damage: mix(lo.1, hi.1),
+                damage: (mix(lo.1, hi.1) * might).round(),
                 scale: f.scale,
                 xp: mix(lo.2, hi.2) as u32,
                 level: f.level,
@@ -2665,14 +2614,134 @@ mod tests {
         }
     }
 
-    /// A boss comes every `BOSS_EVERY_SECS` until `VICTORY_SECS`; a shorter list leaves the end of
-    /// the run without one (the spawner clamps, so it is a pacing bug, not a crash).
+    /// One boss per slot exactly: a missing one would leave the run without its final boss, and a
+    /// spare one would never come.
     #[test]
     fn every_zone_has_a_boss_for_each_slot_of_the_run() {
-        let slots = (VICTORY_SECS / BOSS_EVERY_SECS) as usize;
         for (i, m) in MAPS.iter().enumerate() {
             let n = roster(i).bosses.len();
-            assert!(n >= slots, "{}: {n} bosses for {slots} slots", m.name);
+            assert_eq!(n, BOSS_TIMES.len(), "{}: {n} bosses", m.name);
+        }
+    }
+
+    /// The twelve zones of the campaign, in the order the main screen opens them.
+    #[test]
+    fn the_campaign_is_twelve_zones_in_order() {
+        let names: Vec<&str> = MAPS.iter().map(|m| m.name).collect();
+        assert_eq!(
+            names,
+            [
+                "Elwynn Forest",
+                "Duskwood",
+                "Warsong Gulch",
+                "Un'Goro Crater",
+                "Arathi Basin",
+                "Feralas",
+                "Gurubashi Arena",
+                "Scarlet Monastery",
+                "Alterac Valley",
+                "Blackrock Mountain",
+                "Gates of Ahn'Qiraj",
+                "Naxxramas",
+            ]
+        );
+        let unique: HashSet<&str> = names.iter().copied().collect();
+        assert_eq!(unique.len(), names.len());
+    }
+
+    /// The final bosses the main screen names, each one opening the next zone.
+    #[test]
+    fn each_zone_ends_on_its_final_boss() {
+        let finals: Vec<&str> = (0..MAPS.len())
+            .map(|i| roster(i).bosses.last().unwrap().name)
+            .collect();
+        assert_eq!(
+            finals,
+            [
+                "Edwin VanCleef",
+                "Morbent Fel",
+                "Lord Kazzak",
+                "King Mosh",
+                "Lord Aliden Perenolde",
+                "King Gordok",
+                "Hakkar the Soulflayer",
+                "High Inquisitor Whitemane",
+                "Azuregos",
+                "Nefarian",
+                "C'Thun",
+                "Kel'Thuzad",
+            ]
+        );
+        assert_eq!(
+            unlock_hint(10).as_deref(),
+            Some("Defeat Nefarian in Blackrock Mountain")
+        );
+        assert_eq!(unlock_hint(0), None);
+    }
+
+    #[test]
+    fn elwynn_reads_as_the_screen_does() {
+        let r = roster(0);
+        let bosses: Vec<(f32, &str)> = (0..r.bosses.len())
+            .map(|k| (Rules::SOLO.boss_time(k), r.bosses[k].name))
+            .collect();
+        assert_eq!(
+            bosses,
+            [
+                (180.0, "Hogger"),
+                (360.0, "Mother Fang"),
+                (540.0, "Rhahk'Zor"),
+                (720.0, "Mr. Smite"),
+                (960.0, "Edwin VanCleef"),
+            ]
+        );
+        let foes: Vec<&str> = r.enemies.iter().map(|e| e.name).collect();
+        assert_eq!(
+            foes,
+            [
+                "Kobold Vermin",
+                "Young Wolf",
+                "Murloc Streamrunner",
+                "Kobold Geomancer",
+                "Defias Thug",
+                "Riverpaw Brute",
+                "Prowler",
+                "Defias Rogue Wizard",
+                "Defias Enforcer",
+            ]
+        );
+        assert_eq!(MAPS[0].zone, "The Defias Uprising");
+    }
+
+    #[test]
+    fn zones_open_one_after_another() {
+        let none = |_: &str| false;
+        assert!(unlocked(0, none));
+        assert!(!unlocked(1, none));
+        let elwynn = |z: &str| z == "Elwynn Forest";
+        assert!(unlocked(1, elwynn));
+        assert!(!unlocked(2, elwynn));
+        // Winning a later zone does not skip the one before it.
+        let naxx = |z: &str| z == "Gates of Ahn'Qiraj";
+        assert!(unlocked(11, naxx));
+        assert!(!unlocked(10, naxx));
+        assert!(!unlocked(MAPS.len(), |_| true));
+    }
+
+    /// Each zone is harder than the one before, and its final boss the toughest thing in it.
+    #[test]
+    fn the_campaign_hardens_and_ends_on_its_toughest() {
+        for i in 1..MAPS.len() {
+            assert!(MAPS[i].might > MAPS[i - 1].might, "{}", MAPS[i].name);
+            let (a, b) = (roster(i - 1), roster(i));
+            assert!(b.bosses[4].hp > a.bosses[4].hp, "{}", MAPS[i].name);
+        }
+        for i in 0..MAPS.len() {
+            let r = roster(i);
+            let last = r.bosses.last().unwrap();
+            for e in r.enemies.iter().chain(&r.bosses[..r.bosses.len() - 1]) {
+                assert!(last.hp > e.hp, "{}: {} vs {}", MAPS[i].name, last.name, e.name);
+            }
         }
     }
 
@@ -2725,13 +2794,13 @@ mod tests {
             foe("b", 2, 2, 1.0, 1.0),
             foe("c", 3, 3, 1.0, 1.0),
         ];
-        let out = ladder(&foes, ENEMIES);
+        let out = ladder(&foes, ENEMIES, 1.0);
         assert_eq!(out.len(), 3);
         assert_eq!(out[0].hp, ENEMIES[0].hp);
         let peak = ENEMIES.iter().map(|e| e.hp).fold(0.0f32, f32::max);
         assert_eq!(out[2].hp, peak);
         // A single foe takes the first rung rather than dividing by zero.
-        let one = ladder(&foes[..1], ENEMIES);
+        let one = ladder(&foes[..1], ENEMIES, 1.0);
         assert_eq!(one[0].hp, ENEMIES[0].hp);
     }
 
@@ -2747,7 +2816,7 @@ mod tests {
             let tiers = roster(i).enemies.len();
             let mut prev = 0;
             let mut t = 0.0;
-            while t <= VICTORY_SECS * 1.5 {
+            while t <= FINAL_BOSS_SECS * 1.5 {
                 let pool = wave_pool(t, tiers);
                 assert!(pool[2] < tiers, "t={t}: {pool:?} out of {tiers}");
                 assert!(
@@ -2764,13 +2833,13 @@ mod tests {
     #[test]
     fn wave_pool_opens_on_the_weakest_and_ends_on_the_strongest() {
         assert_eq!(wave_pool(0.0, 30), [0, 1, 2]);
-        assert_eq!(wave_pool(VICTORY_SECS, 30), [27, 28, 29]);
+        assert_eq!(wave_pool(FINAL_BOSS_SECS, 30), [27, 28, 29]);
     }
 
     #[test]
     fn crowd_grows_and_caps() {
         assert_eq!(target_alive(0.0), 14);
-        assert_eq!(target_alive(VICTORY_SECS * 10.0), 220);
+        assert_eq!(target_alive(FINAL_BOSS_SECS * 10.0), 220);
         let mut prev = 0;
         for s in 0..=900 {
             let n = target_alive(s as f32);
@@ -2783,8 +2852,8 @@ mod tests {
     fn enemy_scaling_starts_at_one_and_ends_where_tuned() {
         assert_eq!(hp_scale(0.0), 1.0);
         assert_eq!(damage_scale(0.0), 1.0);
-        assert!((hp_scale(VICTORY_SECS) - 1.75).abs() < 1e-5);
-        assert!((damage_scale(VICTORY_SECS) - 1.9).abs() < 1e-5);
+        assert!((hp_scale(FINAL_BOSS_SECS) - 1.75).abs() < 1e-5);
+        assert!((damage_scale(FINAL_BOSS_SECS) - 1.9).abs() < 1e-5);
         // A negative clock (never expected) does not shrink enemies below their base.
         assert_eq!(hp_scale(-10.0), 1.0);
     }
@@ -2813,12 +2882,12 @@ mod tests {
             let t = s as f32;
             assert_eq!(
                 r.target_alive(t),
-                ((14.0 + (t / VICTORY_SECS) * 225.0) as usize).min(220)
+                ((14.0 + (t / FINAL_BOSS_SECS) * 225.0) as usize).min(220)
             );
-            assert_eq!(r.hp_scale(t), 1.0 + (t / VICTORY_SECS) * 0.75);
+            assert_eq!(r.hp_scale(t), 1.0 + (t / FINAL_BOSS_SECS) * 0.75);
             assert_eq!(
                 r.bosses_due(t),
-                ((t / BOSS_EVERY_SECS) as u32).min(BOSSES.len() as u32)
+                BOSS_TIMES.iter().filter(|&&b| b <= t).count() as u32
             );
         }
     }
@@ -2858,29 +2927,33 @@ mod tests {
     #[test]
     fn custom_durations_scale_the_run_and_its_bosses() {
         let long = Rules {
-            duration: 1800.0,
-            boss_every: 60.0,
+            duration: 1920.0,
             ..Rules::SOLO
         };
         // Progress runs against the custom clock.
-        assert!((long.progress(900.0) - 0.5).abs() < 1e-6);
-        // No boss lands on the bell itself.
-        assert_eq!(long.bosses_due(1800.0), 29);
-        // More slots than bosses: the roster goes round again, tougher.
+        assert!((long.progress(960.0) - 0.5).abs() < 1e-6);
+        // Every boss comes twice as late; the final one at the run's length.
+        assert_eq!(long.boss_time(0), 360.0);
+        assert_eq!(long.boss_time(4), 1920.0);
+        assert_eq!(long.bosses_due(1919.0), 4);
+        assert_eq!(long.bosses_due(1920.0), 5);
+        // Never more bosses than the roster has.
+        assert_eq!(long.bosses_due(1.0e6), 5);
         let r = roster(0);
-        let n = r.bosses.len() as u32;
-        let (first, m0) = long.boss(r, 0);
-        let (again, m1) = long.boss(r, n);
-        assert_eq!(first.name, again.name);
-        assert_eq!(m0, 1.0);
-        assert!(m1 > m0);
+        let (first, final0) = long.boss(r, 0);
+        let (last, final4) = long.boss(r, 4);
+        assert_eq!(first.name, "Hogger");
+        assert!(!final0);
+        assert_eq!(last.name, "Edwin VanCleef");
+        assert!(final4);
     }
 
     #[test]
     fn boss_schedule_fits_inside_the_run() {
-        // The last boss lands before the bell, with time to fight it.
-        let last = (VICTORY_SECS / BOSS_EVERY_SECS).floor() * BOSS_EVERY_SECS;
-        assert!(last < VICTORY_SECS);
+        // In order, the final one last, at the run's length.
+        assert!(BOSS_TIMES.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(*BOSS_TIMES.last().unwrap(), FINAL_BOSS_SECS);
+        assert_eq!(Rules::SOLO.boss_time(4), FINAL_BOSS_SECS);
     }
 
     #[test]

@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::data;
-use super::{Phase, Run, Selection, Session};
+use super::{Phase, Run, Selection};
 
 /// Bumped when a field changes meaning; a new field with a default does not need it.
 pub(super) const PROFILE_VERSION: u32 = 1;
@@ -26,6 +26,27 @@ pub(super) const PROFILE_VERSION: u32 = 1;
 const FILE: &str = "survivors-profile.toml";
 /// The pick file the profile replaced, read once to carry the last hero over.
 const OLD_PICK_FILE: &str = "survivors-pick.txt";
+/// The zones of the pick file's day, by its index, to carry an old pick over by name.
+const OLD_PICK_ZONES: [&str; 16] = [
+    "The Barrens",
+    "The Dark Portal",
+    "Gates of Ahn'Qiraj",
+    "Fire Plume Ridge",
+    "Gurubashi Arena",
+    "Elwynn Forest",
+    "Durotar",
+    "Teldrassil",
+    "Dun Morogh",
+    "Mulgore",
+    "Tirisfal Glades",
+    "Westfall",
+    "Duskwood",
+    "Redridge Mountains",
+    "Mount Hyjal",
+    "Naxxramas",
+];
+/// Zones the campaign renamed: a record kept under the old name moves to the new one.
+const RENAMED_ZONES: [(&str, &str); 1] = [("Fire Plume Ridge", "Un'Goro Crater")];
 /// Seconds a change waits before it is written, so a burst of clicks is one write.
 const SAVE_DELAY: f32 = 0.5;
 
@@ -105,7 +126,38 @@ impl Profile {
     /// Read a profile file's text: `Err` for text that is not a profile at all. Missing fields
     /// take their defaults and unknown ones are skipped, so any version's file loads.
     pub fn parse(text: &str) -> Result<Self, String> {
-        toml::from_str(text).map_err(|e| e.to_string())
+        let mut p: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        p.follow_renames();
+        Ok(p)
+    }
+
+    /// Move what was kept under a zone's old name to its new one, adding to any record already
+    /// there. A zone the campaign dropped keeps its record: nothing is lost, it is only not shown.
+    fn follow_renames(&mut self) {
+        for (old, new) in RENAMED_ZONES {
+            if let Some(r) = self.zones.remove(old) {
+                let into = self.zones.entry(new.to_string()).or_default();
+                into.runs += r.runs;
+                into.wins += r.wins;
+                into.best_time = into.best_time.max(r.best_time);
+                into.best_level = into.best_level.max(r.best_level);
+                into.best_kills = into.best_kills.max(r.best_kills);
+            }
+            if self.hero.zone == old {
+                self.hero.zone = new.to_string();
+            }
+        }
+    }
+
+    /// Whether a zone's final boss has ever fallen.
+    pub fn won(&self, zone: &str) -> bool {
+        self.zones.get(zone).is_some_and(|r| r.wins > 0)
+    }
+
+    /// Whether the campaign's zone `i` is open to this profile; `WOW_UNLOCK_ALL=1`
+    /// (`?unlock_all=1`) opens them all, for testing.
+    pub fn zone_open(&self, i: usize) -> bool {
+        unlock_all() || data::unlocked(i, |z| self.won(z))
     }
 
     pub fn to_text(&self) -> String {
@@ -152,7 +204,17 @@ impl Profile {
             return None;
         };
         let class = data::CLASSES.get(class)?;
-        let zone = data::MAPS.get(zone)?;
+        // By name, as the campaign reordered the zones; one it dropped starts at the first.
+        let zone = OLD_PICK_ZONES
+            .get(zone)
+            .map(|old| {
+                RENAMED_ZONES
+                    .iter()
+                    .find(|(o, _)| o == old)
+                    .map_or(*old, |(_, n)| *n)
+            })
+            .and_then(|name| data::MAPS.iter().find(|m| m.name == name))
+            .unwrap_or(&data::MAPS[0]);
         Some(Self {
             hero: HeroPick {
                 class: class.name.to_string(),
@@ -164,6 +226,16 @@ impl Profile {
             ..Self::default()
         })
     }
+}
+
+/// `WOW_UNLOCK_ALL=1` (`?unlock_all=1` on the web): every zone open. The autoplayer
+/// (`WOW_SURVIVORS_AUTO`) opens them too, as it plays whichever zone it is told.
+pub(super) fn unlock_all() -> bool {
+    static ALL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALL.get_or_init(|| {
+        crate::webenv::var("WOW_UNLOCK_ALL").is_some_and(|v| v.trim() == "1")
+            || crate::webenv::var("WOW_SURVIVORS_AUTO").is_some()
+    })
 }
 
 /// The class and zone of a pick, as indices into today's tables; a name no table has any more is
@@ -268,9 +340,30 @@ impl ProfileStore {
 
 pub(super) fn plugin(app: &mut App) {
     app.insert_resource(ProfileStore::load())
-        .add_systems(Update, save_when_settled)
+        .add_systems(Update, (save_when_settled, keep_to_open_zones))
         .add_systems(OnEnter(Phase::GameOver), record_run)
         .add_systems(Last, save_on_exit);
+}
+
+/// At the menu, the zone picked is one the campaign has opened: a pick restored from before a
+/// lock, or made in the glue menu, moves to the furthest zone open. A lobby's zone is the host's
+/// call and is left alone.
+fn keep_to_open_zones(
+    phase: Res<State<Phase>>,
+    session: Res<super::Session>,
+    store: Res<ProfileStore>,
+    mut selection: ResMut<Selection>,
+) {
+    if *phase.get() != Phase::Menu || session.in_lobby || store.profile.zone_open(selection.map)
+    {
+        return;
+    }
+    let furthest = (0..data::MAPS.len())
+        .rev()
+        .find(|&i| store.profile.zone_open(i))
+        .unwrap_or(0);
+    selection.map = furthest;
+    selection.version += 1;
 }
 
 /// Write a change once it has settled.
@@ -295,7 +388,6 @@ fn save_on_exit(mut exit: MessageReader<AppExit>, mut store: ResMut<ProfileStore
 fn record_run(
     run: Res<Run>,
     selection: Res<Selection>,
-    session: Res<Session>,
     mut store: ResMut<ProfileStore>,
 ) {
     if !run.begun {
@@ -304,7 +396,7 @@ fn record_run(
     let result = RunResult {
         zone: selection.stage_def().name.to_string(),
         won: run.won,
-        secs: run.elapsed.min(session.rules.duration),
+        secs: run.elapsed,
         level: run.level,
         kills: run.kills,
         damage_done: run.damage_done,
@@ -401,10 +493,48 @@ mod tests {
     }
 
     #[test]
+    fn a_renamed_zone_keeps_its_record() {
+        let text = r#"
+version = 1
+[hero]
+zone = "Fire Plume Ridge"
+[zones."Fire Plume Ridge"]
+runs = 3
+wins = 1
+best_level = 30
+[zones."Un'Goro Crater"]
+runs = 1
+best_level = 12
+[zones."The Barrens"]
+runs = 2
+"#;
+        let p = Profile::parse(text).unwrap();
+        assert_eq!(p.hero.zone, "Un'Goro Crater");
+        assert!(!p.zones.contains_key("Fire Plume Ridge"));
+        let u = &p.zones["Un'Goro Crater"];
+        assert_eq!((u.runs, u.wins, u.best_level), (4, 1, 30));
+        // A zone the campaign dropped keeps its record.
+        assert_eq!(p.zones["The Barrens"].runs, 2);
+    }
+
+    #[test]
+    fn winning_a_zone_opens_the_next() {
+        let mut p = Profile::default();
+        assert!(p.zone_open(0) && !p.zone_open(1));
+        // A loss opens nothing.
+        p.record(&result("Elwynn Forest", false, 10, 100));
+        assert!(!p.zone_open(1));
+        p.record(&result("Elwynn Forest", true, 20, 900));
+        assert!(p.won("Elwynn Forest"));
+        assert!(p.zone_open(1) && !p.zone_open(2));
+    }
+
+    #[test]
     fn the_old_pick_file_carries_over_by_name() {
         let p = Profile::from_old_pick("3 8 1 5").unwrap();
         assert_eq!(p.hero.class, data::CLASSES[3].name);
-        assert_eq!(p.hero.zone, data::MAPS[5].name);
+        // Index 5 was Elwynn Forest in the pick file's day.
+        assert_eq!(p.hero.zone, "Elwynn Forest");
         assert_eq!((p.hero.race, p.hero.sex), (8, 1));
         assert_eq!(pick_indices(&p.hero), (Some(3), Some(5)));
         // Out of range or short: nothing to carry.

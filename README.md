@@ -18,12 +18,12 @@ from-scratch WoW 1.12.1 client engine (Rust + [Bevy](https://bevy.org)).**
 > game, running on the [benilla](#how-its-built) / [wenilla](#how-its-built) engine, for personal use.
 
 Pick a class and a battleground, then survive: WASD to move, your abilities cast themselves,
-enemies swarm in waves, you level up and pick upgrades, and a boss shows up every couple of
-minutes. **No server, no login, no account** — fully offline and self-contained.
+enemies swarm in waves, you level up and pick upgrades, bosses come at 3, 6, 9 and 12 minutes,
+and the zone's final boss at 16:00: bring it down to win. **No server, no login, no account** — fully offline and self-contained.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/menu.jpg" alt="The pick screen: race, gender and class on the left, sixteen zones on the right, the hero in between"></td>
+    <td width="50%"><img src="docs/screenshots/menu.jpg" alt="The pick screen: race, gender and class on the left, the zones on the right, the hero in between"></td>
     <td width="50%"><img src="docs/screenshots/combat.jpg" alt="A Mage holding off Elwynn Forest's wolves with frost, fire and arcane"></td>
   </tr>
   <tr>
@@ -35,10 +35,14 @@ minutes. **No server, no login, no account** — fully offline and self-containe
 ### In this build
 
 - **A character-create pick screen** built from the client's own glue art: eight races, both
-  genders, every class the race can be, and **sixteen zones**, from the starting zones to
-  Naxxramas and the Gates of Ahn'Qiraj. Each zone fights with its own creatures and bosses, taken
-  from the zone's real spawns. Your pick and every run's record are kept in a saved profile
-  (`benilla-config/survivors-profile.toml`, or the browser's storage).
+  genders, every class the race can be.
+- **A twelve-zone campaign**, from Elwynn Forest's Defias Uprising to Naxxramas: Duskwood, Warsong
+  Gulch, Un'Goro Crater, Arathi Basin, Feralas, Gurubashi Arena, Scarlet Monastery, Alterac
+  Valley, Blackrock Mountain and the Gates of Ahn'Qiraj between. Each zone fights with its own
+  creatures and five bosses, and opens once the final boss of the one before has fallen
+  (`WOW_UNLOCK_ALL=1` or `?unlock_all=1` opens them all). Your pick, every run's record and the
+  zones won are kept in a saved profile (`benilla-config/survivors-profile.toml`, or the
+  browser's storage).
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.
