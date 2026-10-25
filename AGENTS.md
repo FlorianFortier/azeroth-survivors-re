@@ -50,8 +50,9 @@ it holds; read it before changing the file.
 | `mod.rs` | the plugin: `Phase` (Menu, Playing, LevelUp, Paused, GameOver, Lobby), `Run`, `Selection`, `Vitals`, `HeroState`, and the system sets and their order (`WorldStage::Input`, `SimSet`) |
 | `data.rs` | every table and number: classes, abilities, passives, racials, zones (`MAPS`), rosters and bosses, waves, items (`ITEMS`), difficulties, achievements |
 | `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
-| `hero.rs` | the local hero: WASD movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
-| `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks |
+| `hero.rs` | the local hero: WoW's mouse and keys in the chase view (`MouseLook`: a left-drag swings the camera, a right-drag turns the hero, both run, a press let go in place is a click; `CamRig::facing` is the hero's heading, A/D turn it, Q/E strafe), movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
+| `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks; the local hero's target first for those that strike the nearest (`aimed_order`) |
+| `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
 | `enemies.rs` | the horde: spawning, the chase, contact damage, death, experience gems, loot |
 | `cards.rs` | the level-up cards and their reroll |

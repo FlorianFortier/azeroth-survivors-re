@@ -7,7 +7,7 @@ use super::data::{AbilityDef, Effect, Kind};
 use super::enemies::{self, Enemy, Loot};
 use super::hero::{self, Hero};
 use super::units::{self, flat, Fx, Marks, UnitSpec, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL};
-use super::{HeroState, Rng, Run, RunEntity, Vitals};
+use super::{HeroState, LocalHero, Rng, Run, RunEntity, Vitals};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 /// One blow landing on one enemy.
@@ -168,6 +168,17 @@ fn nearest(foes: &[Foe], range: f32, n: usize) -> Vec<Foe> {
         .collect()
 }
 
+/// The foes nearest first, but the hero's `target` first of all: a spell that strikes the nearest
+/// takes the target while it is within its reach, and the next nearest otherwise.
+fn aimed_order(foes: &[Foe], target: Option<Entity>) -> Vec<Foe> {
+    let mut v = foes.to_vec();
+    if let Some(i) = target.and_then(|t| v.iter().position(|f| f.e == t)) {
+        let picked = v.remove(i);
+        v.insert(0, picked);
+    }
+    v
+}
+
 fn toughest(foes: &[Foe], range: f32, n: usize) -> Vec<Foe> {
     let mut v: Vec<Foe> = foes
         .iter()
@@ -213,8 +224,9 @@ pub(super) fn cast_abilities(
     mut run: ResMut<Run>,
     mut rng: ResMut<Rng>,
     spells: Option<Res<crate::ui_action::Spells>>,
-    mut heroes: Query<(Entity, &Transform, &mut HeroState), With<Hero>>,
+    mut heroes: Query<(Entity, &Transform, &mut HeroState, Has<LocalHero>), With<Hero>>,
     enemies: Query<(Entity, &Transform, &Enemy)>,
+    target: Option<Res<super::targeting::HeroTarget>>,
     mut fx: Fx,
     mut pending: ResMut<PendingHits>,
     mut hits: MessageWriter<Hit>,
@@ -236,7 +248,8 @@ pub(super) fn cast_abilities(
             .map_or(0.0, |d| d.speed)
     };
 
-    for (me, htf, mut hero) in &mut heroes {
+    let target = target.and_then(|t| t.0);
+    for (me, htf, mut hero, local) in &mut heroes {
         if !hero.alive() {
             continue;
         }
@@ -254,12 +267,14 @@ pub(super) fn cast_abilities(
             })
             .collect();
         foes.sort_by(|a, b| a.dist.total_cmp(&b.dist));
+        let aimed = aimed_order(&foes, target.filter(|_| local));
         cast_for(
             me,
             hpos,
             hero,
             &stats,
             &foes,
+            &aimed,
             now,
             dt,
             &speed_of,
@@ -281,6 +296,7 @@ fn cast_for(
     hero: &mut Vitals,
     stats: &super::Stats,
     foes: &[Foe],
+    aimed: &[Foe],
     now: f32,
     dt: f32,
     speed_of: &dyn Fn(u32) -> f32,
@@ -322,7 +338,7 @@ fn cast_for(
                 ) {
                     toughest(foes, reach, p.count)
                 } else {
-                    nearest(foes, reach, p.count)
+                    nearest(aimed, reach, p.count)
                 };
                 if targets.is_empty() {
                     false
@@ -416,7 +432,7 @@ fn cast_for(
                     }
                 }
             }
-            Kind::Chain => match nearest(foes, def.range, 1).first().copied() {
+            Kind::Chain => match nearest(aimed, def.range, 1).first().copied() {
                 None => false,
                 Some(first) => {
                     let mut chain = vec![first];
@@ -914,5 +930,34 @@ pub(super) fn apply_hits(
                 marks.flush(e, guid.0, &mut store, &mut fields);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn foe(n: u32, dist: f32) -> Foe {
+        Foe {
+            e: Entity::from_raw_u32(n).unwrap(),
+            pos: Vec3::ZERO,
+            hp: 10.0,
+            dist,
+            radius: 0.5,
+        }
+    }
+
+    #[test]
+    fn the_target_is_struck_first_while_in_reach() {
+        let foes = [foe(1, 2.0), foe(2, 5.0), foe(3, 30.0)];
+        let ids = |v: &[Foe]| v.iter().map(|f| f.e).collect::<Vec<_>>();
+        // No target: nearest first.
+        assert_eq!(ids(&aimed_order(&foes, None)), ids(&foes));
+        // The target in reach is taken before a nearer one.
+        let aimed = aimed_order(&foes, Some(foes[1].e));
+        assert_eq!(nearest(&aimed, 10.0, 1)[0].e, foes[1].e);
+        // Out of reach, the nearest is taken instead.
+        let aimed = aimed_order(&foes, Some(foes[2].e));
+        assert_eq!(nearest(&aimed, 10.0, 1)[0].e, foes[0].e);
     }
 }
