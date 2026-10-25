@@ -63,6 +63,11 @@ pub(super) fn set(lang: Lang) -> bool {
     true
 }
 
+/// How many times the language has changed: a view keyed on it draws again on a change.
+pub(super) fn generation() -> u32 {
+    GENERATION.load(Ordering::Relaxed)
+}
+
 /// Whether the language changed since a refresh last looked (its `seen`): the refresh then draws
 /// again.
 pub(super) fn stale(seen: &mut u32) -> bool {
@@ -341,6 +346,12 @@ fn french(s: &str) -> Option<&'static str> {
         "Skip" => "Passer",
         "Common" => "Commun",
         "Most stacks" => "Piles au maximum",
+        "  ·  Keys {}" => "  ·  Clés {}",
+        "Key ({} held)" => "Clé ({} en main)",
+        "Shady Merchant" => "Marchand louche",
+        "Stand near to trade" => "Approchez pour marchander",
+        "Sold" => "Vendu",
+        "Click a ware, or press 1, 2 or 3 to buy" => "Cliquez un article, ou appuyez sur 1, 2 ou 3 pour l'acheter",
         // The shrines.
         "Free" => "Gratuit",
         "Beat its elites" => "Battez ses élites",

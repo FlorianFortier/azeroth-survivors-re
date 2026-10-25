@@ -554,6 +554,24 @@ pub(super) fn compose(
                     diamond(q, size, rgb(data::CHEST_COLOR))
                 });
             }
+            // The merchant, held at the edge like an elite: a round coin.
+            FieldMark::Merchant => {
+                let c = rgb(data::MERCHANT_COLOR);
+                let size = ELITE_PX * scale;
+                blit(
+                    buf,
+                    center + off.clamp_length_max(edge) / yd_per_px,
+                    size,
+                    |q| {
+                        let d = q.length() / (size / 2.0);
+                        match d {
+                            d if d > 1.0 => None,
+                            d if d > 0.7 => Some([0.0, 0.0, 0.0, 255.0]),
+                            _ => Some([c[0], c[1], c[2], 255.0]),
+                        }
+                    },
+                );
+            }
             FieldMark::Elite(k) => {
                 let c = data::ELITES[usize::from(*k).min(data::ELITES.len() - 1)].color;
                 let size = ELITE_PX * scale;

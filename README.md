@@ -47,6 +47,11 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   and a label over each chest give its price, each elite shows what it guards, and a fallen
   elite's post counts down to its return; the minimap marks them all, the far elites at its
   edge. Co-op guests see the same.
+- **A shady merchant** stands somewhere on the field with three run items for the run's gold
+  (Common to Legendary, dearer with each bought, restocked every two minutes): walk up to it and
+  click a ware or press 1, 2 or 3. Elites sometimes drop a **key**, which opens a chest for
+  nothing, and **jars and crates** about the field break as you walk into them, for a few coins
+  or a bite to eat. Co-op guests buy, break and open too, the host checking each.
 - **Shrines** across the field: stand in a **Shrine of Power** until it charges and choose one
   blessing of three (a stat for the rest of the run, drawn Common to Legendary); wake the
   **Shrine of Challenge** and beat the elites it calls for a free chest; the **Shrine of Greed**

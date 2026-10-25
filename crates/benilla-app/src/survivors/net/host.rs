@@ -13,7 +13,7 @@ use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
 use survivors_net::game::{
     AbilityView, Boon as WireBoon, Game, Motion, ObjectKind, PartyEntry, Post as WirePost, Role,
-    Score, Shrine as WireShrine, Spawn, Vitals as WireVitals,
+    Score, Shrine as WireShrine, Spawn, Vitals as WireVitals, Ware as WireWare,
 };
 use survivors_net::protocol::Target;
 
@@ -160,6 +160,7 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
             })
             .collect(),
         boons: v.boons.iter().map(data::bonus_to_wire).collect(),
+        keys: v.keys,
     }
 }
 
@@ -180,6 +181,7 @@ pub(super) fn receive(
     >,
     mut queue: ResMut<MobilityQueue>,
     mut rng: ResMut<crate::survivors::Rng>,
+    mut buys: ResMut<crate::survivors::market::BuyQueue>,
 ) {
     let inbox = std::mem::take(&mut net.inbox);
     let map = selection.stage_def();
@@ -224,6 +226,10 @@ pub(super) fn receive(
                     h.mobile.haste_t = haste_t.clamp(0.0, 8.0);
                     h.mobile.vanish_t = vanish_t.clamp(0.0, 8.0);
                 }
+            }
+            Game::Buy { slot, item } => {
+                // The market checks it: the hero at the merchant, the gold, the ware still there.
+                buys.0.push((from, slot, item));
             }
             Game::ShrineChoice(bonus) => {
                 // Only a blessing of the offer this host made that hero.
@@ -356,6 +362,7 @@ pub(super) fn stream(
                     (Some(h), ..) => Role::Hero(h.slot),
                     (_, Some(FieldMark::Chest), ..) => Role::Chest,
                     (_, Some(FieldMark::FreeChest), ..) => Role::FreeChest,
+                    (_, Some(FieldMark::Merchant), ..) => Role::Merchant,
                     (_, Some(FieldMark::Elite(k)), ..) => Role::Elite(*k),
                     (_, _, true, ..) => Role::Enemy,
                     (_, _, _, true, _) => Role::Pickup,
@@ -524,6 +531,15 @@ pub(super) fn stream(
                 .collect(),
             greed: run.greed,
             curse: run.curse,
+            shop: run
+                .shop
+                .iter()
+                .map(|w| WireWare {
+                    item: w.item.key.to_string(),
+                    price: w.price,
+                    sold: w.sold,
+                })
+                .collect(),
         });
         let entries: Vec<PartyEntry> = heroes
             .iter()

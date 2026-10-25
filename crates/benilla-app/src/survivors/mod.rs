@@ -19,6 +19,7 @@ mod hero;
 mod hud;
 mod kit;
 mod lang;
+mod market;
 mod marks;
 mod menu;
 mod minimap;
@@ -71,6 +72,8 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<abilities::PendingHits>()
             .init_resource::<enemies::Spawner>()
             .init_resource::<treasure::Field>()
+            .init_resource::<market::Market>()
+            .init_resource::<market::BuyQueue>()
             .init_resource::<hud::Offer>()
             .init_resource::<cards::PendingPick>()
             .init_resource::<Session>()
@@ -121,6 +124,7 @@ impl Plugin for SurvivorsPlugin {
                     enemies::drop_loot,
                     enemies::collect_gems,
                     treasure::tend_field,
+                    market::tend_market,
                     hero::hero_vitals,
                 )
                     .chain()
@@ -175,6 +179,7 @@ impl Plugin for SurvivorsPlugin {
                     hud::icon_tooltip,
                     hud::hero_plate,
                     marks::place_labels,
+                    market::shop_panel,
                     marks::draw_rings,
                     minimap::map_buttons,
                     minimap::zone_text,
@@ -459,6 +464,8 @@ pub(super) struct Vitals {
     pub rerolls: u8,
     pub banishes: u8,
     pub skips: u8,
+    /// Keys in hand: each opens a chest for nothing.
+    pub keys: u8,
     /// The blessings a Shrine of Power offers this hero, by the simulation: one may be taken.
     pub shrine_offer: Vec<data::Boon>,
     /// What the field's shrines gave this hero for the rest of the run: blessings taken, and
@@ -503,6 +510,7 @@ impl Default for Vitals {
             rerolls: data::REROLLS_PER_RUN,
             banishes: data::BANISHES_PER_RUN,
             skips: data::SKIPS_PER_RUN,
+            keys: 0,
             shrine_offer: Vec::new(),
             boons: Vec::new(),
         }
@@ -630,6 +638,8 @@ pub(super) struct Run {
     pub posts: Vec<treasure::PostView>,
     /// The field's shrines (the host's, for a guest), for the marks.
     pub shrines: Vec<treasure::ShrineView>,
+    /// The merchant's wares (the host's, for a guest), for the shop panel.
+    pub shop: Vec<market::Ware>,
     /// The Shrines of Greed and of Curses woken this run: each makes the foes tougher.
     pub greed: u8,
     pub curse: u8,
@@ -656,6 +666,7 @@ impl Default for Run {
             chest_cost: data::chest_cost(0),
             posts: Vec::new(),
             shrines: Vec::new(),
+            shop: Vec::new(),
             greed: 0,
             curse: 0,
             difficulty: 0,

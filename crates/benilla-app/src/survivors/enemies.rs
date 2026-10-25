@@ -85,6 +85,8 @@ pub(super) enum GemKind {
     Gold(u32),
     /// A chest's or an elite's reward, for whoever catches it.
     Reward(data::Reward),
+    /// A key, which opens a chest for nothing.
+    Key,
 }
 
 #[derive(Component)]
@@ -106,6 +108,8 @@ fn look_for(kind: GemKind) -> (u32, f32) {
         // The rewards a wisp of their own: purple for a spell's rank, green for a run item.
         GemKind::Reward(data::Reward::SpellRank) => (1307, 1.8),
         GemKind::Reward(_) => (1267, 1.8),
+        // A key glows gold: the big plain wisp.
+        GemKind::Key => (426, 2.2),
         // `TurkeyLeg.mdx`.
         GemKind::Heal(_) => (114, 2.5),
         // `BFD_WispSmallPurple.mdx`.
@@ -588,6 +592,14 @@ pub(super) fn drop_loot(
             );
         }
         if let Some(k) = d.elite {
+            if rng.f32() < data::KEY_ODDS {
+                spawn_gem(
+                    &mut commands,
+                    run.guid(),
+                    d.pos + Vec3::X * 0.8,
+                    GemKind::Key,
+                );
+            }
             let kind = &data::ELITES[usize::from(k).min(data::ELITES.len() - 1)];
             let at = d.pos - Vec3::Z * 0.8;
             match kind.reward {
@@ -720,6 +732,15 @@ pub(super) fn collect_gems(
                 if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
                     let mult = h.stats().gold;
                     h.gold += n as f32 * mult;
+                }
+            }
+            GemKind::Key => {
+                if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
+                    h.keys = (h.keys + 1).min(data::MAX_KEYS);
+                    h.version += 1;
+                    if h.slot == session.slot {
+                        run.banner = Some(("A key! It opens a chest for nothing.".into(), 3.0));
+                    }
                 }
             }
             GemKind::Reward(reward) => {

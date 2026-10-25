@@ -27,6 +27,16 @@ pub enum Role {
     Elite(u8),
     /// A Shrine of Challenge's prize: a chest that opens for nothing.
     FreeChest,
+    /// The shady merchant.
+    Merchant,
+}
+
+/// One of the merchant's wares: a run item by key, its price, and whether it is gone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ware {
+    pub item: String,
+    pub price: u32,
+    pub sold: bool,
 }
 
 /// A bonus as it travels: `(stat, 0 flat or 1 percent, value × 10 000)`, as a loadout's.
@@ -147,6 +157,8 @@ pub struct Vitals {
     pub shrine_offer: Vec<Boon>,
     /// What the shrines gave this hero for the run.
     pub boons: Vec<WireBonus>,
+    /// Keys in hand: each opens a chest for nothing.
+    pub keys: u8,
 }
 
 /// A hero in the party frames.
@@ -271,6 +283,8 @@ pub enum Game {
         shrines: Vec<Shrine>,
         greed: u8,
         curse: u8,
+        /// The merchant's wares.
+        shop: Vec<Ware>,
     },
     /// Your hero's numbers.
     Me(Vitals),
@@ -295,6 +309,11 @@ pub enum Game {
     Card(CardAction),
     /// The blessing taken from a Shrine of Power's offer, by its bonus.
     ShrineChoice(WireBonus),
+    /// A ware bought from the merchant, by its place and its item.
+    Buy {
+        slot: u8,
+        item: String,
+    },
     Mobility {
         spell: u32,
         effect: MobilityEffect,
@@ -344,6 +363,7 @@ impl Wire for Role {
             Role::Chest => w.u8(5),
             Role::Elite(k) => w.u8(6).u8(*k),
             Role::FreeChest => w.u8(7),
+            Role::Merchant => w.u8(8),
         };
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -356,6 +376,7 @@ impl Wire for Role {
             5 => Role::Chest,
             6 => Role::Elite(r.u8()?),
             7 => Role::FreeChest,
+            8 => Role::Merchant,
             t => return Err(WireError::BadTag(t)),
         })
     }
@@ -492,6 +513,7 @@ impl Wire for Vitals {
         for b in &self.boons {
             put_bonus(w, *b);
         }
+        w.u8(self.keys);
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
@@ -576,6 +598,7 @@ impl Wire for Vitals {
                 }
                 out
             },
+            keys: r.u8()?,
         })
     }
 }
@@ -746,6 +769,7 @@ impl Wire for Game {
                 shrines,
                 greed,
                 curse,
+                shop,
             } => {
                 w.u8(8).f32(*elapsed).u32(*bosses).bool(*waiting).opt(
                     banner.as_ref(),
@@ -761,7 +785,10 @@ impl Wire for Game {
                 for s in shrines {
                     w.u8(s.kind).vec3(s.pos).f32(s.charge).u8(s.state);
                 }
-                w.u8(*greed).u8(*curse);
+                w.u8(*greed).u8(*curse).len(shop.len());
+                for ware in shop {
+                    w.str(&ware.item).u32(ware.price).bool(ware.sold);
+                }
             }
             Game::Me(v) => {
                 w.u8(9);
@@ -807,6 +834,9 @@ impl Wire for Game {
             Game::ShrineChoice(b) => {
                 w.u8(16);
                 put_bonus(w, *b);
+            }
+            Game::Buy { slot, item } => {
+                w.u8(17).u8(*slot).str(item);
             }
             Game::Mobility { spell, effect } => {
                 w.u8(15).u32(*spell);
@@ -897,6 +927,18 @@ impl Wire for Game {
                 },
                 greed: r.u8()?,
                 curse: r.u8()?,
+                shop: {
+                    let n = r.len(7)?;
+                    let mut out = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        out.push(Ware {
+                            item: r.str()?,
+                            price: r.u32()?,
+                            sold: r.bool()?,
+                        });
+                    }
+                    out
+                },
             },
             9 => Game::Me(Vitals::get(r)?),
             10 => {
@@ -937,6 +979,10 @@ impl Wire for Game {
             },
             14 => Game::Card(CardAction::get(r)?),
             16 => Game::ShrineChoice(get_bonus(r)?),
+            17 => Game::Buy {
+                slot: r.u8()?,
+                item: r.str()?,
+            },
             15 => Game::Mobility {
                 spell: r.u32()?,
                 effect: MobilityEffect::get(r)?,
@@ -1014,6 +1060,16 @@ mod tests {
                 pos: [9.0, 1.0, 9.0],
                 yaw: 0.5,
             }),
+            Game::Spawn(Spawn {
+                guid: 12,
+                kind: ObjectKind::Unit,
+                role: Role::Merchant,
+                display: Some(321),
+                scale: 1.6,
+                fields: vec![(22, 900)],
+                pos: [9.0, 1.0, 9.0],
+                yaw: 0.5,
+            }),
             Game::Fields {
                 guid: 7,
                 changes: vec![(22, 0)],
@@ -1073,6 +1129,18 @@ mod tests {
                 }],
                 greed: 1,
                 curse: 2,
+                shop: vec![
+                    Ware {
+                        item: "storm_charm".into(),
+                        price: 70,
+                        sold: false,
+                    },
+                    Ware {
+                        item: "lodestone".into(),
+                        price: 35,
+                        sold: true,
+                    },
+                ],
             },
             Game::Me(Vitals {
                 level: 9,
@@ -1111,6 +1179,7 @@ mod tests {
                     rarity: 3,
                 }],
                 boons: vec![(11, 1, 2500), (7, 0, -1200)],
+                keys: 2,
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {
@@ -1148,6 +1217,10 @@ mod tests {
             })),
             Game::Card(CardAction::Skip),
             Game::ShrineChoice((4, 0, 500)),
+            Game::Buy {
+                slot: 2,
+                item: "vampiric_fang".into(),
+            },
             Game::Mobility {
                 spell: 100,
                 effect: MobilityEffect::Stun {

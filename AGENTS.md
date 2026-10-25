@@ -68,6 +68,7 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
+| `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |
 | `marks.rs` | the field's marks over the world: rings on the ground under chests and elites, a fallen elite's post filling as it comes back, a chest's price and an elite's reward over them; all read off `treasure::FieldMark` and `Run::posts`, so guests see them too |
 | `minimap.rs` | the minimap cluster and the day clock; the field's chests, elites and empty posts on it |
 | `grade.rs` | the picture polish pass (`G`, `?grade=0`) |
@@ -208,6 +209,12 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   only for a blessing of that offer. What shrines give stays on `Vitals::boons`, counted in
   `Vitals::stats`; Greed and Curses toughen the foes through `Run::threat`, which every spawn
   reads instead of `Session::rules` alone.
+  Elites drop keys (`data::KEY_ODDS`, on `Vitals::keys`): a key opens a chest for nothing and
+  leaves its price. The merchant and the jars and crates are `market.rs`'s, in `SimSet`: the
+  merchant is a unit (`FieldMark::Merchant`, `Role::Merchant`), its wares `Run::shop` on
+  `Game::Run`. A purchase goes through `market::BuyQueue` (the local player's own, or a guest's
+  `Game::Buy`), and `market::buy` takes it only for a hero at the merchant with the gold, for a
+  ware still there, within the five kinds.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

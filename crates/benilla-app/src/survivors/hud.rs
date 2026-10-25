@@ -1504,7 +1504,7 @@ pub(super) fn refresh_hud(
     }
     let kills = run.kills;
     if let Ok(mut t) = texts.p2().single_mut() {
-        let want = super::lang::trf(
+        let mut want = super::lang::trf(
             "Kills {}  ·  Gold {}  ·  Chest {}",
             &[
                 &kills.to_string(),
@@ -1512,6 +1512,9 @@ pub(super) fn refresh_hud(
                 &run.chest_cost.to_string(),
             ],
         );
+        if run.keys > 0 {
+            want.push_str(&super::lang::trf("  ·  Keys {}", &[&run.keys.to_string()]));
+        }
         if **t != want {
             **t = want;
         }
