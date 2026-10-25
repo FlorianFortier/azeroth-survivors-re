@@ -12,7 +12,7 @@ use super::{controls_active, HeroState, LocalHero, Phase, Run, Selection, Sessio
 use crate::creature_anim::{move_flags, MovementState};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub(super) struct Hero {
     /// Vertical velocity in yards/second while airborne; 0 on the ground.
     pub(super) vy: f32,
@@ -20,6 +20,12 @@ pub(super) struct Hero {
     /// ground clamp (`net::motion::ground_clamp_creatures`) re-seats every unit on the floor at
     /// the top of the frame, so the arc is re-applied over the ground each frame.
     pub(super) air: f32,
+    /// The ground-plane velocity carried through the air: WoW locks a jump to the momentum it
+    /// took off with, so the keys no longer steer once the feet leave the ground.
+    pub(super) drift: Vec3,
+    /// The arc's direction is spent: set by a running take-off, or by the one nudge a standing
+    /// jump may take (`player::mover::step`'s `arc_dirs_set`).
+    pub(super) arc_set: bool,
 }
 
 /// The body radius enemies stop at.
@@ -29,6 +35,12 @@ pub(super) const HERO_RADIUS: f32 = 0.7;
 /// `CMovement` jump seed and gravity (`player/state.rs`'s `JUMP_SPEED` / `GRAVITY`).
 const JUMP_SPEED: f32 = 7.955_547;
 const GRAVITY: f32 = 19.291_105;
+/// Backpedal over run, the stock 4.5 / 7.0 (`player/state.rs`'s `RUN_BACK_RATIO`): any run with a
+/// rearward part, backpedal and its diagonals, goes at the backward speed; strafing is full speed.
+const RUN_BACK_RATIO: f32 = 4.5 / 7.0;
+/// Walk over run, the stock 2.5 / 7.0: a jump taken standing may be nudged once, at walk speed
+/// (`player/state.rs`'s `AIR_NUDGE_SPEED`, the live `min(walk, run)`).
+const WALK_RATIO: f32 = 2.5 / 7.0;
 
 /// Radians of orbit per raw mouse unit while right-dragging.
 const ORBIT_RATE: f32 = 0.008;
@@ -316,9 +328,7 @@ pub(super) fn spawn_hero(
         }
         outfit::Body::Trainer { .. } => units::spawn_unit(commands, &spec, pos, 0.0),
     };
-    commands
-        .entity(e)
-        .insert((Hero { vy: 0.0, air: 0.0 }, Marks::buffs()));
+    commands.entity(e).insert((Hero::default(), Marks::buffs()));
     e
 }
 
@@ -461,10 +471,24 @@ pub(super) fn drive_hero(
                 let target = Quat::from_rotation_y(yaw_toward(look));
                 tf.rotation = tf.rotation.slerp(target, (dt * 20.0).min(1.0));
             }
-            if dir != Vec3::ZERO && dt > 0.0 {
+            let airborne = hm.vy != 0.0 || hm.air > 0.0;
+            let run_speed = run.stats().speed * run.haste_mult();
+            if airborne && steering {
+                // In the air the arc owns the ground-plane motion: a running take-off keeps its
+                // momentum, and a standing one may be nudged once, at walk speed.
+                if dir != Vec3::ZERO && !hm.arc_set {
+                    let dir = dir.normalize();
+                    hm.drift = dir * run_speed * WALK_RATIO;
+                    hm.arc_set = true;
+                    mv.speed = run_speed * WALK_RATIO;
+                    mv.flags = face.map_or(move_flags::FORWARD, |look| gait(look, dir));
+                }
+                pos += hm.drift * dt;
+            } else if dir != Vec3::ZERO && dt > 0.0 {
                 let dir = dir.normalize();
-                let speed = run.stats().speed * run.haste_mult();
-                pos += dir * speed * dt;
+                let speed = run_speed * pace(face, dir);
+                hm.drift = dir * speed;
+                pos += hm.drift * dt;
                 mv.speed = speed;
                 mv.flags = match face {
                     Some(look) => gait(look, dir),
@@ -474,9 +498,13 @@ pub(super) fn drive_hero(
                         move_flags::FORWARD
                     }
                 };
-            } else if mv.speed != 0.0 || mv.flags != 0 {
-                mv.speed = 0.0;
-                mv.flags = 0;
+            } else {
+                // WoW has no ground inertia: the body stops dead the frame the keys let go.
+                hm.drift = Vec3::ZERO;
+                if mv.speed != 0.0 || mv.flags != 0 {
+                    mv.speed = 0.0;
+                    mv.flags = 0;
+                }
             }
             let map = selection.stage_def();
             let center = arena(map);
@@ -494,6 +522,8 @@ pub(super) fn drive_hero(
             // Space hops: lift off the terrain, then gravity brings the hero back down.
             if playing && keys.just_pressed(KeyCode::Space) && hm.vy == 0.0 && hm.air == 0.0 {
                 hm.vy = JUMP_SPEED;
+                // A moving jump is locked to its momentum; a standing one may steer once.
+                hm.arc_set = hm.drift != Vec3::ZERO;
             }
             if playing && (hm.vy != 0.0 || hm.air > 0.0) {
                 hm.vy -= GRAVITY * dt;
@@ -501,10 +531,12 @@ pub(super) fn drive_hero(
                 if hm.air <= 0.0 {
                     hm.air = 0.0;
                     hm.vy = 0.0;
+                    hm.arc_set = false;
                 }
             } else {
                 hm.air = 0.0;
                 hm.vy = 0.0;
+                hm.arc_set = false;
             }
             pos.y = ground + hm.air;
             // Feed the animation driver: `vertical_speed`'s sign and the `FALLING` flag are what
@@ -843,7 +875,15 @@ pub(super) fn level_up_gate(
     }
 }
 
-/// The ground-plane distance from the hero, the measure every range in the mode uses.
+/// The share of the run speed for running `dir` while facing `look`: the backward speed for any
+/// run with a rearward part, as WoW's backward key takes it over strafe; full speed otherwise.
+fn pace(look: Option<Vec3>, dir: Vec3) -> f32 {
+    match look {
+        Some(look) if look.dot(dir) < -1e-3 => RUN_BACK_RATIO,
+        _ => 1.0,
+    }
+}
+
 /// The movement flags for running `dir` while facing `look`: forward, backpedal or strafe, by
 /// which quarter the run falls in, so the walk, backpedal and strafe animations play.
 fn gait(look: Vec3, dir: Vec3) -> u32 {
@@ -862,6 +902,7 @@ fn gait(look: Vec3, dir: Vec3) -> u32 {
     }
 }
 
+/// The ground-plane distance from the hero, the measure every range in the mode uses.
 pub(super) fn reach(hero: Vec3, other: Vec3) -> f32 {
     flat(other - hero).length()
 }
@@ -879,6 +920,21 @@ mod tests {
         assert!(eye.z > 0.0 && eye.y > 0.0);
         let fwd = flat(look - eye).normalize();
         assert!(fwd.distance(rig.forward()) < 1e-4);
+    }
+
+    #[test]
+    fn backpedalling_and_its_diagonals_go_at_the_backward_speed() {
+        let look = Vec3::NEG_Z;
+        let fwd = Vec3::NEG_Z;
+        let back = Vec3::Z;
+        let right = Vec3::X;
+        assert_eq!(pace(Some(look), fwd), 1.0);
+        assert_eq!(pace(Some(look), right), 1.0, "a strafe is full speed");
+        assert_eq!(pace(Some(look), (fwd + right).normalize()), 1.0);
+        assert_eq!(pace(Some(look), back), RUN_BACK_RATIO);
+        assert_eq!(pace(Some(look), (back + right).normalize()), RUN_BACK_RATIO);
+        // Facing where it runs, the hero never backpedals.
+        assert_eq!(pace(None, back), 1.0);
     }
 
     #[test]
