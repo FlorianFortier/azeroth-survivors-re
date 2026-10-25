@@ -18,6 +18,7 @@ mod grade;
 mod hero;
 mod hud;
 mod kit;
+mod lang;
 mod menu;
 mod minimap;
 mod mobility;

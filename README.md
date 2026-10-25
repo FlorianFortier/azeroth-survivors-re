@@ -66,6 +66,9 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 - **Achievements and Rewards**: thirty achievements written for the mode (runs, wins, kills,
   levels, the collection, bosses met, talents, every zone, Heroic and Mythic), each paying gold
   once claimed from the **Rewards (N)** tab.
+- **Options and French**: the **Options** page (bottom left) sets the master, music and effects
+  volumes, the mouse sensitivity, the picture polish and the language, English or French, and
+  lists the controls. The run's headings follow the language from the next start.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.

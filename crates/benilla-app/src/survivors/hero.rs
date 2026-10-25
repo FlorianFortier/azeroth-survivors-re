@@ -255,15 +255,32 @@ pub(super) fn show_crosshair(
     }
 }
 
-/// The mouse-turn multiplier, `WOW_MOUSE_SENS` (`?mouse_sens=` on the web), 1 by default.
-fn mouse_sens() -> f32 {
-    static SENS: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+/// `WOW_MOUSE_SENS` (`?mouse_sens=` on the web), which outranks the Options' slider.
+fn env_mouse_sens() -> Option<f32> {
+    static SENS: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *SENS.get_or_init(|| {
         crate::webenv::var("WOW_MOUSE_SENS")
             .and_then(|v| v.trim().parse::<f32>().ok())
             .filter(|v| v.is_finite() && *v > 0.0)
-            .map_or(1.0, |v| v.clamp(0.1, 10.0))
+            .map(|v| v.clamp(0.1, 10.0))
     })
+}
+
+/// The Options' mouse sensitivity, as `f32` bits; 1 until the profile says.
+static OPTION_SENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+
+/// Set the mouse-turn multiplier from the Options.
+pub(super) fn set_mouse_sens(v: f32) {
+    OPTION_SENS.store(
+        v.clamp(0.1, 10.0).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// The mouse-turn multiplier: the environment's if set, else the Options'.
+fn mouse_sens() -> f32 {
+    env_mouse_sens()
+        .unwrap_or_else(|| f32::from_bits(OPTION_SENS.load(std::sync::atomic::Ordering::Relaxed)))
 }
 
 /// Where a battleground's runs start.

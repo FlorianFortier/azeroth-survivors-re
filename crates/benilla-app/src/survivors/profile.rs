@@ -119,6 +119,51 @@ pub(super) struct Profile {
     pub codex: Codex,
     /// The achievements whose reward has been claimed, by key.
     pub claimed: BTreeSet<String>,
+    /// The Options page's settings.
+    pub options: Options,
+}
+
+/// Sound, mouse, picture and language, as the Options page sets them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub(super) struct Options {
+    /// Linear, 0 to 1.
+    pub master: f32,
+    pub music: f32,
+    pub sfx: f32,
+    /// The mouse-turn multiplier.
+    pub mouse_sens: f32,
+    /// The sharpen-and-colour pass (G toggles it for the session).
+    pub polish: bool,
+    /// [`super::lang::Lang::code`].
+    pub language: String,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            master: 1.0,
+            music: 0.4,
+            sfx: 1.0,
+            mouse_sens: 1.0,
+            polish: true,
+            language: "en".into(),
+        }
+    }
+}
+
+impl Options {
+    /// Every value held to its range.
+    pub fn clamped(&self) -> Self {
+        Self {
+            master: self.master.clamp(0.0, 1.0),
+            music: self.music.clamp(0.0, 1.0),
+            sfx: self.sfx.clamp(0.0, 1.0),
+            mouse_sens: self.mouse_sens.clamp(0.2, 3.0),
+            polish: self.polish,
+            language: super::lang::Lang::from_code(&self.language).code().into(),
+        }
+    }
 }
 
 /// The Codex's pages, filled as the runs meet things.
@@ -144,6 +189,7 @@ impl Default for Profile {
             talents: BTreeMap::new(),
             codex: Codex::default(),
             claimed: BTreeSet::new(),
+            options: Options::default(),
         }
     }
 }
@@ -575,7 +621,13 @@ impl ProfileStore {
 }
 
 pub(super) fn plugin(app: &mut App) {
-    app.insert_resource(ProfileStore::load())
+    let store = ProfileStore::load();
+    // The language first, so text built at startup is in it.
+    super::lang::set(super::lang::Lang::from_code(
+        &store.profile.options.language,
+    ));
+    app.insert_resource(store)
+        .add_systems(Update, apply_options)
         .add_systems(
             Update,
             (save_when_settled, keep_to_open_zones, refresh_brings),
@@ -602,6 +654,35 @@ fn keep_to_open_zones(
         .unwrap_or(0);
     selection.map = furthest;
     selection.version += 1;
+}
+
+/// The Options take hold: sound, mouse, picture, language; on every change, and once at start.
+fn apply_options(
+    store: Res<ProfileStore>,
+    sound: Option<ResMut<crate::sound::SoundConfig>>,
+    grade: Option<ResMut<super::grade::GradeOn>>,
+    mut last: Local<Option<Options>>,
+) {
+    let o = store.profile.options.clamped();
+    if last.as_ref() == Some(&o) {
+        return;
+    }
+    // The sound may load later than the profile: wait for it, so it is set too.
+    let Some(mut sound) = sound else {
+        return;
+    };
+    let polish_changed = last.as_ref().is_none_or(|l| l.polish != o.polish);
+    sound.master = o.master;
+    sound.music = o.music;
+    sound.sfx = o.sfx;
+    super::hero::set_mouse_sens(o.mouse_sens);
+    if polish_changed {
+        if let Some(mut g) = grade {
+            g.0 = o.polish;
+        }
+    }
+    super::lang::set(super::lang::Lang::from_code(&o.language));
+    *last = Some(o);
 }
 
 /// What the picked hero brings from the profile, kept on the selection for the lobby loadout.
@@ -775,6 +856,17 @@ mod tests {
             .unwrap();
         assert_eq!(p.progress(survivor), (1, 10));
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
+    }
+
+    #[test]
+    fn options_default_and_hold_to_their_ranges() {
+        let p =
+            Profile::parse("version = 1\n[options]\nmaster = 7.0\nlanguage = \"FR\"\n").unwrap();
+        let o = p.options.clamped();
+        assert_eq!(o.master, 1.0);
+        assert_eq!(o.language, "fr");
+        assert_eq!(o.music, Options::default().music);
+        assert!(o.polish);
     }
 
     #[test]
