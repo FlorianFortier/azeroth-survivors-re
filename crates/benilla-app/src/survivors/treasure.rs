@@ -214,7 +214,22 @@ fn spawn_chest(commands: &mut Commands, run: &mut Run, pos: Vec3, free: bool) {
 pub(super) fn grant(hero: &mut HeroState, reward: Reward, rng: &mut Rng) -> String {
     match reward {
         Reward::RunItem => {
-            let item = data::draw_run_item(rng.f32(), rng.f32());
+            // Five kinds at most: once they are held, the draw is among them, and gold once each
+            // is at its most stacks.
+            let item = if hero.run_items.len() >= data::MAX_RUN_ITEM_KINDS {
+                let open: Vec<&'static data::RunItemDef> = hero
+                    .run_items
+                    .iter()
+                    .filter(|(_, n)| *n < data::MAX_RUN_ITEM_STACKS)
+                    .map(|(i, _)| *i)
+                    .collect();
+                match data::draw_held_run_item(&open, rng.f32()) {
+                    Some(item) => item,
+                    None => return grant(hero, Reward::Gold(data::FULL_RUN_ITEMS_GOLD), rng),
+                }
+            } else {
+                data::draw_run_item(rng.f32(), rng.f32())
+            };
             match hero.run_items.iter_mut().find(|(i, _)| *i == item) {
                 Some((_, n)) => *n = (*n + 1).min(data::MAX_RUN_ITEM_STACKS),
                 None => hero.run_items.push((item, 1)),
@@ -659,11 +674,43 @@ mod tests {
         }
         let stacks: u32 = h.run_items.iter().map(|(_, n)| u32::from(*n)).sum();
         assert!(stacks >= 30, "{stacks}");
+        assert!(
+            h.run_items.len() <= data::MAX_RUN_ITEM_KINDS,
+            "five kinds at most"
+        );
         assert!(h
             .run_items
             .iter()
             .all(|(_, n)| *n <= data::MAX_RUN_ITEM_STACKS));
         assert_ne!(h.stats(), before, "the items move the numbers");
+    }
+
+    #[test]
+    fn five_kinds_held_take_more_of_themselves_then_gold() {
+        let mut h = hero();
+        let mut rng = Rng::seeded(11);
+        let kinds: Vec<_> = data::RUN_ITEMS
+            .iter()
+            .take(data::MAX_RUN_ITEM_KINDS)
+            .collect();
+        for i in &kinds {
+            h.run_items.push((i, 1));
+        }
+        for _ in 0..20 {
+            grant(&mut h, Reward::RunItem, &mut rng);
+        }
+        assert_eq!(h.run_items.len(), data::MAX_RUN_ITEM_KINDS, "no sixth kind");
+        assert!(
+            h.run_items.iter().any(|(_, n)| *n > 1),
+            "the held ones grow"
+        );
+        // Every kind at its most: gold instead.
+        for (_, n) in &mut h.run_items {
+            *n = data::MAX_RUN_ITEM_STACKS;
+        }
+        let gold = h.gold;
+        grant(&mut h, Reward::RunItem, &mut rng);
+        assert!(h.gold > gold);
     }
 
     #[test]
