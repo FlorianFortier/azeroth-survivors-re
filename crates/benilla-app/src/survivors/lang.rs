@@ -340,6 +340,16 @@ fn french(s: &str) -> Option<&'static str> {
         "Banish" => "Bannir",
         "Skip" => "Passer",
         "Common" => "Commun",
+        "Most stacks" => "Piles au maximum",
+        "Heals you for {} of the damage you deal." => "Vous soigne de {} des dégâts que vous infligez.",
+        "{} chance on a hit to arc to {} more foes for {} damage." => {
+            "{} de chances, à chaque coup, d'arquer vers {} ennemis de plus pour {} points de dégâts."
+        }
+        "Returns {} damage to whatever strikes you." => "Renvoie {} points de dégâts à qui vous frappe.",
+        "{} chance on a kill to burst for {} damage within {} yd." => {
+            "{} de chances, à chaque victime, d'exploser pour {} points de dégâts à {} m."
+        }
+        "Each kill heals you for {}." => "Chaque victime vous rend {} points de vie.",
         "Victory!" => "Victoire !",
         "You have fallen" => "Vous êtes tombé",
         "The horde was too much this time." => "La horde était trop forte cette fois.",
@@ -387,6 +397,14 @@ mod tests {
             ("Gear {}%", ""),
             ("Back in {}s", ""),
             ("You have {}", ""),
+            (
+                "{} chance on a hit to arc to {} more foes for {} damage.",
+                "",
+            ),
+            (
+                "{} chance on a kill to burst for {} damage within {} yd.",
+                "",
+            ),
         ] {
             let got = french(en).unwrap();
             assert_eq!(en.matches("{}").count(), got.matches("{}").count(), "{en}");

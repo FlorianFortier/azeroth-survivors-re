@@ -151,7 +151,7 @@ fn spawn_chest(commands: &mut Commands, run: &mut Run, pos: Vec3) {
 pub(super) fn grant(hero: &mut HeroState, reward: Reward, rng: &mut Rng) -> String {
     match reward {
         Reward::RunItem => {
-            let item = &data::RUN_ITEMS[rng.index(data::RUN_ITEMS.len())];
+            let item = data::draw_run_item(rng.f32(), rng.f32());
             match hero.run_items.iter_mut().find(|(i, _)| *i == item) {
                 Some((_, n)) => *n = (*n + 1).min(data::MAX_RUN_ITEM_STACKS),
                 None => hero.run_items.push((item, 1)),

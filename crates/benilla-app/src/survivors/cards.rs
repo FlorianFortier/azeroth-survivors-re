@@ -36,7 +36,7 @@ pub(super) fn rarity_color(r: CardRarity) -> Color {
     }
 }
 
-fn rarity_label(r: CardRarity) -> &'static str {
+pub(super) fn rarity_label(r: CardRarity) -> &'static str {
     tr(match r {
         CardRarity::Common => "Common",
         CardRarity::Uncommon => "Uncommon",

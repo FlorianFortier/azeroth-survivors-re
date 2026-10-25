@@ -189,6 +189,12 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   at it with `data::chest_cost` gold. Elites hold fixed posts (`data::ELITES`, `Enemy::home`),
   drop their kind's `data::Reward` and come back on its timer; run items (`data::RUN_ITEMS`) stack
   on `Vitals::run_items` and count in `Vitals::stats`. Half the unspent gold goes to the profile.
+  A run item has a rarity (`data::CardRarity`, drawn by `item_odds` in `data::draw_run_item`)
+  and may have a `data::ItemEffect` beyond its stat (lifesteal, an arc, thorns, a burst, a
+  heal on kills), each number per stack (`ItemEffect::at`). Only the simulation fires them, in
+  `abilities::apply_hits` and `enemies::move_enemies`, their visuals through `units::Fx`; an
+  item's own hits carry `Hit::proc` and set nothing more off. Guests see items through
+  `Vitals::run_items` on `Game::Me` alone.
   Chests and elites carry a `treasure::FieldMark` on every machine (the host sets it; a guest
   reads it off `Role::Chest`/`Role::Elite`), and the posts reach guests as `Run::posts` on
   `Game::Run`: what shows the field (`marks.rs`, the minimap) reads only those, never `Field`.
