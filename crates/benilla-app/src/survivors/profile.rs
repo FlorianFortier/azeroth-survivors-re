@@ -117,6 +117,8 @@ pub(super) struct Profile {
     /// What the Codex has seen: the horde and bosses met, by name, and the spells and passives
     /// played, by key.
     pub codex: Codex,
+    /// The achievements whose reward has been claimed, by key.
+    pub claimed: BTreeSet<String>,
 }
 
 /// The Codex's pages, filled as the runs meet things.
@@ -141,6 +143,7 @@ impl Default for Profile {
             talent_points: 0,
             talents: BTreeMap::new(),
             codex: Codex::default(),
+            claimed: BTreeSet::new(),
         }
     }
 }
@@ -256,6 +259,54 @@ impl Profile {
             .rev()
             .find(|&d| self.difficulty_open(zone, d))
             .unwrap_or(0)
+    }
+
+    /// How far an achievement has come: `(now, goal)`, both counted the same way.
+    pub fn progress(&self, a: &data::AchievementDef) -> (u64, u64) {
+        use data::Goal;
+        let flag = |b: bool| (u64::from(b), 1);
+        match a.goal {
+            Goal::Runs(n) => (u64::from(self.totals.runs), u64::from(n)),
+            Goal::Wins(n) => (u64::from(self.totals.wins), u64::from(n)),
+            Goal::Kills(n) => (self.totals.kills, n),
+            Goal::Level(n) => (u64::from(self.totals.best_level), u64::from(n)),
+            Goal::Collect(n) => (self.collected().len() as u64, n as u64),
+            Goal::BossesMet(n) => (self.codex.bosses.len() as u64, n as u64),
+            Goal::Points(n) => (u64::from(self.talent_points), u64::from(n)),
+            Goal::WinZone(z) => flag(data::MAPS.get(z).is_some_and(|m| self.won(m.name))),
+            Goal::WinAt(d) => flag(
+                self.zones
+                    .values()
+                    .any(|r| r.wins > 0 && usize::from(r.best_difficulty) >= d),
+            ),
+        }
+    }
+
+    /// Whether an achievement is done.
+    pub fn achieved(&self, a: &data::AchievementDef) -> bool {
+        let (now, goal) = self.progress(a);
+        now >= goal
+    }
+
+    /// The achievements done and not yet claimed: the Rewards tab.
+    pub fn unclaimed(&self) -> Vec<&'static data::AchievementDef> {
+        data::ACHIEVEMENTS
+            .iter()
+            .filter(|a| self.achieved(a) && !self.claimed.contains(&a.key))
+            .collect()
+    }
+
+    /// Claim an achievement's gold, once it is done; false if not done or already claimed.
+    pub fn claim(&mut self, key: &str) -> bool {
+        let Some(a) = data::ACHIEVEMENTS.iter().find(|a| a.key == key) else {
+            return false;
+        };
+        if !self.achieved(a) || self.claimed.contains(key) {
+            return false;
+        }
+        self.claimed.insert(key.to_string());
+        self.gold += a.gold;
+        true
     }
 
     /// Train the next talent point with gold, if there is enough and a point left.
@@ -642,6 +693,36 @@ mod tests {
         p.record(&r);
         assert_eq!(p.codex.horde.len(), 3);
         assert!(p.codex.bosses.contains("Hogger"));
+        assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
+    }
+
+    #[test]
+    fn achievements_are_earned_then_claimed_once() {
+        let mut p = Profile::default();
+        assert!(p.unclaimed().is_empty());
+        assert!(!p.claim("first_steps"));
+        p.record(&result("Elwynn Forest", true, 31, 1200));
+        let keys: Vec<&str> = p.unclaimed().iter().map(|a| a.key.as_str()).collect();
+        for k in [
+            "first_steps",
+            "victor",
+            "slayer",
+            "seasoned",
+            "won Elwynn Forest",
+        ] {
+            assert!(keys.contains(&k), "{k} in {keys:?}");
+        }
+        assert!(!keys.contains(&"survivor"));
+        let gold = p.gold;
+        assert!(p.claim("first_steps"));
+        assert_eq!(p.gold, gold + 50);
+        assert!(!p.claim("first_steps"), "only once");
+        assert!(!p.unclaimed().iter().any(|a| a.key == "first_steps"));
+        let survivor = data::ACHIEVEMENTS
+            .iter()
+            .find(|a| a.key == "survivor")
+            .unwrap();
+        assert_eq!(p.progress(survivor), (1, 10));
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
     }
 

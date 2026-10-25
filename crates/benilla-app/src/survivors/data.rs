@@ -2633,6 +2633,172 @@ pub(crate) fn run_gold(kills: u32, bosses: u32, won: bool, gold: f32) -> u32 {
     (base as f32 * gold.max(0.0)).round() as u32
 }
 
+/// What an achievement asks for, read off the profile.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Goal {
+    /// Runs finished, won or lost.
+    Runs(u32),
+    /// Runs won, anywhere.
+    Wins(u32),
+    /// Enemies slain over every run.
+    Kills(u64),
+    /// The campaign's zone ([`MAPS`] index) won.
+    WinZone(usize),
+    /// Any zone won at a difficulty ([`DIFFICULTIES`] index) or harder.
+    WinAt(usize),
+    /// Pieces in the collection.
+    Collect(usize),
+    /// Bosses in the Codex.
+    BossesMet(usize),
+    /// Talent points trained.
+    Points(u32),
+    /// A hero's level reached in one run.
+    Level(u32),
+}
+
+/// An achievement of the mode: what it asks and the gold it pays once claimed.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AchievementDef {
+    /// The profile stores claims by it.
+    pub key: String,
+    pub name: String,
+    pub text: String,
+    pub goal: Goal,
+    pub gold: u64,
+}
+
+/// Every achievement, in the order the tab lists them.
+pub(crate) static ACHIEVEMENTS: std::sync::LazyLock<Vec<AchievementDef>> =
+    std::sync::LazyLock::new(|| {
+        let a = |key: &str, name: &str, text: &str, goal: Goal, gold: u64| AchievementDef {
+            key: key.into(),
+            name: name.into(),
+            text: text.into(),
+            goal,
+            gold,
+        };
+        let mut out = vec![
+            a(
+                "first_steps",
+                "First Steps",
+                "Finish a run.",
+                Goal::Runs(1),
+                50,
+            ),
+            a(
+                "survivor",
+                "Survivor",
+                "Finish 10 runs.",
+                Goal::Runs(10),
+                150,
+            ),
+            a("veteran", "Veteran", "Finish 50 runs.", Goal::Runs(50), 500),
+            a("victor", "Victor", "Win a run.", Goal::Wins(1), 100),
+            a("champion", "Champion", "Win 25 runs.", Goal::Wins(25), 750),
+            a(
+                "slayer",
+                "Slayer",
+                "Slay 1,000 enemies.",
+                Goal::Kills(1_000),
+                100,
+            ),
+            a(
+                "exterminator",
+                "Exterminator",
+                "Slay 10,000 enemies.",
+                Goal::Kills(10_000),
+                400,
+            ),
+            a(
+                "annihilator",
+                "Annihilator",
+                "Slay 50,000 enemies.",
+                Goal::Kills(50_000),
+                1_000,
+            ),
+            a(
+                "seasoned",
+                "Seasoned",
+                "Reach level 30 in a run.",
+                Goal::Level(30),
+                150,
+            ),
+            a(
+                "ascendant",
+                "Ascendant",
+                "Reach level 60 in a run.",
+                Goal::Level(60),
+                500,
+            ),
+            a(
+                "collector",
+                "Collector",
+                "Collect 10 pieces.",
+                Goal::Collect(10),
+                150,
+            ),
+            a(
+                "curator",
+                "Curator",
+                "Collect 30 pieces.",
+                Goal::Collect(30),
+                400,
+            ),
+            a(
+                "completionist",
+                "Completionist",
+                "Collect all 60 pieces.",
+                Goal::Collect(60),
+                1_500,
+            ),
+            a(
+                "monster_hunter",
+                "Monster Hunter",
+                "Meet 30 bosses.",
+                Goal::BossesMet(30),
+                300,
+            ),
+            a(
+                "talented",
+                "Talented",
+                "Train 10 talent points.",
+                Goal::Points(10),
+                100,
+            ),
+            a(
+                "master",
+                "Master of the Arts",
+                "Train all 51 talent points.",
+                Goal::Points(51),
+                1_000,
+            ),
+            a(
+                "heroic",
+                "Heroic",
+                "Win a zone on Heroic.",
+                Goal::WinAt(1),
+                300,
+            ),
+            a(
+                "mythic",
+                "Mythic",
+                "Win a zone on Mythic.",
+                Goal::WinAt(2),
+                800,
+            ),
+        ];
+        for (z, m) in MAPS.iter().enumerate() {
+            out.push(a(
+                &format!("won {}", m.name),
+                &format!("Hero of {}", m.name),
+                &format!("Win {}: {}.", m.name, m.zone),
+                Goal::WinZone(z),
+                100 + 50 * z as u64,
+            ));
+        }
+        out
+    });
+
 /// The share of an item's first bonus its place in the collection gives for good, worn or not.
 pub(crate) const COLLECTION_SHARE: f32 = 0.25;
 
@@ -3471,5 +3637,22 @@ mod tests {
         assert_eq!(late.len(), roster(0).enemies.len());
         let (horde, bosses) = all_creatures();
         assert!(horde.len() > 100 && bosses.len() >= 55);
+    }
+
+    #[test]
+    fn achievements_are_unique_and_pay() {
+        let keys: HashSet<&str> = ACHIEVEMENTS.iter().map(|a| a.key.as_str()).collect();
+        assert_eq!(keys.len(), ACHIEVEMENTS.len());
+        assert!(ACHIEVEMENTS
+            .iter()
+            .all(|a| a.gold > 0 && !a.name.is_empty()));
+        let zones = ACHIEVEMENTS
+            .iter()
+            .filter(|a| matches!(a.goal, Goal::WinZone(_)))
+            .count();
+        assert_eq!(zones, MAPS.len());
+        assert!(ACHIEVEMENTS
+            .iter()
+            .any(|a| a.goal == Goal::Collect(ITEMS.len())));
     }
 }
