@@ -1290,7 +1290,7 @@ pub(super) fn keys(
                 // As in WoW, Escape lets the target go first, and pauses on the next press.
                 match target {
                     Some(mut t) if t.0.is_some() => t.0 = None,
-                    _ => next.set(Phase::Playing),
+                    _ => next.set(Phase::Paused),
                 }
             }
             if keys.just_pressed(KeyCode::KeyP) {

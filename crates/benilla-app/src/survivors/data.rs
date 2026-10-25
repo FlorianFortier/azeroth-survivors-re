@@ -253,6 +253,18 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
         }
     ),
     ability!(
+        "revenge",
+        6572,
+        Melee {
+            damage: 40.0,
+            cooldown: 15.0,
+            range: 5.5,
+            duration: 10.0,
+            kind: Kind::Thorns,
+            count: 3
+        }
+    ),
+    ability!(
         "heroic_strike",
         78,
         Melee {
@@ -1413,6 +1425,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "execute",
             "mortal_strike",
             "retaliation",
+            "revenge"
         ],
         looks: &[
             1300, 1374, 1375, 1504, 1578, 1599, 1707, 1721, 1880, 2096, 2103, 2113, 2196, 2198,

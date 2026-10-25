@@ -1,5 +1,5 @@
-//! The character sheet, as WoW's `CharacterFrame` lays it out: `C` in a run opens it and pauses
-//! the run, `C`, Escape or its close button shut it. The hero's name and "Level N Race Class" on
+//! The character sheet, as WoW's `CharacterFrame` lays it out: `C` in a run opens
+//! `C`, Escape or its close button shut it. The hero's name and "Level N Race Class" on
 //! top; the paper doll's slots down the sides and along the bottom around the live hero, which the
 //! camera frames into the sheet's stage ([`super::hero::StageFrame`]) and a drag or the arrows
 //! turn; the hero's numbers under it, and what its run items do beside it.
