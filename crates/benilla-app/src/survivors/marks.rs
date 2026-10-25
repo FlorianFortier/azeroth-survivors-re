@@ -108,6 +108,14 @@ fn wanted(
             continue;
         }
         let shown = match mark {
+            // A key in hand opens it for nothing.
+            FieldMark::Chest if run.keys > 0 => Shown {
+                at: at + Vec3::Y * 1.8,
+                icon: data::CHEST_ICON,
+                title: trf("Key ({} held)", &[&run.keys.to_string()]),
+                line: tr("Stand here to open").to_string(),
+                color: data::CHEST_COLOR,
+            },
             FieldMark::Chest => {
                 let cost = run.chest_cost;
                 let afford = run.gold + 1e-3 >= cost as f32;
@@ -133,6 +141,13 @@ fn wanted(
                 title: tr("Free").to_string(),
                 line: tr("Stand here to open").to_string(),
                 color: data::CHEST_COLOR,
+            },
+            FieldMark::Merchant => Shown {
+                at: at + Vec3::Y * 2.6,
+                icon: data::MERCHANT_ICON,
+                title: tr("Shady Merchant").to_string(),
+                line: tr("Stand near to trade").to_string(),
+                color: data::MERCHANT_COLOR,
             },
             FieldMark::Elite(k) => {
                 let kind = &data::ELITES[usize::from(k).min(data::ELITES.len() - 1)];
@@ -390,8 +405,9 @@ pub(super) fn draw_rings(
         }
         match mark {
             FieldMark::Chest | FieldMark::FreeChest => {
-                let afford =
-                    *mark == FieldMark::FreeChest || run.gold + 1e-3 >= run.chest_cost as f32;
+                let afford = *mark == FieldMark::FreeChest
+                    || run.keys > 0
+                    || run.gold + 1e-3 >= run.chest_cost as f32;
                 let color = if afford {
                     srgb(data::CHEST_COLOR)
                 } else {
@@ -404,6 +420,17 @@ pub(super) fn draw_rings(
                     data::CHEST_REACH,
                     color,
                     false,
+                    1.0,
+                );
+            }
+            FieldMark::Merchant => {
+                ground_ring(
+                    &mut gizmos,
+                    &world,
+                    at,
+                    data::MERCHANT_REACH,
+                    srgb(data::MERCHANT_COLOR),
+                    true,
                     1.0,
                 );
             }

@@ -128,6 +128,9 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
         Role::FreeChest => {
             ec.insert((Pickup, FieldMark::FreeChest, copy));
         }
+        Role::Merchant => {
+            ec.insert((FieldMark::Merchant, copy));
+        }
         Role::Elite(kind) => {
             ec.insert((Hostile, FieldMark::Elite(kind), copy));
         }
@@ -156,6 +159,7 @@ fn apply_me(run: &mut Run, v: WireVitals) {
     run.damage_done = v.damage_done;
     run.kills = v.kills;
     run.gold = v.gold;
+    run.keys = v.keys;
     let items: Vec<_> = v
         .run_items
         .iter()
@@ -382,7 +386,18 @@ pub(super) fn receive(
                 shrines,
                 greed,
                 curse,
+                shop,
             } => {
+                run.shop = shop
+                    .into_iter()
+                    .filter_map(|w| {
+                        Some(crate::survivors::market::Ware {
+                            item: data::run_item(&w.item)?,
+                            price: w.price,
+                            sold: w.sold,
+                        })
+                    })
+                    .collect();
                 run.shrines = shrines
                     .into_iter()
                     .map(|s| ShrineView {
@@ -450,6 +465,7 @@ pub(super) fn receive(
             | Game::Input { .. }
             | Game::Card(_)
             | Game::ShrineChoice(_)
+            | Game::Buy { .. }
             | Game::Mobility { .. } => {}
         }
     }
@@ -482,6 +498,7 @@ fn send(
     time: Res<Time<Real>>,
     loading: Res<crate::loading_screen::LoadingScreen>,
     mut picks: ResMut<LocalPicks>,
+    mut buys: ResMut<crate::survivors::market::BuyQueue>,
     mut queue: ResMut<MobilityQueue>,
     me: Query<(&Guid, &Transform, Option<&MovementState>), With<LocalHero>>,
 ) {
@@ -497,6 +514,11 @@ fn send(
     }
     out.extend(picks.0.drain(..).map(Game::Card));
     out.extend(picks.1.drain(..).map(Game::ShrineChoice));
+    out.extend(
+        buys.0
+            .drain(..)
+            .map(|(_, slot, item)| Game::Buy { slot, item }),
+    );
     out.extend(
         queue
             .0

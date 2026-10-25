@@ -2606,6 +2606,46 @@ pub(crate) const CHEST_REACH: f32 = 3.0;
 /// The half of the gold left unspent at the end that the profile keeps.
 pub(crate) const UNSPENT_GOLD_KEPT: f32 = 0.5;
 
+/// How likely an elite drops a key, which opens a chest for nothing.
+pub(crate) const KEY_ODDS: f32 = 0.4;
+/// The most keys a hero carries.
+pub(crate) const MAX_KEYS: u8 = 9;
+
+/// Jars and crates standing about the field, how near a hero breaks one, and how long a broken
+/// one takes to stand again elsewhere.
+pub(crate) const BREAKABLES: usize = 16;
+pub(crate) const BREAK_REACH: f32 = 1.8;
+pub(crate) const BREAKABLE_RESPAWN_SECS: f32 = 45.0;
+/// What a broken jar holds: gold, a few coins' worth.
+pub(crate) const JAR_GOLD: (u32, u32) = (2, 6);
+/// What a broken crate holds: a heal half the time, a coin otherwise.
+pub(crate) const CRATE_HEAL: f32 = 40.0;
+pub(crate) const CRATE_HEAL_ODDS: f32 = 0.5;
+
+/// The shady merchant: what it sells at a time, how near a hero trades, and how often it restocks.
+pub(crate) const SHOP_SLOTS: usize = 3;
+pub(crate) const MERCHANT_REACH: f32 = 5.0;
+pub(crate) const SHOP_RESTOCK_SECS: f32 = 120.0;
+/// How much dearer each item is than the one bought before it.
+pub(crate) const SHOP_MARKUP: f32 = 1.15;
+/// The merchant's icon (Pick Lock, a `Spell.dbc` row for the icon only) and its marks' colour.
+pub(crate) const MERCHANT_ICON: u32 = 1804;
+pub(crate) const MERCHANT_COLOR: [f32; 3] = [0.35, 0.95, 0.75];
+
+/// What a run item costs at the merchant, `bought` items into the run: its rarity's price, a
+/// markup for each bought before, to the nearest five.
+pub(crate) fn shop_price(rarity: CardRarity, bought: u32) -> u32 {
+    let base = match rarity {
+        CardRarity::Common => 30.0,
+        CardRarity::Uncommon => 45.0,
+        CardRarity::Rare => 70.0,
+        CardRarity::Epic => 110.0,
+        CardRarity::Legendary => 170.0,
+    };
+    let p = base * SHOP_MARKUP.powi(bought.min(60) as i32);
+    ((p / 5.0).round() * 5.0) as u32
+}
+
 /// A run item: picked up in the run, gone at its end, stacking.
 #[derive(Debug, PartialEq)]
 pub(crate) struct RunItemDef {
@@ -3827,6 +3867,18 @@ mod tests {
             if let Some(e) = i.effect {
                 assert_ne!(e.at(1), e.at(3), "{} grows", i.key);
             }
+        }
+    }
+
+    #[test]
+    fn the_merchant_asks_more_for_the_rarer_and_more_each_time() {
+        for w in CardRarity::ALL.windows(2) {
+            assert!(shop_price(w[0], 0) < shop_price(w[1], 0));
+        }
+        assert_eq!(shop_price(CardRarity::Common, 0), 30);
+        assert!(shop_price(CardRarity::Rare, 3) > shop_price(CardRarity::Rare, 2));
+        for b in 0..80 {
+            assert_eq!(shop_price(CardRarity::Epic, b) % 5, 0);
         }
     }
 

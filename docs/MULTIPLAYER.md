@@ -122,7 +122,8 @@ won when the zone's final boss falls, and every player's profile counts the win.
 The host checks what guests send: positions are held to the battleground; the host deals every
 hero's level-up cards and their rarities, so a pick must be a card it dealt that hero at the
 rarity it dealt it, and a reroll, banish or skip one the hero holds (the banished cards stay on
-the host); a shrine's blessing must be one of the three the host offered that hero; a mobility
+the host); a shrine's blessing must be one of the three the host offered that hero; a purchase must be of a
+ware still at the merchant, by a hero standing at it with the gold; a mobility
 cast must be the hero's own and learned. It is a co-op game
 among friends, not an anti-cheat: a guest's hero position is trusted within the battleground.
 

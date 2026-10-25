@@ -32,7 +32,9 @@ sheet, and **V** switches to the classic top-down views.
 | Any | **G** | toggle the picture polish (`?grade=0` starts it off) |
 | Playing | **Esc** | clear the target, or pause |
 | Playing | — | abilities cast themselves (no aim) |
-| Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more) |
+| Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more), or with a key if you hold one |
+| Playing | at the **merchant**: **1 / 2 / 3** (or click a ware) | buy that ware with the run's gold |
+| Playing | walk into a **jar** or a **crate** | break it: gold, or a heal |
 | Playing | stand in a **shrine** | charge it (Power: choose a blessing with **1 / 2 / 3** or a click), or wake it (Challenge, Greed, Curses) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
 | Level up | **R** (or **Reroll**) | deal the cards again: three rerolls to start a run |

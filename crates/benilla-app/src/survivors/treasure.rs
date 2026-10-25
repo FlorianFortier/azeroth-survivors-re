@@ -21,6 +21,8 @@ struct Looks {
     chest: Option<u32>,
     coin: Option<u32>,
     shrine: Option<u32>,
+    jar: Option<u32>,
+    crate_: Option<u32>,
 }
 
 static LOOKS: std::sync::OnceLock<Looks> = std::sync::OnceLock::new();
@@ -54,6 +56,8 @@ pub(super) fn find_looks(assets: Option<Res<benilla_assets::WorldAssets>>) {
                 chest: find(&["treasurechest", "chest"]),
                 coin: find(&["goldcoin", "coin"]),
                 shrine: find(&["shrine", "altar", "obelisk"]),
+                jar: find(&["jar", "urn", "vase"]),
+                crate_: find(&["crate", "barrel"]),
             }
         }
         Err(e) => {
@@ -89,6 +93,8 @@ pub(super) enum FieldMark {
     FreeChest,
     /// An elite of the [`data::ELITES`] kind.
     Elite(u8),
+    /// The shady merchant (`market.rs`).
+    Merchant,
 }
 
 /// One elite post as the marks see it: where, which kind, and how long until it is back (0 while
@@ -98,6 +104,22 @@ pub(crate) struct PostView {
     pub kind: usize,
     pub pos: Vec3,
     pub wait: f32,
+}
+
+/// A jar's display and scale; a small wisp when the tables have none.
+pub(super) fn jar_look() -> (u32, f32) {
+    LOOKS
+        .get()
+        .and_then(|l| l.jar)
+        .map_or((426, 2.0), |d| (d, 1.0))
+}
+
+/// A crate's display and scale; a small green wisp when the tables have none.
+pub(super) fn crate_look() -> (u32, f32) {
+    LOOKS
+        .get()
+        .and_then(|l| l.crate_)
+        .map_or((1267, 2.0), |d| (d, 1.0))
 }
 
 /// A shrine's display and scale; a tall golden wisp when the tables have no shrine.
@@ -183,7 +205,7 @@ pub(super) struct Field {
 }
 
 /// A spot of the battleground, `t` of the way out to its leash, at angle `a`, on the ground.
-fn spot(world: &WorldPoint, center: Vec3, leash: f32, a: f32, t: f32) -> Vec3 {
+pub(super) fn spot(world: &WorldPoint, center: Vec3, leash: f32, a: f32, t: f32) -> Vec3 {
     let mut p = center + Vec3::new(a.cos(), 0.0, a.sin()) * (leash * t);
     if let Some(h) = world.terrain_height_under(p) {
         p.y = h;
@@ -417,7 +439,9 @@ pub(super) fn tend_field(
             chest.told = false;
             continue;
         };
-        let cost = if chest.free { 0 } else { cost };
+        // A key opens it for nothing, and its price stays where it was.
+        let keyed = !chest.free && hero.keys > 0;
+        let cost = if chest.free || keyed { 0 } else { cost };
         if hero.gold + 1e-3 < cost as f32 {
             chest.hold = 0.0;
             if !chest.told {
@@ -437,8 +461,14 @@ pub(super) fn tend_field(
             continue;
         }
         hero.gold -= cost as f32;
+        if keyed {
+            hero.keys -= 1;
+            hero.version += 1;
+        }
         if !chest.free {
-            field.opened += 1;
+            if !keyed {
+                field.opened += 1;
+            }
             field.returning.push(data::CHEST_RESPAWN_SECS);
         }
         commands.entity(e).despawn();

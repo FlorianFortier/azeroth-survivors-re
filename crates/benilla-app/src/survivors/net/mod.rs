@@ -492,6 +492,7 @@ mod tests {
             .insert_resource(Net::from_env())
             .init_resource::<client::Replicas>()
             .init_resource::<host::Replicator>()
+            .init_resource::<crate::survivors::market::BuyQueue>()
             .init_resource::<Party>()
             .init_resource::<PlaySeq>()
             .add_message::<CastEvent>()
@@ -827,6 +828,30 @@ mod tests {
         let h = host.world().get::<HeroState>(hero).unwrap();
         assert_eq!(h.boons, [offered[2].bonus]);
         assert!(h.shrine_offer.is_empty());
+    }
+
+    #[test]
+    fn a_guests_purchase_goes_to_the_market_by_its_seat() {
+        use crate::survivors::{market, Rng, Selection};
+        let mut host = world(Mode::Host, 0);
+        host.init_resource::<Rng>()
+            .init_resource::<Selection>()
+            .init_resource::<crate::loading_screen::LoadingScreen>()
+            .init_resource::<crate::survivors::mobility::MobilityQueue>()
+            .add_systems(Update, host::receive);
+        host.world_mut().resource_mut::<Net>().inbox.push((
+            1,
+            Game::Buy {
+                slot: 2,
+                item: "lodestone".into(),
+            },
+        ));
+        host.update();
+        // The market takes it from here, for the hero in seat 1 only.
+        assert_eq!(
+            host.world().resource::<market::BuyQueue>().0,
+            [(1, 2, "lodestone".to_string())]
+        );
     }
 
     #[test]
