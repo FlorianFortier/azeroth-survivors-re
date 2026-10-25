@@ -25,6 +25,30 @@ pub enum Role {
     Chest,
     /// An elite holding a post of the field, by kind (`data::ELITES`).
     Elite(u8),
+    /// A Shrine of Challenge's prize: a chest that opens for nothing.
+    FreeChest,
+}
+
+/// A bonus as it travels: `(stat, 0 flat or 1 percent, value × 10 000)`, as a loadout's.
+pub type WireBonus = (u8, u8, i32);
+
+/// A blessing a Shrine of Power offers: its bonus and its rarity (`0` Common to `4` Legendary).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Boon {
+    pub bonus: WireBonus,
+    pub rarity: u8,
+}
+
+/// One shrine of the field, as the host tends it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shrine {
+    /// Its kind (`data::SHRINES`).
+    pub kind: u8,
+    pub pos: [f32; 3],
+    /// How charged, 0 to 1.
+    pub charge: f32,
+    /// `0` waiting, `1` its elites up, `2` spent.
+    pub state: u8,
 }
 
 /// One elite's post of the run's field, as the host tends it.
@@ -119,6 +143,10 @@ pub struct Vitals {
     pub rerolls: u8,
     pub banishes: u8,
     pub skips: u8,
+    /// The blessings a Shrine of Power offers this hero, which only one may be taken from.
+    pub shrine_offer: Vec<Boon>,
+    /// What the shrines gave this hero for the run.
+    pub boons: Vec<WireBonus>,
 }
 
 /// A hero in the party frames.
@@ -239,6 +267,10 @@ pub enum Game {
         chest_cost: u32,
         /// The field's elite posts.
         posts: Vec<Post>,
+        /// The field's shrines, and the Greed and Curses woken.
+        shrines: Vec<Shrine>,
+        greed: u8,
+        curse: u8,
     },
     /// Your hero's numbers.
     Me(Vitals),
@@ -261,6 +293,8 @@ pub enum Game {
     },
     /// A move at the level-up cards.
     Card(CardAction),
+    /// The blessing taken from a Shrine of Power's offer, by its bonus.
+    ShrineChoice(WireBonus),
     Mobility {
         spell: u32,
         effect: MobilityEffect,
@@ -309,6 +343,7 @@ impl Wire for Role {
             Role::Area => w.u8(4),
             Role::Chest => w.u8(5),
             Role::Elite(k) => w.u8(6).u8(*k),
+            Role::FreeChest => w.u8(7),
         };
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -320,6 +355,7 @@ impl Wire for Role {
             4 => Role::Area,
             5 => Role::Chest,
             6 => Role::Elite(r.u8()?),
+            7 => Role::FreeChest,
             t => return Err(WireError::BadTag(t)),
         })
     }
@@ -447,6 +483,15 @@ impl Wire for Vitals {
             c.put(w);
         }
         w.u8(self.rerolls).u8(self.banishes).u8(self.skips);
+        w.len(self.shrine_offer.len());
+        for b in &self.shrine_offer {
+            put_bonus(w, b.bonus);
+            w.u8(b.rarity);
+        }
+        w.len(self.boons.len());
+        for b in &self.boons {
+            put_bonus(w, *b);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
@@ -512,8 +557,35 @@ impl Wire for Vitals {
             rerolls: r.u8()?,
             banishes: r.u8()?,
             skips: r.u8()?,
+            shrine_offer: {
+                let n = r.len(7)?;
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push(Boon {
+                        bonus: get_bonus(r)?,
+                        rarity: r.u8()?,
+                    });
+                }
+                out
+            },
+            boons: {
+                let n = r.len(6)?;
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push(get_bonus(r)?);
+                }
+                out
+            },
         })
     }
+}
+
+fn put_bonus(w: &mut Writer, (stat, kind, v): WireBonus) {
+    w.u8(stat).u8(kind).u32(v as u32);
+}
+
+fn get_bonus(r: &mut Reader) -> Result<WireBonus, WireError> {
+    Ok((r.u8()?, r.u8()?, r.u32()? as i32))
 }
 
 impl Wire for Card {
@@ -671,6 +743,9 @@ impl Wire for Game {
                 banner,
                 chest_cost,
                 posts,
+                shrines,
+                greed,
+                curse,
             } => {
                 w.u8(8).f32(*elapsed).u32(*bosses).bool(*waiting).opt(
                     banner.as_ref(),
@@ -682,6 +757,11 @@ impl Wire for Game {
                 for p in posts {
                     w.u8(p.kind).vec3(p.pos).f32(p.wait);
                 }
+                w.len(shrines.len());
+                for s in shrines {
+                    w.u8(s.kind).vec3(s.pos).f32(s.charge).u8(s.state);
+                }
+                w.u8(*greed).u8(*curse);
             }
             Game::Me(v) => {
                 w.u8(9);
@@ -723,6 +803,10 @@ impl Wire for Game {
             Game::Card(a) => {
                 w.u8(14);
                 a.put(w);
+            }
+            Game::ShrineChoice(b) => {
+                w.u8(16);
+                put_bonus(w, *b);
             }
             Game::Mobility { spell, effect } => {
                 w.u8(15).u32(*spell);
@@ -798,6 +882,21 @@ impl Wire for Game {
                     }
                     posts
                 },
+                shrines: {
+                    let n = r.len(18)?;
+                    let mut out = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        out.push(Shrine {
+                            kind: r.u8()?,
+                            pos: r.vec3()?,
+                            charge: r.f32()?,
+                            state: r.u8()?,
+                        });
+                    }
+                    out
+                },
+                greed: r.u8()?,
+                curse: r.u8()?,
             },
             9 => Game::Me(Vitals::get(r)?),
             10 => {
@@ -837,6 +936,7 @@ impl Wire for Game {
                 vanish_t: r.f32()?,
             },
             14 => Game::Card(CardAction::get(r)?),
+            16 => Game::ShrineChoice(get_bonus(r)?),
             15 => Game::Mobility {
                 spell: r.u32()?,
                 effect: MobilityEffect::get(r)?,
@@ -904,6 +1004,16 @@ mod tests {
                 pos: [9.0, 1.0, 9.0],
                 yaw: 0.5,
             }),
+            Game::Spawn(Spawn {
+                guid: 11,
+                kind: ObjectKind::Unit,
+                role: Role::FreeChest,
+                display: Some(321),
+                scale: 1.6,
+                fields: vec![(22, 900)],
+                pos: [9.0, 1.0, 9.0],
+                yaw: 0.5,
+            }),
             Game::Fields {
                 guid: 7,
                 changes: vec![(22, 0)],
@@ -955,6 +1065,14 @@ mod tests {
                         wait: 41.5,
                     },
                 ],
+                shrines: vec![Shrine {
+                    kind: 2,
+                    pos: [7.0, 1.0, -3.0],
+                    charge: 0.4,
+                    state: 1,
+                }],
+                greed: 1,
+                curse: 2,
             },
             Game::Me(Vitals {
                 level: 9,
@@ -988,6 +1106,11 @@ mod tests {
                 rerolls: 2,
                 banishes: 1,
                 skips: 3,
+                shrine_offer: vec![Boon {
+                    bonus: (0, 0, 800),
+                    rarity: 3,
+                }],
+                boons: vec![(11, 1, 2500), (7, 0, -1200)],
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {
@@ -1024,6 +1147,7 @@ mod tests {
                 rarity: 1,
             })),
             Game::Card(CardAction::Skip),
+            Game::ShrineChoice((4, 0, 500)),
             Game::Mobility {
                 spell: 100,
                 effect: MobilityEffect::Stun {

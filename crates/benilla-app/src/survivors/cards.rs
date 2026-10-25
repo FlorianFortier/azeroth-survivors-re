@@ -474,6 +474,10 @@ fn use_tool(
     next: &mut NextState<Phase>,
     picks: &mut super::sync::LocalPicks,
 ) {
+    // A blessing is only ever picked.
+    if offer.blessing {
+        return;
+    }
     match tool {
         Tool::Reroll => {
             hud::make_move(Move::Reroll, run, offer, next, picks);
@@ -588,7 +592,7 @@ pub(super) fn card_buttons(
     let mut clicked = None;
     for (b, interaction, mut bg, mut border) in &mut buttons {
         let armed = b.0 == Tool::Banish && offer.banishing;
-        let has = b.0.held(&run) > 0;
+        let has = b.0.held(&run) > 0 && !offer.blessing;
         let want = if armed || (has && *interaction != Interaction::None) {
             TOOL_HOT
         } else {

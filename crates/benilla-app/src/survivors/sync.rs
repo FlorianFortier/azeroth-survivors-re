@@ -13,9 +13,10 @@ use super::data;
 use super::hero::{self, Hero};
 use super::{HeroState, LocalHero, Mode, Phase, Rng, Run, Selection, Session, Vitals};
 
-/// The local player's moves at the cards, for the run to apply (solo, host) or to send (guest).
+/// The local player's moves at the cards, and the blessings it took from a Shrine of Power (by
+/// their bonus, as the wire writes it), for the run to apply (solo, host) or to send (guest).
 #[derive(Resource, Default)]
-pub(super) struct LocalPicks(pub Vec<CardAction>);
+pub(super) struct LocalPicks(pub Vec<CardAction>, pub Vec<survivors_net::game::WireBonus>);
 
 /// The run's first frame: the local hero takes up its numbers, and a host seats every guest's
 /// hero beside it. A guest's heroes all arrive from the host instead.
@@ -154,10 +155,14 @@ pub(super) fn apply_local_picks(
     }
     let Ok(mut me) = heroes.single_mut() else {
         picks.0.clear();
+        picks.1.clear();
         return;
     };
     for a in picks.0.drain(..) {
         super::offer::apply_action(&mut me.v, &a, &mut rng);
+    }
+    for b in picks.1.drain(..) {
+        super::treasure::take_boon(&mut me.v, b);
     }
 }
 

@@ -432,8 +432,8 @@ pub(super) struct Vitals {
     pub damage_done: f64,
     /// Bumped whenever abilities or passives change, so the HUD rebuilds the icon rows once.
     pub version: u32,
-    /// Level-up cards applied to this hero, so a client knows which of its picks the host's
-    /// numbers include.
+    /// Moves at the level-up cards and blessings taken by this hero, so a client knows which of
+    /// its own the host's numbers include.
     pub picks: u32,
     /// What the hero brings into the run from outside it: the collection, talents, racials and
     /// gear. Set when the run begins.
@@ -455,6 +455,11 @@ pub(super) struct Vitals {
     pub rerolls: u8,
     pub banishes: u8,
     pub skips: u8,
+    /// The blessings a Shrine of Power offers this hero, by the simulation: one may be taken.
+    pub shrine_offer: Vec<data::Boon>,
+    /// What the field's shrines gave this hero for the rest of the run: blessings taken, and
+    /// Greed's gold and the Curse's experience.
+    pub boons: Vec<Bonus>,
 }
 
 impl Default for Vitals {
@@ -494,6 +499,8 @@ impl Default for Vitals {
             rerolls: data::REROLLS_PER_RUN,
             banishes: data::BANISHES_PER_RUN,
             skips: data::SKIPS_PER_RUN,
+            shrine_offer: Vec::new(),
+            boons: Vec::new(),
         }
     }
 }
@@ -531,6 +538,7 @@ impl Vitals {
                 .iter()
                 .chain(&passives)
                 .chain(&items)
+                .chain(&self.boons)
                 .chain(&self.meta)
                 .chain(self.timed.iter().flat_map(|t| t.bonuses)),
         )
@@ -616,6 +624,11 @@ pub(super) struct Run {
     pub chest_cost: u32,
     /// The field's elite posts (the host's, for a guest), for the marks.
     pub posts: Vec<treasure::PostView>,
+    /// The field's shrines (the host's, for a guest), for the marks.
+    pub shrines: Vec<treasure::ShrineView>,
+    /// The Shrines of Greed and of Curses woken this run: each makes the foes tougher.
+    pub greed: u8,
+    pub curse: u8,
     /// The [`data::DIFFICULTIES`] index the run is played at; Normal in a lobby, whose own rules
     /// set its difficulty.
     pub difficulty: usize,
@@ -638,8 +651,22 @@ impl Default for Run {
             run_id: 0,
             chest_cost: data::chest_cost(0),
             posts: Vec::new(),
+            shrines: Vec::new(),
+            greed: 0,
+            curse: 0,
             difficulty: 0,
         }
+    }
+}
+
+impl Run {
+    /// The run's rules with the foes made tougher by every Shrine of Greed and of Curses woken.
+    pub fn threat(&self, mut rules: data::Rules) -> data::Rules {
+        let (g, c) = (i32::from(self.greed), i32::from(self.curse));
+        rules.health *= data::GREED_HEALTH.powi(g) * data::CURSE_HEALTH.powi(c);
+        rules.damage *= data::GREED_DAMAGE.powi(g);
+        rules.density *= data::CURSE_DENSITY.powi(c);
+        rules
     }
 }
 
@@ -736,6 +763,7 @@ fn reset_run(
     pending.0.clear();
     *spawner = enemies::Spawner::default();
     picks.0.clear();
+    picks.1.clear();
     mobility.0.clear();
     // The preview hero is respawned for the look still picked.
     selection.version += 1;

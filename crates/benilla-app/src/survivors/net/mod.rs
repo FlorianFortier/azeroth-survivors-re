@@ -779,6 +779,57 @@ mod tests {
     }
 
     #[test]
+    fn a_guests_blessing_reaches_its_view_and_the_host_checks_it() {
+        use crate::survivors::{treasure, Rng, Selection};
+        let mut host = world(Mode::Host, 0);
+        host.init_resource::<Rng>()
+            .init_resource::<Selection>()
+            .init_resource::<crate::loading_screen::LoadingScreen>()
+            .init_resource::<crate::survivors::mobility::MobilityQueue>()
+            .add_systems(Update, host::receive)
+            .add_systems(PostUpdate, host::stream);
+        let mut guest = world(Mode::Client, 1);
+        guest.add_systems(Update, client::receive);
+
+        // A Shrine of Power charged under the guest's hero: the host offers it three blessings.
+        let mut v = Vitals::new(&data::CLASSES[7], 2);
+        v.shrine_offer = treasure::deal_boons(&mut Rng::seeded(3));
+        let hero = host
+            .world_mut()
+            .spawn((
+                unit(500, 100),
+                HeroState { slot: 1, v },
+                crate::survivors::hero::Hero::default(),
+            ))
+            .id();
+        host.world_mut().resource_mut::<host::Replicator>().due();
+        host.update();
+        deliver(&mut host, &mut guest);
+        guest.update();
+        let offered = host
+            .world()
+            .get::<HeroState>(hero)
+            .unwrap()
+            .shrine_offer
+            .clone();
+        assert_eq!(guest.world().resource::<Run>().shrine_offer, offered);
+
+        // A blessing never offered is refused; one of the offer stays for the run.
+        let forged = data::bonus_to_wire(&data::Bonus::flat(data::Stat::Might, 5.0));
+        let real = data::bonus_to_wire(&offered[2].bonus);
+        for b in [forged, real] {
+            host.world_mut()
+                .resource_mut::<Net>()
+                .inbox
+                .push((1, Game::ShrineChoice(b)));
+        }
+        host.update();
+        let h = host.world().get::<HeroState>(hero).unwrap();
+        assert_eq!(h.boons, [offered[2].bonus]);
+        assert!(h.shrine_offer.is_empty());
+    }
+
+    #[test]
     fn the_wire_knows_every_zone() {
         assert_eq!(usize::from(ZONE_COUNT), data::MAPS.len());
     }

@@ -20,7 +20,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-app/src/survivors/outfit.rs` | the hero as a player character: the race's body, the five appearance dials, and the pieces it wears, dressed from item entries the mode answers itself (`outfit::template`); `WOW_HERO_BODY=trainer` brings back the class trainer's look | ours |
 | `crates/benilla-app/src/survivors/talents.rs` | talents: the class's three trees from `Talent.dbc`/`TalentTab.dbc` under vanilla's rules, each talent a stat of its tree's theme per rank; points trained with gold (`point_cost`), 51 at most | ours |
 | `crates/benilla-app/src/survivors/lang.rs` | the mode's languages: text is written in English and looked up for French (`lang::tr`, `trf` for `{}` templates); the profile's `options.language` picks it, and a change rebuilds the main screen | ours |
-| `crates/benilla-app/src/survivors/treasure.rs` | the run's field: chests opened with the run's gold, elites at fixed posts that come back, their rewards (gear roll, spell rank, run item, gold) | ours |
+| `crates/benilla-app/src/survivors/treasure.rs` | the run's field: chests opened with the run's gold, elites at fixed posts that come back, their rewards (gear roll, spell rank, run item, gold), and the shrines (Power, Challenge, Greed, Curses) | ours |
 | `crates/benilla-app/src/survivors/names.rs` | hero names: a random one in each race's sound, and what a typed one may hold | ours |
 | `crates/benilla-app/src/survivors/kit.rs` | the menu's UI kit: panels, headings, tabs, icon and call-to-action buttons, stat tiles, progress bars, chips, tooltips; clicks read through `KitClicks`. `WOW_UI_KIT=1` (`?ui_kit=1`) shows a gallery over the menu | ours |
 | `crates/benilla-app/src/survivors/profile.rs` | the saved profile (`benilla-config/survivors-profile.toml`, `localStorage` on the web): pick, run records, and the meta-progression as it lands | ours |
@@ -198,6 +198,13 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   Chests and elites carry a `treasure::FieldMark` on every machine (the host sets it; a guest
   reads it off `Role::Chest`/`Role::Elite`), and the posts reach guests as `Run::posts` on
   `Game::Run`: what shows the field (`marks.rs`, the minimap) reads only those, never `Field`.
+  The shrines (`data::SHRINES`) are the host's too: a hero standing in one charges it, and the
+  state reaches guests as `Run::shrines` (with `Run::greed` and `Run::curse`) on `Game::Run`. A
+  Shrine of Power offers the hero in it three blessings (`Vitals::shrine_offer`, shown on the
+  level-up cards); a guest answers with `Game::ShrineChoice`, which `treasure::take_boon` takes
+  only for a blessing of that offer. What shrines give stays on `Vitals::boons`, counted in
+  `Vitals::stats`; Greed and Curses toughen the foes through `Run::threat`, which every spawn
+  reads instead of `Session::rules` alone.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

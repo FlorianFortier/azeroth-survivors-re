@@ -20,7 +20,7 @@ use crate::survivors::hero::Hero;
 use crate::survivors::mobility::{self, MobilityQueue};
 use crate::survivors::offer::Dealt as PostDealt;
 use crate::survivors::sync::{self, LocalPicks};
-use crate::survivors::treasure::{FieldMark, PostView};
+use crate::survivors::treasure::{FieldMark, PostView, ShrineState, ShrineView};
 use crate::survivors::units::Fx;
 use crate::survivors::{data, Hostile, LocalHero, Mode, Owned, Pickup, Run, RunEntity, Session};
 
@@ -125,6 +125,9 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
         Role::Chest => {
             ec.insert((Pickup, FieldMark::Chest, copy));
         }
+        Role::FreeChest => {
+            ec.insert((Pickup, FieldMark::FreeChest, copy));
+        }
         Role::Elite(kind) => {
             ec.insert((Hostile, FieldMark::Elite(kind), copy));
         }
@@ -218,6 +221,26 @@ fn apply_me(run: &mut Run, v: WireVitals) {
         run.rerolls = v.rerolls;
         run.banishes = v.banishes;
         run.skips = v.skips;
+        // The blessings offered, and what the shrines gave.
+        run.shrine_offer = v
+            .shrine_offer
+            .iter()
+            .filter_map(|b| {
+                Some(data::Boon {
+                    bonus: data::bonus_from_wire(b.bonus)?,
+                    rarity: data::CardRarity::from_wire(b.rarity)?,
+                })
+            })
+            .collect();
+        let boons: Vec<_> = v
+            .boons
+            .iter()
+            .filter_map(|&b| data::bonus_from_wire(b))
+            .collect();
+        if boons != run.boons {
+            run.boons = boons;
+            run.version += 1;
+        }
         if !same {
             run.version += 1;
         }
@@ -356,7 +379,21 @@ pub(super) fn receive(
                 banner,
                 chest_cost,
                 posts,
+                shrines,
+                greed,
+                curse,
             } => {
+                run.shrines = shrines
+                    .into_iter()
+                    .map(|s| ShrineView {
+                        kind: usize::from(s.kind),
+                        pos: Vec3::from_array(s.pos),
+                        charge: s.charge,
+                        state: ShrineState::from_wire(s.state),
+                    })
+                    .collect();
+                run.greed = greed;
+                run.curse = curse;
                 run.chest_cost = chest_cost;
                 run.posts = posts
                     .into_iter()
@@ -409,7 +446,11 @@ pub(super) fn receive(
                 }
             }
             // Guest-to-host messages are never relayed here.
-            Game::Loaded | Game::Input { .. } | Game::Card(_) | Game::Mobility { .. } => {}
+            Game::Loaded
+            | Game::Input { .. }
+            | Game::Card(_)
+            | Game::ShrineChoice(_)
+            | Game::Mobility { .. } => {}
         }
     }
 }
@@ -455,6 +496,7 @@ fn send(
         out.push(Game::Loaded);
     }
     out.extend(picks.0.drain(..).map(Game::Card));
+    out.extend(picks.1.drain(..).map(Game::ShrineChoice));
     out.extend(
         queue
             .0

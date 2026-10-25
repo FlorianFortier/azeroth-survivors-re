@@ -9,7 +9,7 @@
 use benilla_world::world_point::WorldPoint;
 use bevy::prelude::*;
 
-use super::data::{self, Reward};
+use super::data::{self, Reward, ShrineKind};
 use super::enemies::{self, Enemy, GemKind};
 use super::hero::Hero;
 use super::units::{self, flat};
@@ -20,6 +20,7 @@ use super::{HeroState, Owned, Rng, Run, Selection, Session};
 struct Looks {
     chest: Option<u32>,
     coin: Option<u32>,
+    shrine: Option<u32>,
 }
 
 static LOOKS: std::sync::OnceLock<Looks> = std::sync::OnceLock::new();
@@ -52,6 +53,7 @@ pub(super) fn find_looks(assets: Option<Res<benilla_assets::WorldAssets>>) {
             Looks {
                 chest: find(&["treasurechest", "chest"]),
                 coin: find(&["goldcoin", "coin"]),
+                shrine: find(&["shrine", "altar", "obelisk"]),
             }
         }
         Err(e) => {
@@ -83,6 +85,8 @@ fn chest_look() -> (u32, f32) {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FieldMark {
     Chest,
+    /// A Shrine of Challenge's prize, opened for nothing.
+    FreeChest,
     /// An elite of the [`data::ELITES`] kind.
     Elite(u8),
 }
@@ -96,9 +100,62 @@ pub(crate) struct PostView {
     pub wait: f32,
 }
 
+/// A shrine's display and scale; a tall golden wisp when the tables have no shrine.
+fn shrine_look() -> (u32, f32) {
+    LOOKS
+        .get()
+        .and_then(|l| l.shrine)
+        .map_or((1307, 4.0), |d| (d, 1.0))
+}
+
+/// Where a shrine stands in its life.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShrineState {
+    /// Waiting for a hero to stand in it.
+    Ready,
+    /// A Shrine of Challenge whose elites are still up.
+    Fighting,
+    /// Done with: it gave what it gives.
+    Spent,
+}
+
+impl ShrineState {
+    pub fn to_wire(self) -> u8 {
+        self as u8
+    }
+    pub fn from_wire(n: u8) -> ShrineState {
+        match n {
+            0 => ShrineState::Ready,
+            1 => ShrineState::Fighting,
+            _ => ShrineState::Spent,
+        }
+    }
+}
+
+/// One shrine as the marks see it: which, where, how charged (0..1) and where in its life. The
+/// host's [`Field`] on solo and the host, the host's stream on a guest.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ShrineView {
+    pub kind: usize,
+    pub pos: Vec3,
+    pub charge: f32,
+    pub state: ShrineState,
+}
+
+/// One shrine of the field, as the host tends it.
+struct Shrine {
+    view: ShrineView,
+    /// Its model, gone once it is spent.
+    model: Option<Entity>,
+    /// A Shrine of Challenge's elites, while they are up.
+    foes: Vec<Entity>,
+}
+
 /// A chest on the field, and how long a hero has stood at it.
 #[derive(Component)]
 pub(super) struct Chest {
+    /// A Shrine of Challenge's prize: opens for nothing, and leaves the price where it was.
+    free: bool,
     hold: f32,
     /// The hero told it lacks the gold, so the banner says it once a visit.
     told: bool,
@@ -122,6 +179,7 @@ pub(super) struct Field {
     posts: Vec<Post>,
     /// Seconds until each opened chest comes back elsewhere.
     returning: Vec<f32>,
+    shrines: Vec<Shrine>,
 }
 
 /// A spot of the battleground, `t` of the way out to its leash, at angle `a`, on the ground.
@@ -133,16 +191,21 @@ fn spot(world: &WorldPoint, center: Vec3, leash: f32, a: f32, t: f32) -> Vec3 {
     p
 }
 
-fn spawn_chest(commands: &mut Commands, run: &mut Run, pos: Vec3) {
+fn spawn_chest(commands: &mut Commands, run: &mut Run, pos: Vec3, free: bool) {
     let (display, scale) = chest_look();
     let e = units::spawn_object(commands, run.guid(), display, scale, pos);
     commands.entity(e).insert((
         Chest {
+            free,
             hold: 0.0,
             told: false,
         },
         super::Pickup,
-        FieldMark::Chest,
+        if free {
+            FieldMark::FreeChest
+        } else {
+            FieldMark::Chest
+        },
     ));
 }
 
@@ -214,7 +277,7 @@ pub(super) fn tend_field(
     let map = selection.stage_def();
     let center = super::hero::arena(map);
     let zone = selection.stage;
-    let rules = session.rules;
+    let rules = run.threat(session.rules);
 
     // A new run: the elites take their posts and the chests their places.
     if field.run_id != Some(run.run_id) {
@@ -236,7 +299,27 @@ pub(super) fn tend_field(
             let a = rng.range(0.0, std::f32::consts::TAU);
             let t = rng.range(0.25, 0.9);
             let pos = spot(&world, center, map.leash, a, t);
-            spawn_chest(&mut commands, &mut run, pos);
+            spawn_chest(&mut commands, &mut run, pos, false);
+        }
+        // The shrines, each kind as many times as its table says, between the middle and the posts.
+        for (k, def) in data::SHRINES.iter().enumerate() {
+            for _ in 0..def.count {
+                let a = rng.range(0.0, std::f32::consts::TAU);
+                let t = rng.range(0.35, 0.85);
+                let pos = spot(&world, center, map.leash, a, t);
+                let (display, scale) = shrine_look();
+                let model = units::spawn_object(&mut commands, run.guid(), display, scale, pos);
+                field.shrines.push(Shrine {
+                    view: ShrineView {
+                        kind: k,
+                        pos,
+                        charge: 0.0,
+                        state: ShrineState::Ready,
+                    },
+                    model: Some(model),
+                    foes: Vec::new(),
+                });
+            }
         }
         run.banner = Some((
             "Elites guard the field, and chests wait for your gold.".into(),
@@ -299,7 +382,7 @@ pub(super) fn tend_field(
         let a = rng.range(0.0, std::f32::consts::TAU);
         let t = rng.range(0.25, 0.9);
         let pos = spot(&world, center, map.leash, a, t);
-        spawn_chest(&mut commands, &mut run, pos);
+        spawn_chest(&mut commands, &mut run, pos, false);
     }
 
     // A hero standing at a chest with the gold opens it.
@@ -319,6 +402,7 @@ pub(super) fn tend_field(
             chest.told = false;
             continue;
         };
+        let cost = if chest.free { 0 } else { cost };
         if hero.gold + 1e-3 < cost as f32 {
             chest.hold = 0.0;
             if !chest.told {
@@ -338,8 +422,10 @@ pub(super) fn tend_field(
             continue;
         }
         hero.gold -= cost as f32;
-        field.opened += 1;
-        field.returning.push(data::CHEST_RESPAWN_SECS);
+        if !chest.free {
+            field.opened += 1;
+            field.returning.push(data::CHEST_RESPAWN_SECS);
+        }
         commands.entity(e).despawn();
         let text = match data::chest_reward(rng.f32()) {
             Reward::Gear { percent } => {
@@ -351,7 +437,7 @@ pub(super) fn tend_field(
                         enemies::spawn_gem(&mut commands, run.guid(), at, GemKind::Item(item));
                         format!("{} dropped!", item.name)
                     }
-                    None => grant(&mut hero, Reward::Gold(cost), &mut rng),
+                    None => grant(&mut hero, Reward::Gold(cost.max(20)), &mut rng),
                 }
             }
             reward => grant(&mut hero, reward, &mut rng),
@@ -361,6 +447,20 @@ pub(super) fn tend_field(
         break;
     }
     run.chest_cost = data::chest_cost(field.opened);
+    tend_shrines(
+        &mut commands,
+        &mut run,
+        &rules,
+        &mut rng,
+        &mut field,
+        zone,
+        center,
+        dt,
+        &mut heroes,
+        &foes,
+    );
+    run.shrines.clear();
+    run.shrines.extend(field.shrines.iter().map(|s| s.view));
     run.posts.clear();
     run.posts.extend(field.posts.iter().map(|p| PostView {
         kind: p.kind,
@@ -373,10 +473,173 @@ pub(super) fn tend_field(
     }));
 }
 
+/// Three blessings of different stats, each at a drawn rarity.
+pub(super) fn deal_boons(rng: &mut Rng) -> Vec<data::Boon> {
+    let mut stats: Vec<usize> = (0..data::BOONS.len()).collect();
+    let mut out = Vec::with_capacity(3);
+    while out.len() < 3 && !stats.is_empty() {
+        let k = stats.swap_remove(rng.index(stats.len()));
+        out.push(data::boon(k, data::CardRarity::draw(rng.f32())));
+    }
+    out
+}
+
+/// Take the blessing of the hero's offer that `wire` names (as `data::bonus_to_wire` writes it),
+/// if it is one: the offer goes, the blessing stays for the run.
+pub(super) fn take_boon(v: &mut super::Vitals, wire: (u8, u8, i32)) -> bool {
+    let Some(b) = v
+        .shrine_offer
+        .iter()
+        .find(|b| data::bonus_to_wire(&b.bonus) == wire)
+        .copied()
+    else {
+        return false;
+    };
+    v.boons.push(b.bonus);
+    v.shrine_offer.clear();
+    v.version += 1;
+    // A move like a card's: a guest's view knows which of its moves the host has applied.
+    v.picks += 1;
+    true
+}
+
+/// The shrines: a hero standing in one charges it (it ebbs when left alone), and a charged one
+/// wakes: a Shrine of Power offers that hero three blessings, a Shrine of Challenge calls its
+/// elites and leaves a free chest once they fall, Greed and Curses touch every hero and the foes.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn tend_shrines(
+    commands: &mut Commands,
+    run: &mut Run,
+    rules: &data::Rules,
+    rng: &mut Rng,
+    field: &mut Field,
+    zone: usize,
+    center: Vec3,
+    dt: f32,
+    heroes: &mut Query<(&Transform, &mut HeroState), (With<Hero>, Without<Chest>)>,
+    foes: &Query<&Enemy>,
+) {
+    for sh in &mut field.shrines {
+        let def = data::shrine(sh.view.kind);
+        match sh.view.state {
+            ShrineState::Spent => {}
+            ShrineState::Fighting => {
+                let up = sh
+                    .foes
+                    .iter()
+                    .any(|&e| foes.get(e).is_ok_and(|en| !en.dead));
+                if !up {
+                    sh.foes.clear();
+                    sh.view.state = ShrineState::Spent;
+                    if let Some(m) = sh.model.take() {
+                        commands.entity(m).despawn();
+                    }
+                    spawn_chest(commands, run, sh.view.pos, true);
+                    run.banner = Some(("The challenge is won: a chest for nothing!".into(), 4.0));
+                }
+            }
+            ShrineState::Ready => {
+                let at = sh.view.pos;
+                let inside = heroes
+                    .iter_mut()
+                    .filter(|(t, h)| {
+                        h.alive() && flat(t.translation - at).length() <= data::SHRINE_RADIUS
+                    })
+                    .min_by(|a, b| {
+                        flat(a.0.translation - at)
+                            .length()
+                            .total_cmp(&flat(b.0.translation - at).length())
+                    });
+                let Some((_, mut hero)) = inside else {
+                    sh.view.charge =
+                        (sh.view.charge - dt * data::SHRINE_DECAY / def.hold.max(0.1)).max(0.0);
+                    continue;
+                };
+                // One offer at a time: a hero still choosing does not charge another.
+                if def.kind == ShrineKind::Charge && !hero.shrine_offer.is_empty() {
+                    continue;
+                }
+                sh.view.charge = (sh.view.charge + dt / def.hold.max(0.1)).min(1.0);
+                if sh.view.charge < 1.0 {
+                    continue;
+                }
+                match def.kind {
+                    ShrineKind::Charge => {
+                        hero.v.shrine_offer = deal_boons(rng);
+                        hero.version += 1;
+                        sh.view.state = ShrineState::Spent;
+                        run.banner =
+                            Some(("The shrine is charged: choose a blessing.".into(), 3.0));
+                    }
+                    ShrineKind::Challenge => {
+                        for k in 0..data::CHALLENGE_ELITES {
+                            let kind = rng.index(data::ELITES.len());
+                            let a =
+                                k as f32 / data::CHALLENGE_ELITES as f32 * std::f32::consts::TAU;
+                            let pos = at + Vec3::new(a.cos(), 0.0, a.sin()) * 7.0;
+                            let e = enemies::spawn_enemy(
+                                commands,
+                                run,
+                                rules,
+                                data::elite(zone, kind),
+                                pos,
+                                center,
+                                None,
+                                false,
+                            );
+                            commands
+                                .entity(e)
+                                .insert(FieldMark::Elite(kind as u8))
+                                .entry::<Enemy>()
+                                .and_modify(move |mut en| {
+                                    en.elite = Some(kind as u8);
+                                    en.home = Some(at);
+                                });
+                            sh.foes.push(e);
+                        }
+                        sh.view.state = ShrineState::Fighting;
+                        run.banner =
+                            Some(("The Shrine of Challenge calls its elites!".into(), 4.0));
+                    }
+                    ShrineKind::Greed | ShrineKind::Curse => {
+                        let boon = if def.kind == ShrineKind::Greed {
+                            run.greed = run.greed.saturating_add(1);
+                            data::GREED_GOLD
+                        } else {
+                            run.curse = run.curse.saturating_add(1);
+                            data::CURSE_GROWTH
+                        };
+                        for (_, mut h) in heroes.iter_mut() {
+                            h.v.boons.push(boon);
+                            h.version += 1;
+                        }
+                        sh.view.state = ShrineState::Spent;
+                        run.banner = Some((
+                            if def.kind == ShrineKind::Greed {
+                                "Greed: more gold for everyone, and fiercer foes."
+                            } else {
+                                "A curse: more experience for everyone, and more foes."
+                            }
+                            .into(),
+                            4.0,
+                        ));
+                    }
+                }
+                if sh.view.state == ShrineState::Spent {
+                    if let Some(m) = sh.model.take() {
+                        commands.entity(m).despawn();
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::survivors::Vitals;
+    use bevy::ecs::system::RunSystemOnce;
 
     fn hero() -> HeroState {
         let mage = data::CLASSES.iter().find(|c| c.name == "Mage").unwrap();
@@ -425,5 +688,131 @@ mod tests {
         h.run_items.push((data::run_item("lucky_coin").unwrap(), 2));
         grant(&mut h, Reward::Gold(10), &mut rng);
         assert!(h.gold > 50.0);
+    }
+
+    #[test]
+    fn blessings_are_three_stats_and_only_one_of_them_is_taken() {
+        let mut rng = Rng::seeded(11);
+        let mut h = hero();
+        let offer = deal_boons(&mut rng);
+        assert_eq!(offer.len(), 3);
+        for (i, a) in offer.iter().enumerate() {
+            assert!(offer[i + 1..].iter().all(|b| b.bonus.stat != a.bonus.stat));
+        }
+        h.v.shrine_offer = offer.clone();
+        // A bonus never offered is refused.
+        let forged = data::bonus_to_wire(&data::Bonus::flat(data::Stat::Might, 9.0));
+        assert!(!take_boon(&mut h.v, forged));
+        let before = h.stats();
+        assert!(take_boon(&mut h.v, data::bonus_to_wire(&offer[1].bonus)));
+        assert!(h.shrine_offer.is_empty());
+        assert_eq!(h.boons, [offer[1].bonus]);
+        assert_ne!(h.stats(), before, "the blessing counts in the stats");
+        assert!(!take_boon(&mut h.v, data::bonus_to_wire(&offer[0].bonus)));
+    }
+
+    /// One frame of the shrines, on a world holding one hero at `at` and the field's shrines.
+    fn shrine_frame(app: &mut App) {
+        app.world_mut()
+            .run_system_once(
+                |mut commands: Commands,
+                 mut run: ResMut<Run>,
+                 mut rng: ResMut<Rng>,
+                 mut field: ResMut<Field>,
+                 mut heroes: Query<(&Transform, &mut HeroState), (With<Hero>, Without<Chest>)>,
+                 foes: Query<&Enemy>| {
+                    let rules = data::Rules::SOLO;
+                    tend_shrines(
+                        &mut commands,
+                        &mut run,
+                        &rules,
+                        &mut rng,
+                        &mut field,
+                        0,
+                        Vec3::ZERO,
+                        0.5,
+                        &mut heroes,
+                        &foes,
+                    );
+                },
+            )
+            .unwrap();
+    }
+
+    fn shrine_world(kind: usize, hero_at: Vec3) -> App {
+        let mut app = App::new();
+        app.insert_resource(Run::default())
+            .insert_resource(Rng::seeded(2))
+            .insert_resource(Field {
+                shrines: vec![Shrine {
+                    view: ShrineView {
+                        kind,
+                        pos: Vec3::ZERO,
+                        charge: 0.0,
+                        state: ShrineState::Ready,
+                    },
+                    model: None,
+                    foes: Vec::new(),
+                }],
+                ..Field::default()
+            });
+        app.world_mut().spawn((
+            Transform::from_translation(hero_at),
+            hero(),
+            Hero::default(),
+        ));
+        app
+    }
+
+    fn the_hero(app: &mut App) -> HeroState {
+        let mut q = app.world_mut().query::<&HeroState>();
+        let h = q.single(app.world()).unwrap();
+        HeroState {
+            slot: h.slot,
+            v: h.v.clone(),
+        }
+    }
+
+    #[test]
+    fn a_shrine_of_power_charges_while_stood_in_and_offers_its_blessings() {
+        let mut app = shrine_world(0, Vec3::X);
+        let hold = data::SHRINES[0].hold;
+        let frames = (hold / 0.5).ceil() as usize;
+        for _ in 0..frames - 1 {
+            shrine_frame(&mut app);
+        }
+        assert!(
+            the_hero(&mut app).shrine_offer.is_empty(),
+            "not charged yet"
+        );
+        shrine_frame(&mut app);
+        assert_eq!(the_hero(&mut app).shrine_offer.len(), 3);
+        let f = app.world().resource::<Field>();
+        assert_eq!(f.shrines[0].view.state, ShrineState::Spent);
+    }
+
+    #[test]
+    fn a_shrine_left_alone_ebbs() {
+        let mut app = shrine_world(0, Vec3::X * 50.0);
+        app.world_mut().resource_mut::<Field>().shrines[0]
+            .view
+            .charge = 0.5;
+        shrine_frame(&mut app);
+        let c = app.world().resource::<Field>().shrines[0].view.charge;
+        assert!(c < 0.5 && c > 0.0, "{c}");
+    }
+
+    #[test]
+    fn greed_pays_every_hero_and_toughens_the_foes() {
+        let mut app = shrine_world(2, Vec3::ZERO);
+        for _ in 0..4 {
+            shrine_frame(&mut app);
+        }
+        let run = app.world().resource::<Run>();
+        assert_eq!(run.greed, 1);
+        let tougher = run.threat(data::Rules::SOLO);
+        assert!(tougher.health > data::Rules::SOLO.health);
+        assert!(tougher.damage > data::Rules::SOLO.damage);
+        assert_eq!(the_hero(&mut app).boons, [data::GREED_GOLD]);
     }
 }

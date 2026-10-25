@@ -2987,6 +2987,135 @@ pub(crate) fn elite(zone: usize, kind: usize) -> &'static EnemyDef {
     &ELITE_DEFS[zone.min(MAPS.len() - 1)][kind.min(ELITES.len() - 1)]
 }
 
+/// What a shrine of the field does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ShrineKind {
+    /// Stand in it until it is charged: the hero in it chooses one blessing of three.
+    Charge,
+    /// Wake it: elites come for the heroes, and a free chest stands where they fell.
+    Challenge,
+    /// More gold for every hero for the rest of the run, and fiercer foes.
+    Greed,
+    /// More experience for every hero for the rest of the run, and more foes, tougher.
+    Curse,
+}
+
+/// A shrine of the field: its kind, how it reads, how long a hero stands in it to wake it, and
+/// how many of it the field holds.
+pub(crate) struct ShrineDef {
+    pub kind: ShrineKind,
+    pub title: &'static str,
+    /// What it does, as its label over the world reads.
+    pub text: &'static str,
+    /// The `Spell.dbc` row for its icon (the icon only).
+    pub spell: u32,
+    /// Its marks' colour (sRGB, 0..1).
+    pub color: [f32; 3],
+    /// Seconds a hero stands in it to wake it.
+    pub hold: f32,
+    pub count: usize,
+}
+
+pub(crate) const SHRINES: [ShrineDef; 4] = [
+    ShrineDef {
+        kind: ShrineKind::Charge,
+        title: "Shrine of Power",
+        text: "Stand in it to charge it, then choose a blessing",
+        spell: 10060,
+        color: [1.0, 0.85, 0.3],
+        hold: 5.0,
+        count: 3,
+    },
+    ShrineDef {
+        kind: ShrineKind::Challenge,
+        title: "Shrine of Challenge",
+        text: "Calls elites: beat them for a free chest",
+        spell: 6673,
+        color: [0.95, 0.25, 0.15],
+        hold: 1.5,
+        count: 1,
+    },
+    ShrineDef {
+        kind: ShrineKind::Greed,
+        title: "Shrine of Greed",
+        text: "More gold for everyone, fiercer foes",
+        spell: 921,
+        color: [1.0, 0.65, 0.1],
+        hold: 1.5,
+        count: 1,
+    },
+    ShrineDef {
+        kind: ShrineKind::Curse,
+        title: "Shrine of Curses",
+        text: "More experience for everyone, more foes",
+        spell: 702,
+        color: [0.6, 0.25, 0.85],
+        hold: 1.5,
+        count: 1,
+    },
+];
+
+/// A shrine's kind, by its [`SHRINES`] index.
+pub(crate) fn shrine(kind: usize) -> &'static ShrineDef {
+    &SHRINES[kind.min(SHRINES.len() - 1)]
+}
+
+/// How far from a shrine's middle a hero stands in it.
+pub(crate) const SHRINE_RADIUS: f32 = 4.0;
+/// How fast a shrine left alone loses its charge, against how fast it gains it.
+pub(crate) const SHRINE_DECAY: f32 = 0.5;
+/// The elites a Shrine of Challenge calls.
+pub(crate) const CHALLENGE_ELITES: usize = 3;
+/// What each Shrine of Greed gives every hero, and does to the foes from then on.
+pub(crate) const GREED_GOLD: Bonus = Bonus::pct(Stat::Gold, 0.25);
+pub(crate) const GREED_HEALTH: f32 = 1.1;
+pub(crate) const GREED_DAMAGE: f32 = 1.15;
+/// What each Shrine of Curses gives every hero, and does to the foes from then on.
+pub(crate) const CURSE_GROWTH: Bonus = Bonus::flat(Stat::Growth, 0.12);
+pub(crate) const CURSE_HEALTH: f32 = 1.1;
+pub(crate) const CURSE_DENSITY: f32 = 1.25;
+
+/// A blessing a Shrine of Power offers: one stat, at a drawn rarity's worth.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Boon {
+    pub bonus: Bonus,
+    pub rarity: CardRarity,
+}
+
+/// The blessings' stats and a Common one's worth; a rarer one is worth [`CardRarity::weight`]
+/// times as much.
+pub(crate) const BOONS: [Bonus; 12] = [
+    Bonus::flat(Stat::Might, 0.08),
+    Bonus::pct(Stat::MaxHp, 0.08),
+    Bonus::pct(Stat::Speed, 0.05),
+    Bonus::flat(Stat::Regen, 0.8),
+    Bonus::flat(Stat::Haste, 0.05),
+    Bonus::flat(Stat::Area, 0.06),
+    Bonus::pct(Stat::Magnet, 0.2),
+    Bonus::flat(Stat::Growth, 0.08),
+    Bonus::flat(Stat::Armor, 2.0),
+    Bonus::flat(Stat::Crit, 0.03),
+    Bonus::flat(Stat::DamageReduction, 0.02),
+    Bonus::pct(Stat::Gold, 0.12),
+];
+
+/// The blessing of `BOONS[stat]` at `rarity`.
+pub(crate) fn boon(stat: usize, rarity: CardRarity) -> Boon {
+    let base = BOONS[stat.min(BOONS.len() - 1)];
+    let k = rarity.weight();
+    let amount = match base.amount {
+        Amount::Flat(v) => Amount::Flat(v * k),
+        Amount::Percent(v) => Amount::Percent(v * k),
+    };
+    Boon {
+        bonus: Bonus {
+            stat: base.stat,
+            amount,
+        },
+        rarity,
+    }
+}
+
 /// Rerolls of the level-up cards a run starts with (R at the cards).
 pub(crate) const REROLLS_PER_RUN: u8 = 3;
 /// Banishes a run starts with: a card taken out of the hero's deals for the rest of the run.

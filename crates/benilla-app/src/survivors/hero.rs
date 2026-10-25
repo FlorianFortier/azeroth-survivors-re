@@ -1077,7 +1077,7 @@ pub(super) fn level_up_gate(
 ) {
     if *phase.get() == Phase::Playing
         && run.begun
-        && run.pending_levels > 0
+        && (run.pending_levels > 0 || !run.shrine_offer.is_empty())
         && run.dead_t.is_none()
         && !run.won
         && !run.lost

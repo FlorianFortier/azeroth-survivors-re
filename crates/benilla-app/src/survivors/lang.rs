@@ -341,6 +341,27 @@ fn french(s: &str) -> Option<&'static str> {
         "Skip" => "Passer",
         "Common" => "Commun",
         "Most stacks" => "Piles au maximum",
+        // The shrines.
+        "Free" => "Gratuit",
+        "Beat its elites" => "Battez ses élites",
+        "Shrine of Power" => "Sanctuaire de puissance",
+        "Shrine of Challenge" => "Sanctuaire du défi",
+        "Shrine of Greed" => "Sanctuaire de l'avidité",
+        "Shrine of Curses" => "Sanctuaire des malédictions",
+        "Stand in it to charge it, then choose a blessing" => {
+            "Restez-y pour le charger, puis choisissez une bénédiction"
+        }
+        "Calls elites: beat them for a free chest" => {
+            "Appelle des élites : battez-les pour un coffre gratuit"
+        }
+        "More gold for everyone, fiercer foes" => "Plus d'or pour tous, des ennemis plus féroces",
+        "More experience for everyone, more foes" => "Plus d'expérience pour tous, plus d'ennemis",
+        "BLESSING" => "BÉNÉDICTION",
+        "Choose a blessing" => "Choisissez une bénédiction",
+        "Click a blessing, or press 1, 2 or 3" => {
+            "Cliquez une bénédiction, ou appuyez sur 1, 2 ou 3"
+        }
+        "Blessing" => "Bénédiction",
         "Heals you for {} of the damage you deal." => "Vous soigne de {} des dégâts que vous infligez.",
         "{} chance on a hit to arc to {} more foes for {} damage." => {
             "{} de chances, à chaque coup, d'arquer vers {} ennemis de plus pour {} points de dégâts."
@@ -427,6 +448,10 @@ mod tests {
         }
         for e in super::super::data::ELITES {
             assert!(french(e.title).is_some(), "{}", e.title);
+        }
+        for s in super::super::data::SHRINES {
+            assert!(french(s.title).is_some(), "{}", s.title);
+            assert!(french(s.text).is_some(), "{}", s.text);
         }
         for d in super::super::data::DIFFICULTIES {
             assert!(french(d.name).is_some(), "{}", d.name);

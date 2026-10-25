@@ -31,6 +31,7 @@ top-down views.
 | Playing | **Esc** | clear the target, or pause |
 | Playing | — | abilities cast themselves (no aim) |
 | Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more) |
+| Playing | stand in a **shrine** | charge it (Power: choose a blessing with **1 / 2 / 3** or a click), or wake it (Challenge, Greed, Curses) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
 | Level up | **R** (or **Reroll**) | deal the cards again: three rerolls to start a run |
 | Level up | **B** (or **Banish**), then a card | take that card out of your deals for the rest of the run: one to start |
