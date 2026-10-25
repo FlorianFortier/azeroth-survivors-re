@@ -16,7 +16,7 @@ use bevy::prelude::*;
 use super::data::{self, Reward};
 use super::hud::{HudFont, HudRoot, SpellIcon};
 use super::lang::{tr, trf};
-use super::treasure::FieldMark;
+use super::treasure::{FieldMark, ShrineState};
 use super::units::is_dead;
 use super::{LocalHero, Phase, Run};
 use crate::net::ObjectStore;
@@ -38,6 +38,7 @@ const LABEL_LINE: f32 = 13.0;
 pub(super) enum Key {
     Unit(Entity),
     Post(usize),
+    Shrine(usize),
 }
 
 /// One label's nodes.
@@ -126,6 +127,13 @@ fn wanted(
                     },
                 }
             }
+            FieldMark::FreeChest => Shown {
+                at: at + Vec3::Y * 1.8,
+                icon: data::CHEST_ICON,
+                title: tr("Free").to_string(),
+                line: tr("Stand here to open").to_string(),
+                color: data::CHEST_COLOR,
+            },
             FieldMark::Elite(k) => {
                 let kind = &data::ELITES[usize::from(k).min(data::ELITES.len() - 1)];
                 Shown {
@@ -152,6 +160,28 @@ fn wanted(
                 title: tr(kind.title).to_string(),
                 line: trf("Back in {}s", &[&seconds_left(post.wait).to_string()]),
                 color: dim(kind.color, 0.7),
+            },
+        ));
+    }
+    // Shrines waiting, or a challenge's elites still up; a spent one has nothing more to say.
+    for (i, sh) in run.shrines.iter().enumerate() {
+        if sh.state == ShrineState::Spent || !near(sh.pos) {
+            continue;
+        }
+        let def = data::shrine(sh.kind);
+        let line = match sh.state {
+            ShrineState::Fighting => tr("Beat its elites").to_string(),
+            _ if sh.charge > 0.0 => format!("{}  ·  {}%", tr(def.text), (sh.charge * 100.0) as u32),
+            _ => tr(def.text).to_string(),
+        };
+        out.push((
+            Key::Shrine(i),
+            Shown {
+                at: sh.pos + Vec3::Y * 3.0,
+                icon: def.spell,
+                title: tr(def.title).to_string(),
+                line,
+                color: def.color,
             },
         ));
     }
@@ -359,8 +389,9 @@ pub(super) fn draw_rings(
             continue;
         }
         match mark {
-            FieldMark::Chest => {
-                let afford = run.gold + 1e-3 >= run.chest_cost as f32;
+            FieldMark::Chest | FieldMark::FreeChest => {
+                let afford =
+                    *mark == FieldMark::FreeChest || run.gold + 1e-3 >= run.chest_cost as f32;
                 let color = if afford {
                     srgb(data::CHEST_COLOR)
                 } else {
@@ -416,6 +447,33 @@ pub(super) fn draw_rings(
             false,
             back,
         );
+    } // A shrine's reach, filling as it charges; a challenge's dashed while its elites are up.
+    for sh in &run.shrines {
+        if sh.state == ShrineState::Spent || !near(sh.pos) {
+            continue;
+        }
+        let c = data::shrine(sh.kind).color;
+        let fighting = sh.state == ShrineState::Fighting;
+        ground_ring(
+            &mut gizmos,
+            &world,
+            sh.pos,
+            data::SHRINE_RADIUS,
+            srgb(dim(c, 0.7)),
+            fighting,
+            1.0,
+        );
+        if !fighting && sh.charge > 0.0 {
+            ground_ring(
+                &mut gizmos,
+                &world,
+                sh.pos,
+                data::SHRINE_RADIUS * 0.8,
+                srgb(c),
+                false,
+                sh.charge,
+            );
+        }
     }
 }
 

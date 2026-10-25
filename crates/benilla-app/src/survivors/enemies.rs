@@ -211,7 +211,7 @@ pub(super) fn spawn_enemies(
     if anchors.is_empty() {
         return;
     }
-    let rules = session.rules;
+    let rules = run.threat(session.rules);
     let anchor = |rng: &mut Rng| anchors[rng.index(anchors.len())];
     let elapsed = run.elapsed;
     let roster = data::roster(selection.map);

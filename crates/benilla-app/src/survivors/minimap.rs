@@ -22,7 +22,7 @@ use benilla_world::world_point::WorldPoint;
 
 use super::hero::Hero;
 use super::hud::UiArt;
-use super::treasure::FieldMark;
+use super::treasure::{FieldMark, ShrineState};
 use super::units::is_dead;
 use super::{data, Run};
 use super::{Hostile, LocalHero};
@@ -47,6 +47,8 @@ const TRACKED_UNIT_CELL: [f32; 4] = [0.25, 0.5, 0.0, 0.25];
 /// The field's marks: a chest's diamond and an elite's (or its empty post's ring).
 const CHEST_PX: f32 = 9.0;
 const ELITE_PX: f32 = 12.0;
+/// A shrine's round mark.
+const SHRINE_PX: f32 = 11.0;
 /// How far out, of the view's radius, a far elite or post is held at the edge.
 const EDGE_HOLD: f32 = 0.88;
 const ARROW_PX: f32 = 33.6;
@@ -543,7 +545,7 @@ pub(super) fn compose(
         }
         let off = Vec2::new(tf.translation.x - p.x, tf.translation.z - p.z);
         match mark {
-            FieldMark::Chest => {
+            FieldMark::Chest | FieldMark::FreeChest => {
                 if off.length() > radius {
                     continue;
                 }
@@ -576,6 +578,24 @@ pub(super) fn compose(
             (0.55..=1.0)
                 .contains(&d)
                 .then_some([c[0] * 255.0, c[1] * 255.0, c[2] * 255.0, 170.0])
+        });
+    } // The shrines not yet spent: a round dot in the shrine's colour, held at the edge when far.
+    for sh in &run.shrines {
+        if sh.state == ShrineState::Spent {
+            continue;
+        }
+        let c = data::shrine(sh.kind).color;
+        let off = Vec2::new(sh.pos.x - p.x, sh.pos.z - p.z).clamp_length_max(edge);
+        let size = SHRINE_PX * scale;
+        blit(buf, center + off / yd_per_px, size, |q| {
+            let d = q.length() / (size / 2.0);
+            if d > 1.0 {
+                None
+            } else if d > 0.7 {
+                Some([0.0, 0.0, 0.0, 255.0])
+            } else {
+                Some([c[0] * 255.0, c[1] * 255.0, c[2] * 255.0, 255.0])
+            }
         });
     }
 

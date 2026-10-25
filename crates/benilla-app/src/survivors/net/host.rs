@@ -12,8 +12,8 @@ use benilla_world::model_fade::DespawnFade;
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
 use survivors_net::game::{
-    AbilityView, Game, Motion, ObjectKind, PartyEntry, Post as WirePost, Role, Score, Spawn,
-    Vitals as WireVitals,
+    AbilityView, Boon as WireBoon, Game, Motion, ObjectKind, PartyEntry, Post as WirePost, Role,
+    Score, Shrine as WireShrine, Spawn, Vitals as WireVitals,
 };
 use survivors_net::protocol::Target;
 
@@ -25,8 +25,8 @@ use crate::survivors::mobility::MobilityQueue;
 use crate::survivors::treasure::FieldMark;
 use crate::survivors::units::{FxEvent, FxLog};
 use crate::survivors::{
-    sync, HeroState, Hostile, LocalHero, Mode, Pickup, Run, RunEntity, Selection, Session, SimSet,
-    Vitals,
+    data, sync, HeroState, Hostile, LocalHero, Mode, Pickup, Run, RunEntity, Selection, Session,
+    SimSet, Vitals,
 };
 
 /// Seconds between stream ticks: the horde's motion and the frame's effects.
@@ -151,6 +151,15 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
         rerolls: v.rerolls,
         banishes: v.banishes,
         skips: v.skips,
+        shrine_offer: v
+            .shrine_offer
+            .iter()
+            .map(|b| WireBoon {
+                bonus: data::bonus_to_wire(&b.bonus),
+                rarity: b.rarity.to_wire(),
+            })
+            .collect(),
+        boons: v.boons.iter().map(data::bonus_to_wire).collect(),
     }
 }
 
@@ -214,6 +223,12 @@ pub(super) fn receive(
                     h.mobile.haste = haste.clamp(1.0, 2.0);
                     h.mobile.haste_t = haste_t.clamp(0.0, 8.0);
                     h.mobile.vanish_t = vanish_t.clamp(0.0, 8.0);
+                }
+            }
+            Game::ShrineChoice(bonus) => {
+                // Only a blessing of the offer this host made that hero.
+                if let Some((.., mut h)) = heroes.iter_mut().find(|(.., h)| h.slot == from) {
+                    crate::survivors::treasure::take_boon(&mut h.v, bonus);
                 }
             }
             Game::Card(action) => {
@@ -340,6 +355,7 @@ pub(super) fn stream(
                 let role = match (hero_state, mark, hostile, pickup, kind) {
                     (Some(h), ..) => Role::Hero(h.slot),
                     (_, Some(FieldMark::Chest), ..) => Role::Chest,
+                    (_, Some(FieldMark::FreeChest), ..) => Role::FreeChest,
                     (_, Some(FieldMark::Elite(k)), ..) => Role::Elite(*k),
                     (_, _, true, ..) => Role::Enemy,
                     (_, _, _, true, _) => Role::Pickup,
@@ -496,6 +512,18 @@ pub(super) fn stream(
                     wait: p.wait,
                 })
                 .collect(),
+            shrines: run
+                .shrines
+                .iter()
+                .map(|s| WireShrine {
+                    kind: s.kind as u8,
+                    pos: s.pos.to_array(),
+                    charge: s.charge,
+                    state: s.state.to_wire(),
+                })
+                .collect(),
+            greed: run.greed,
+            curse: run.curse,
         });
         let entries: Vec<PartyEntry> = heroes
             .iter()

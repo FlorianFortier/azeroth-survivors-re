@@ -75,6 +75,9 @@ pub(super) struct OfferRow;
 /// The line under LEVEL UP: which level this is.
 #[derive(Component)]
 pub(super) struct LevelUpSub;
+/// The picker's title: a level up, or a shrine's blessing.
+#[derive(Component)]
+pub(super) struct LevelUpTitle;
 
 /// A radial cooldown sweep over one ability icon: `sweep` is the remaining fraction
 /// (1.0 = just cast, 0.0 = ready), drawn by `ui_sweep.wgsl`.
@@ -183,24 +186,58 @@ pub(super) enum Choice {
     NewPassive(&'static PassiveDef),
     UpPassive(usize),
     Heal,
+    /// A Shrine of Power's blessing, by its index in the hero's shrine offer.
+    Boon(usize),
 }
 
 /// The line under the cards: how to pick, or how to banish.
 #[derive(Component)]
 pub(super) struct RerollHint;
 
-/// The line under the cards says how to pick, or that the next card chosen is banished.
-pub(super) fn reroll_hint(offer: Res<Offer>, mut hints: Query<&mut Text, With<RerollHint>>) {
+/// The lines around the cards: a level up's or a blessing's title, and how to pick, or that the
+/// next card chosen is banished.
+#[allow(clippy::type_complexity)]
+pub(super) fn reroll_hint(
+    offer: Res<Offer>,
+    mut texts: ParamSet<(
+        Query<&mut Text, With<RerollHint>>,
+        Query<&mut Text, With<LevelUpTitle>>,
+        Query<&mut Text, With<LevelUpSub>>,
+    )>,
+) {
     use super::lang::tr;
-    let want = if offer.banishing {
-        tr("Banish: click a card, or press 1, 2 or 3  ·  B again to cancel")
+    let (title, sub, hint) = if offer.blessing {
+        (
+            tr("BLESSING"),
+            tr("Choose a blessing"),
+            tr("Click a blessing, or press 1, 2 or 3"),
+        )
+    } else if offer.banishing {
+        (
+            tr("LEVEL UP"),
+            tr("Choose your power"),
+            tr("Banish: click a card, or press 1, 2 or 3  ·  B again to cancel"),
+        )
     } else {
-        tr("Click a card, or press 1, 2 or 3")
+        (
+            tr("LEVEL UP"),
+            tr("Choose your power"),
+            tr("Click a card, or press 1, 2 or 3"),
+        )
     };
-    for mut t in &mut hints {
-        if **t != *want {
-            **t = want.to_string();
+    let set = |t: &mut Text, want: &str| {
+        if t.0 != want {
+            t.0 = want.to_string();
         }
+    };
+    for mut t in &mut texts.p0() {
+        set(&mut t, hint);
+    }
+    for mut t in &mut texts.p1() {
+        set(&mut t, title);
+    }
+    for mut t in &mut texts.p2() {
+        set(&mut t, sub);
     }
 }
 
@@ -209,10 +246,13 @@ pub(super) fn reroll_hint(offer: Res<Offer>, mut hints: Query<&mut Text, With<Re
 #[derive(Resource, Default)]
 pub(super) struct Offer {
     cards: Vec<(Dealt, Choice)>,
-    /// What the cards were last built from: the offer and the moves made.
-    shown: Option<(Vec<Dealt>, u32)>,
+    /// What the cards were last built from: the offer, the moves made, and whether they are
+    /// blessings.
+    shown: Option<(Vec<Dealt>, u32, bool)>,
     /// The next card chosen is banished, not picked.
     pub(super) banishing: bool,
+    /// The cards are a Shrine of Power's blessings: picked, never rerolled, banished or skipped.
+    pub(super) blessing: bool,
 }
 
 impl Offer {
@@ -245,15 +285,39 @@ pub(super) fn follow_offer(phase: Res<State<Phase>>, run: Res<Run>, mut offer: R
         }
         return;
     }
-    let key = (run.offer.clone(), run.picks);
+    // A blessing waiting goes first: its cards wear their rarity as a card does.
+    let blessing = !run.shrine_offer.is_empty();
+    let cards: Vec<(Dealt, Choice)> = if blessing {
+        run.shrine_offer
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                let d = Dealt {
+                    choice: survivors_net::game::Choice::Heal,
+                    rarity: b.rarity,
+                };
+                (d, Choice::Boon(i))
+            })
+            .collect()
+    } else {
+        run.offer
+            .iter()
+            .filter_map(|d| view_choice(d, &run).map(|c| (d.clone(), c)))
+            .collect()
+    };
+    let key = (
+        cards.iter().map(|(d, _)| d.clone()).collect(),
+        run.picks,
+        blessing,
+    );
     if offer.shown.as_ref() == Some(&key) {
         return;
     }
-    offer.cards = run
-        .offer
-        .iter()
-        .filter_map(|d| view_choice(d, &run).map(|c| (d.clone(), c)))
-        .collect();
+    offer.cards = cards;
+    offer.blessing = blessing;
+    if blessing {
+        offer.banishing = false;
+    }
     offer.shown = Some(key);
 }
 
@@ -276,6 +340,24 @@ pub(super) fn make_move(
     picks: &mut super::sync::LocalPicks,
 ) -> bool {
     use survivors_net::game::CardAction;
+    if offer.blessing {
+        let Move::Pick(i) = m else { return false };
+        let Some(Choice::Boon(k)) = offer.cards.get(i).map(|(_, c)| *c) else {
+            return false;
+        };
+        let Some(b) = run.shrine_offer.get(k) else {
+            return false;
+        };
+        let wire = data::bonus_to_wire(&b.bonus);
+        if !super::treasure::take_boon(&mut run.me, wire) {
+            return false;
+        }
+        picks.1.push(wire);
+        if run.pending_levels == 0 && run.shrine_offer.is_empty() {
+            next.set(Phase::Playing);
+        }
+        return true;
+    }
     let card = |i: usize| offer.cards.get(i).map(|(d, _)| d.to_wire());
     let action = match m {
         Move::Pick(i) | Move::Banish(i) => {
@@ -316,7 +398,7 @@ pub(super) fn make_move(
     }
     offer.banishing = false;
     picks.0.push(action);
-    if run.pending_levels == 0 {
+    if run.pending_levels == 0 && run.shrine_offer.is_empty() {
         next.set(Phase::Playing);
     }
     true
@@ -835,7 +917,10 @@ pub(super) fn setup_hud(
                 UiTransform::default(),
                 bevy::ui::FocusPolicy::Pass,
             ));
-            root.spawn(centered(f, super::lang::tr("LEVEL UP"), 52.0, GOLD));
+            root.spawn((
+                LevelUpTitle,
+                centered(f, super::lang::tr("LEVEL UP"), 52.0, GOLD),
+            ));
             root.spawn((
                 LevelUpSub,
                 centered(
@@ -1335,6 +1420,20 @@ pub(super) fn describe_card(
                     fmt(p.per_level * (power + w)),
                 ),
                 ranks: Some((level, data::MAX_PASSIVE_LEVEL)),
+            }
+        }
+        Choice::Boon(k) => {
+            let b = run.shrine_offer.get(k).map_or(data::BOONS[0], |b| b.bonus);
+            let v = match b.amount {
+                data::Amount::Flat(v) | data::Amount::Percent(v) => v,
+            };
+            CardText {
+                spell: data::shrine(0).spell,
+                name: super::lang::tr(stat_label(b.stat)).to_string(),
+                tag: super::lang::tr("Blessing").to_string(),
+                tag_color: GOLD,
+                desc: passive_text(b.stat, v),
+                ranks: None,
             }
         }
         Choice::Heal => CardText {

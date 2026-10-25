@@ -45,6 +45,12 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   and a label over each chest give its price, each elite shows what it guards, and a fallen
   elite's post counts down to its return; the minimap marks them all, the far elites at its
   edge. Co-op guests see the same.
+- **Shrines** across the field: stand in a **Shrine of Power** until it charges and choose one
+  blessing of three (a stat for the rest of the run, drawn Common to Legendary); wake the
+  **Shrine of Challenge** and beat the elites it calls for a free chest; the **Shrine of Greed**
+  gives every hero more gold and the foes more bite, the **Shrine of Curses** more experience
+  and more foes. Each shows its ring, its charge and what it does over the world and on the
+  minimap, and co-op guests see and use them too.
 - **A main screen in tabs** (Character, Collection, Drop Tables, Codex, Talents, Achievements,
   Rewards). The Character tab shows the class on the left (its health, starting spell and spell
   pool), your hero in the middle (portrait, name, race, equipment, collection, racials) and the
