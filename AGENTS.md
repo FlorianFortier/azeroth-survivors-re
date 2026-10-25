@@ -13,8 +13,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 
 | path | what | whose |
 |---|---|---|
-| `crates/benilla-app/src/survivors/` | **the game**: menu, hero, enemies, abilities, level-up cards, HUD | ours |
-| `crates/benilla-app/src/survivors/data.rs` | the game's tables and balance curves (classes, abilities, passives, zones, waves) | ours |
+| `crates/benilla-app/src/survivors/` | **the game**; file by file in [The survivors mode](#the-survivors-mode-file-by-file) | ours |
 | `crates/benilla-*` | the client: formats, world, UI, protocol, app | upstream's, plus our `#[cfg]`-gated carries |
 | `crates/benilla-app/src/webbridge/` | the JavaScript bridge, wasm side | wenilla's |
 | `crates/benilla-app/src/survivors/character.rs` | the main screen (title, tabs, Character tab: class column, hero column with the hero's portrait, zone column, bottom bar; the Armory: race, look and gear around the hero on its stage), built from the kit on the same `Selection` and profile as the glue menu (`menu.rs`), which it replaces; `WOW_NEW_MENU=0` (`?new_menu=0`) brings the glue menu back | ours |
@@ -40,6 +39,54 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 `crates/wenilla-host` also carries a `/ws/*` relay to a mangos realmd/worldd. The survivors mode
 never opens it; it is inherited from wenilla.
 
+## The survivors mode, file by file
+
+All under `crates/benilla-app/src/survivors/`. Each file opens with a `//!` header that says what
+it holds; read it before changing the file.
+
+| file | what |
+|---|---|
+| `mod.rs` | the plugin: `Phase` (Menu, Playing, LevelUp, Paused, GameOver, Lobby), `Run`, `Selection`, `Vitals`, `HeroState`, and the system sets and their order (`WorldStage::Input`, `SimSet`) |
+| `data.rs` | every table and number: classes, abilities, passives, racials, zones (`MAPS`), rosters and bosses, waves, items (`ITEMS`), difficulties, achievements |
+| `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
+| `hero.rs` | the local hero: WASD movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
+| `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks |
+| `mobility.rs` | the class movement spell on `F` from level 5 |
+| `enemies.rs` | the horde: spawning, the chase, contact damage, death, experience gems, loot |
+| `cards.rs` | the level-up cards and their reroll |
+| `units.rs` | local units built as streamed ones (`Guid`, `NetEntity`, `ObjectStore`), and `Fx`, every visual |
+| `sync.rs` | seating the run's heroes (and each guest's bonuses, `seat_bonuses`), cards to their hero, the local hero mirrored into `Run` |
+| `outfit.rs` | the hero as a player character: body, the five appearance dials, worn pieces |
+| `talents.rs` | the class's three trees from `Talent.dbc`, vanilla's rules, the mode's numbers |
+| `profile.rs` | the saved profile: pick, records, gold, inventory, equipped, talents, codex, achievements |
+| `names.rs` | random names in each race's sound, and what a typed one may hold |
+| `kit.rs` | the menu's UI kit (panels, headings, tabs, buttons, icons, tiles, bars, chips, tooltips, text fields, scroll areas); `?ui_kit=1` shows a gallery |
+| `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
+| `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
+| `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
+| `minimap.rs` | the minimap cluster and the day clock |
+| `grade.rs` | the picture polish pass (`G`, `?grade=0`) |
+| `auto.rs` | `WOW_SURVIVORS_AUTO`: a hands-off run for testing, with screenshots |
+| `net/` | multiplayer, game side: `socket.rs` (WebSocket, native or browser), `host.rs` (plays and streams the run), `client.rs` (a guest's copy), `ui.rs` (lobby screens, party frames, scoreboard) |
+
+## Switches
+
+Native reads `WOW_<NAME>` from the environment; the browser reads `?<name>=` from the page's query
+string (`crate::webenv::var`: the prefix dropped, lowercased).
+
+| native | browser | what |
+|---|---|---|
+| `WOW_UNLOCK_ALL=1` | `?unlock_all=1` | every zone open |
+| `WOW_NEW_MENU=0` | `?new_menu=0` | the glue-art pick screen (`menu.rs`) instead of the main screen |
+| `WOW_UI_KIT=1` | `?ui_kit=1` | the kit's gallery over the menu |
+| `WOW_GRADE=0` | `?grade=0` | start with the picture polish off |
+| `WOW_MOUSE_SENS=1.5` | `?mouse_sens=1.5` | chase-view mouse speed, 0.1 to 10 |
+| `WOW_HERO_BODY=trainer` | `?hero_body=trainer` | the class trainer's look instead of a player body |
+| `WOW_NAME=…` | `?name=…` | the player's name in a lobby |
+| `WOW_LOBBY=…` | `?lobby=…` | the lobby server's address |
+| `WOW_SURVIVORS_AUTO=<class>[:idle\|:all\|:late]` | — | a hands-off test run; `WOW_SURVIVORS_MAP=<index or name>` picks the zone, `WOW_SURVIVORS_SHOTS=<dir>` saves screenshots |
+| `WOW_DATA=…` | — | the 1.12.1 client's `Data` folder |
+
 ## Commands
 
 ```bash
@@ -55,6 +102,21 @@ cargo test -p survivors-net -p survivors-server  # multiplayer protocol, lobby r
 make lobby                  # a standalone lobby server on :7777
 cargo test --workspace                     # ~320 tests need a 1.12.1 patch chain and fail without one
 ```
+
+### Without game data (a cloud container, CI)
+
+Most work here is done without the 1.12.1 client, as `check.yml` does. What works and what does not:
+
+- `cargo test -p benilla-app --lib survivors` (add `--no-default-features` as CI does) runs the
+  mode's tables, balance, cards, stats, profile, camera framing and host→guest replication with
+  no data. A native build needs `libasound2-dev libudev-dev` (CI also installs `libwayland-dev
+  libxkbcommon-dev`); the first build takes about ten minutes.
+- The wasm `cargo check` needs `scripts/web-setup.sh` first: the vendored `mlua-sys` builds the
+  Lua VM against wasi-sdk, and fails at its build script without it.
+- Nothing shows on screen without the data and a WebGPU adapter. A UI or camera change cannot be
+  seen there: say so in the PR, and leave the in-game check to someone with the client.
+- `cargo fmt -p benilla-app` also reformats upstream files that are not formatted; run `rustfmt
+  --edition 2021` on the files you changed, and leave upstream files as they are.
 
 A browser needs WebGPU; the world does not run without it. Linux Chrome needs
 `--enable-unsafe-webgpu`. Without an adapter the client aborts in
@@ -123,6 +185,27 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   (zones, items, classes) stays English in data and is translated only where it is shown.
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
+
+## Pitfalls
+
+- **Clicks need a `ButtonLook`.** `kit::KitClicks` only reads buttons that carry
+  `kit::ButtonLook`; a bare `Button` gets an `Interaction` (hover, drag, tooltip) but never a click.
+- **The menu's order is fixed.** `character.rs`'s chain runs after `hud::show_panels`, which runs
+  after `WorldStage::Input`, where `hero::place_camera` sits. Ordering a menu system before the
+  camera makes a cycle, and Bevy panics at startup, not at compile time.
+- **The menu's hero is the live one.** It shows through the portrait and the Armory's stage,
+  which have no fill; a background on them, or on a node around them, hides it.
+- **A view rebuilds on a key.** Each `refresh_*` system keeps what it last drew in a `Local` and
+  rebuilds only when that changes: a new input to a view goes into that key, or it goes stale.
+
+## Working on a change
+
+- One change per pull request, after `.github/pull_request_template.md`: the issue, what changes,
+  what 1.12.1 does and how you know, how you checked it.
+- Before pushing: `cargo test -p benilla-app --lib survivors` and, for multiplayer,
+  `cargo test -p survivors-net -p survivors-server`; `rustfmt --check` on the files you changed.
+- Update this file and the README when a file, a switch, a rule or something a player sees
+  changes; `CONTROLS.md` when a key does.
 
 ## Where to look when
 
