@@ -86,10 +86,12 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 - **Level-up cards** that deal in, tilt toward the cursor and lift on hover. Their WoW item-quality
   colour says how strong a pick is, and each card lists exactly what changes, like
   `Damage 20 » 26` or `Targets 2 » 3`.
-- **A class movement spell on F** from level 5, aimed at the crosshair: Blink, Charge, Sprint, Dash,
+- **A class movement spell on F** from level 5, aimed at the pointer: Blink, Charge, Sprint, Dash,
   Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
-- **A third-person 3D view:** the camera hangs behind the hero, the mouse looks around and WASD
-  runs where you look. **C** switches to the classic top-down views, locked or free.
+- **A third-person 3D view with WoW's controls:** the pointer stays free; a left-drag swings the
+  camera, a right-drag turns the hero, both buttons run; A/D turn and Q/E strafe; a click on an
+  enemy (or **Tab**) targets it, and your single-target spells strike it first. **C** switches to
+  the classic top-down views, locked or free.
 - **WoW's movement:** no inertia on the ground, backpedalling at the stock 4.5 against 7 yards a
   second, strafing at full speed, and a running jump that keeps its momentum to the landing (a
   standing one may be steered once, at walk speed).
@@ -132,9 +134,11 @@ files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](do
 
 ## Controls
 
-See [CONTROLS.md](CONTROLS.md). The short version: the **mouse** to look, **WASD** to move,
-**Space** to jump, **F** for your class's movement spell, the **mouse wheel** to zoom, hold **Alt**
-to free the pointer, **C** to change the view, **Esc** to pause, **1/2/3** to pick a level-up card.
+See [CONTROLS.md](CONTROLS.md). The short version, as in WoW: drag with the **left button** to
+look, the **right button** to turn, both to run; **W/S** to run, **A/D** to turn, **Q/E** to
+strafe; **click** or **Tab** to target; **Space** to jump, **F** for your class's movement spell,
+the **mouse wheel** to zoom, **C** to change the view, **Esc** to clear the target or pause,
+**1/2/3** to pick a level-up card.
 
 ## Options
 

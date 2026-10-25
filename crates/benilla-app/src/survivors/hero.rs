@@ -42,6 +42,14 @@ const RUN_BACK_RATIO: f32 = 4.5 / 7.0;
 /// (`player/state.rs`'s `AIR_NUDGE_SPEED`, the live `min(walk, run)`).
 const WALK_RATIO: f32 = 2.5 / 7.0;
 
+/// The hero's keyboard turn rate (rad/s), the reference's `TURN_RATE` (`player/state.rs`).
+const TURN_RATE: f32 = std::f32::consts::PI;
+/// How fast the chase camera swings back behind a hero that runs (1/s), after a left-drag left it
+/// elsewhere.
+const CAMERA_RETURN: f32 = 4.0;
+/// Raw mouse travel under which a press let go is a click, not a drag.
+const CLICK_SLOP: f32 = 6.0;
+
 /// Radians of orbit per raw mouse unit while right-dragging.
 const ORBIT_RATE: f32 = 0.008;
 /// Radians of turn per raw mouse unit in the chase view, before `WOW_MOUSE_SENS`.
@@ -69,8 +77,8 @@ const ZOOM_MAX: f32 = 70.0;
 /// The view; `C` cycles them.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(super) enum CamMode {
-    /// Third person behind the hero, the mouse turning the view and the hero with it, WASD
-    /// relative to where the camera looks: the 3D survivors feel.
+    /// Third person behind the hero, as in WoW: the pointer free, a left-drag swinging the camera,
+    /// a right-drag turning the hero with it, A/D turning and Q/E strafing.
     #[default]
     Chase,
     /// Locked top-down (61°), laptop-friendly: the hero faces the cursor.
@@ -98,6 +106,9 @@ pub(super) struct CamRig {
     /// Elevation above the horizon (radians), clamped so the camera never dives underground.
     pub pitch: f32,
     pub mode: CamMode,
+    /// The chase hero's heading, in `yaw`'s terms: where W runs. A right-drag holds the camera
+    /// and the hero to one heading; a left-drag swings the camera alone.
+    pub facing: f32,
 }
 
 impl Default for CamRig {
@@ -108,6 +119,7 @@ impl Default for CamRig {
             yaw: 0.0,
             pitch: CHASE_PITCH,
             mode: CamMode::Chase,
+            facing: 0.0,
         }
     }
 }
@@ -115,14 +127,12 @@ impl Default for CamRig {
 impl CamRig {
     /// Where the camera looks along the ground: the chase view's forward.
     pub(super) fn forward(&self) -> Vec3 {
-        let (sy, cy) = self.yaw.sin_cos();
-        Vec3::new(-sy, 0.0, -cy)
+        heading(self.yaw)
     }
 
     /// WASD's `dir` (x right, z back) turned to the camera's heading.
     fn relative(&self, dir: Vec3) -> Vec3 {
-        let (sy, cy) = self.yaw.sin_cos();
-        Vec3::new(dir.x * cy + dir.z * sy, 0.0, dir.z * cy - dir.x * sy)
+        turned(self.yaw, dir)
     }
 
     /// Switch to `mode` at its rest framing; the chase keeps the heading, so the view does not spin.
@@ -132,6 +142,7 @@ impl CamRig {
             CamMode::Chase => {
                 self.pitch = CHASE_PITCH;
                 self.dist = CHASE_DIST;
+                self.facing = self.yaw;
             }
             CamMode::Fixed => {
                 self.yaw = 0.0;
@@ -146,20 +157,138 @@ impl CamRig {
     }
 }
 
-/// The chase view holds the mouse: the cursor is hidden and kept in the window while a run is
-/// played, and given back for menus, cards, the pause screen, an unfocused window, or while Alt is
-/// held (to reach the minimap's buttons).
+/// The ground heading of a `yaw`: where it looks along the ground.
+fn heading(yaw: f32) -> Vec3 {
+    let (sy, cy) = yaw.sin_cos();
+    Vec3::new(-sy, 0.0, -cy)
+}
+
+/// A run `dir` in a heading's frame (x right, z back) turned to the world by that `yaw`.
+fn turned(yaw: f32, dir: Vec3) -> Vec3 {
+    let (sy, cy) = yaw.sin_cos();
+    Vec3::new(dir.x * cy + dir.z * sy, 0.0, dir.z * cy - dir.x * sy)
+}
+
+/// `to - from`, wrapped into `-π..=π`: the short way round.
+fn angle_to(from: f32, to: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    (to - from + PI).rem_euclid(TAU) - PI
+}
+
+/// The mouse in the chase view, as in WoW. A press on the world (not on a button) hides the
+/// pointer and looks while it is held: the left button swings the camera alone, the right one
+/// turns the hero with it, and both run forward. A press let go before the mouse moved is a click,
+/// at the point it was pressed: [`super::targeting`] picks with it.
+#[derive(Resource, Default)]
+pub(super) struct MouseLook {
+    pub left: bool,
+    pub right: bool,
+    /// Where the pointer was when the look began (logical pixels), given back when it ends.
+    pub at: Option<Vec2>,
+    /// Raw mouse travel since the look began.
+    moved: f32,
+    /// This frame's click: the button let go, and where it was pressed.
+    pub clicked: Option<(MouseButton, Vec2)>,
+}
+
+impl MouseLook {
+    /// Either button is looking.
+    pub fn looking(&self) -> bool {
+        self.left || self.right
+    }
+
+    /// One button's edges: `pressed` on the world starts it (the look begins at `cursor`);
+    /// `released` ends it, a click if the mouse stayed put and the other button is not held.
+    fn step(
+        &mut self,
+        button: MouseButton,
+        pressed: bool,
+        released: bool,
+        held: bool,
+        over_ui: bool,
+        cursor: Option<Vec2>,
+    ) {
+        let other = match button {
+            MouseButton::Left => self.right,
+            _ => self.left,
+        };
+        let on = match button {
+            MouseButton::Left => self.left,
+            _ => self.right,
+        };
+        let mut now = on;
+        if pressed && !over_ui && !on {
+            if !other {
+                self.at = cursor;
+                self.moved = 0.0;
+            }
+            now = true;
+        }
+        if now && (released || !held) {
+            now = false;
+            if released && self.moved < CLICK_SLOP && !other {
+                self.clicked = self.at.map(|at| (button, at));
+            }
+        }
+        match button {
+            MouseButton::Left => self.left = now,
+            _ => self.right = now,
+        }
+    }
+}
+
+/// The mouse's presses and drags, in the chase view of a run being played.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn read_mouse(
+    phase: Res<State<Phase>>,
+    run: Res<Run>,
+    rig: Res<CamRig>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    buttons: Query<&Interaction, With<Button>>,
+    mut look: ResMut<MouseLook>,
+) {
+    look.clicked = None;
+    let active = rig.mode == CamMode::Chase && *phase.get() == Phase::Playing && run.begun;
+    if !active {
+        if look.looking() {
+            look.left = false;
+            look.right = false;
+        }
+        return;
+    }
+    if look.looking() {
+        look.moved += motion.delta.length();
+    }
+    let over_ui = buttons.iter().any(|i| *i != Interaction::None);
+    let cursor = windows.single().ok().and_then(|w| w.cursor_position());
+    for button in [MouseButton::Left, MouseButton::Right] {
+        look.step(
+            button,
+            mouse.just_pressed(button),
+            mouse.just_released(button),
+            mouse.pressed(button),
+            over_ui,
+            cursor,
+        );
+    }
+}
+
+/// The pointer is hidden and held in place only while a button looks (a drag), as in WoW, and
+/// given back where the look began; menus, cards, the pause screen and an unfocused window never
+/// hold it.
 pub(super) fn capture_cursor(
     phase: Res<State<Phase>>,
     run: Res<Run>,
     rig: Res<CamRig>,
-    keys: Res<ButtonInput<KeyCode>>,
+    look: Res<MouseLook>,
     loading: Res<crate::loading_screen::LoadingScreen>,
     mut windows: Query<
         (&mut Window, &mut bevy::window::CursorOptions),
         With<bevy::window::PrimaryWindow>,
     >,
-    mut held: Local<bool>,
+    mut held: Local<Option<Option<Vec2>>>,
 ) {
     let Ok((mut window, mut cursor)) = windows.single_mut() else {
         return;
@@ -169,13 +298,13 @@ pub(super) fn capture_cursor(
         && run.begun
         && window.focused
         && !loading.covering()
-        && !keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
-    if want == *held {
+        && look.looking();
+    if want == held.is_some() {
         return;
     }
-    *held = want;
     // Written only on a change: a `Mut` every frame makes the windowing backend re-apply it.
     if want {
+        *held = Some(look.at);
         // Windows confines rather than locks; raw mouse motion still turns the view at the edge.
         cursor.grab_mode = if cfg!(windows) {
             bevy::window::CursorGrabMode::Confined
@@ -184,75 +313,58 @@ pub(super) fn capture_cursor(
         };
         cursor.visible = false;
     } else {
+        let at = held.take().flatten();
         cursor.grab_mode = bevy::window::CursorGrabMode::None;
         cursor.visible = true;
-        // Given back at the centre, where the crosshair was.
-        let center = Vec2::new(window.width(), window.height()) / 2.0;
-        window.set_cursor_position(Some(center));
+        // Given back where the look began.
+        if let Some(at) = at {
+            window.set_cursor_position(Some(at));
+        }
     }
 }
 
-/// The chase view's crosshair, at the centre of the screen.
-#[derive(Component)]
-pub(super) struct Crosshair;
-
-pub(super) fn setup_crosshair(mut commands: Commands) {
-    commands
-        .spawn((
-            Crosshair,
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                display: Display::None,
-                ..default()
-            },
-            Pickable::IGNORE,
-            GlobalZIndex(390),
-            Visibility::Hidden,
-        ))
-        .with_children(|c| {
-            c.spawn((
-                Node {
-                    width: Val::Px(6.0),
-                    height: Val::Px(6.0),
-                    border: UiRect::all(Val::Px(1.0)),
-                    border_radius: BorderRadius::MAX,
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(1.0, 0.9, 0.6, 0.9)),
-                BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.8)),
-                Pickable::IGNORE,
-            ));
-        });
-}
-
-pub(super) fn show_crosshair(
-    phase: Res<State<Phase>>,
-    rig: Res<CamRig>,
-    run: Res<Run>,
-    mut crosshair: Query<(&mut Visibility, &mut Node), With<Crosshair>>,
-) {
-    let on = rig.mode == CamMode::Chase
-        && matches!(phase.get(), Phase::Playing | Phase::LevelUp)
-        && run.begun
-        && run.dead_t.is_none();
-    for (mut v, mut n) in &mut crosshair {
-        let want = if on {
-            Visibility::Inherited
+/// The chase view's keys as WoW binds them: W/S and the up and down arrows run and backpedal,
+/// Q/E strafe, A/D turn the hero or strafe while the right button looks, and the left and right
+/// arrows always turn. Returns the run in the hero's frame (x right, z back) and the turn (+1 to
+/// the left).
+fn chase_keys(held: impl Fn(KeyCode) -> bool, mouselook: bool) -> (Vec3, f32) {
+    let any = |keys: &[KeyCode]| keys.iter().any(|&k| held(k));
+    let mut dir = Vec3::ZERO;
+    let mut turn: f32 = 0.0;
+    if any(&[KeyCode::KeyW, KeyCode::ArrowUp]) {
+        dir.z -= 1.0;
+    }
+    if any(&[KeyCode::KeyS, KeyCode::ArrowDown]) {
+        dir.z += 1.0;
+    }
+    if held(KeyCode::KeyQ) {
+        dir.x -= 1.0;
+    }
+    if held(KeyCode::KeyE) {
+        dir.x += 1.0;
+    }
+    if held(KeyCode::KeyA) {
+        if mouselook {
+            dir.x -= 1.0;
         } else {
-            Visibility::Hidden
-        };
-        if *v != want {
-            *v = want;
-        }
-        let display = if on { Display::Flex } else { Display::None };
-        if n.display != display {
-            n.display = display;
+            turn += 1.0;
         }
     }
+    if held(KeyCode::KeyD) {
+        if mouselook {
+            dir.x += 1.0;
+        } else {
+            turn -= 1.0;
+        }
+    }
+    if held(KeyCode::ArrowLeft) {
+        turn += 1.0;
+    }
+    if held(KeyCode::ArrowRight) {
+        turn -= 1.0;
+    }
+    dir.x = dir.x.clamp(-1.0, 1.0);
+    (dir, turn.clamp(-1.0, 1.0))
 }
 
 /// `WOW_MOUSE_SENS` (`?mouse_sens=` on the web), which outranks the Options' slider.
@@ -371,18 +483,18 @@ pub(super) fn aim_cursor(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cams: Query<(&Camera, &Transform), With<WorldCamera>>,
     hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
-    rig: Res<CamRig>,
+    look: Res<MouseLook>,
     world: WorldPoint,
     mut aim: ResMut<AimPoint>,
 ) {
     let point = (|| {
         let (cam, tf) = cams.single().ok()?;
-        // The chase view aims where the crosshair is; the others where the pointer is.
-        let cursor = if rig.mode == CamMode::Chase {
-            cam.logical_viewport_size()? / 2.0
-        } else {
-            windows.single().ok()?.cursor_position()?
-        };
+        // Where the pointer is; while a drag hides it, where the drag began, else the middle.
+        let cursor = look
+            .at
+            .filter(|_| look.looking())
+            .or_else(|| windows.single().ok().and_then(|w| w.cursor_position()))
+            .or_else(|| cam.logical_viewport_size().map(|s| s / 2.0))?;
         let ray = cam
             .viewport_to_world(&GlobalTransform::from(*tf), cursor)
             .ok()?;
@@ -420,7 +532,8 @@ pub(super) fn drive_hero(
     session: Res<Session>,
     run: Res<Run>,
     selection: Res<Selection>,
-    rig: Res<CamRig>,
+    mut rig: ResMut<CamRig>,
+    look: Res<MouseLook>,
     aim: Res<AimPoint>,
     world: WorldPoint,
     auto: Option<Res<super::auto::Auto>>,
@@ -439,6 +552,29 @@ pub(super) fn drive_hero(
             let mut dir = Vec3::ZERO;
             if let Some(auto) = auto.as_deref().filter(|_| steering) {
                 dir = super::auto::steer(auto);
+            } else if steering && rig.mode == CamMode::Chase {
+                // WoW's keys and buttons, on the hero's own heading.
+                let (mut local, turn) = chase_keys(|k| keys.pressed(k), look.right);
+                if look.left && look.right && local.z >= 0.0 {
+                    local.z = -1.0;
+                }
+                if turn != 0.0 {
+                    let step = turn * TURN_RATE * dt;
+                    rig.facing += step;
+                    // The camera turns with the hero, unless a left-drag holds it.
+                    if !look.left {
+                        rig.yaw += step;
+                    }
+                }
+                if look.right {
+                    rig.facing = rig.yaw;
+                }
+                // Running, the camera swings back behind the hero a left-drag left elsewhere.
+                if local != Vec3::ZERO && !look.looking() {
+                    let k = 1.0 - (-CAMERA_RETURN * dt).exp();
+                    rig.yaw += angle_to(rig.yaw, rig.facing) * k;
+                }
+                dir = turned(rig.facing, local);
             } else if steering {
                 if keys.any_pressed([KeyCode::KeyW, KeyCode::ArrowUp]) {
                     dir.z -= 1.0;
@@ -452,13 +588,12 @@ pub(super) fn drive_hero(
                 if keys.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]) {
                     dir.x += 1.0;
                 }
-                // Both mouse buttons held run forward, as in WoW: where the camera looks, or
-                // toward the cursor from above.
+                // Both mouse buttons held run forward, as in WoW: toward the cursor from above.
                 let both = mouse.pressed(MouseButton::Left) && mouse.pressed(MouseButton::Right);
                 if both && rig.mode != CamMode::Fixed && dir.z >= 0.0 {
                     dir.z = -1.0;
                 }
-                // Chase and orbit move relative to the camera; the top-down view, to the world.
+                // The unlocked view moves relative to the camera; the locked one, to the world.
                 if rig.mode != CamMode::Fixed {
                     dir = rig.relative(dir);
                 } else if both && dir == Vec3::ZERO {
@@ -471,12 +606,11 @@ pub(super) fn drive_hero(
                 }
             }
             let mut pos = tf.translation;
-            // The chase hero faces where the camera looks, and the top-down one the cursor, so
-            // WASD backpedals and strafes as a player does; orbiting (or driven), he faces where he
-            // runs.
+            // The chase hero faces its heading, and the top-down one the cursor, so it backpedals
+            // and strafes as a player does; orbiting (or driven), it faces where it runs.
             let face = match rig.mode {
                 _ if auto.is_some() || !steering => None,
-                CamMode::Chase => Some(rig.forward()),
+                CamMode::Chase => Some(heading(rig.facing)),
                 CamMode::Fixed => aim
                     .0
                     .map(|a| flat(a - pos))
@@ -593,7 +727,7 @@ pub(super) fn turn_camera(
     motion: Res<AccumulatedMouseMotion>,
     keys: Res<ButtonInput<KeyCode>>,
     focus: Res<super::kit::KitFocus>,
-    windows: Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+    look: Res<MouseLook>,
 ) {
     // On the lobby screen, or in a name field, C is a letter.
     if *phase.get() != Phase::Lobby && !focus.typing() && keys.just_pressed(KeyCode::KeyC) {
@@ -621,15 +755,16 @@ pub(super) fn turn_camera(
         return;
     }
     match rig.mode {
+        // A left-drag swings the camera around the hero; a right-drag turns the hero with it.
         CamMode::Chase => {
-            let held = windows
-                .single()
-                .is_ok_and(|c| !c.visible && c.grab_mode != bevy::window::CursorGrabMode::None);
-            if held && *phase.get() == Phase::Playing {
+            if look.looking() && *phase.get() == Phase::Playing {
                 let rate = CHASE_RATE * mouse_sens();
                 rig.yaw -= motion.delta.x * rate;
                 rig.pitch =
                     (rig.pitch + motion.delta.y * rate).clamp(CHASE_PITCH_MIN, CHASE_PITCH_MAX);
+            }
+            if look.right {
+                rig.facing = rig.yaw;
             }
         }
         // Either mouse button drags the camera around the hero, as in WoW.
@@ -1050,6 +1185,72 @@ mod tests {
                 "{tall}"
             );
         }
+    }
+
+    #[test]
+    fn the_keys_are_wows() {
+        let held = |keys: &'static [KeyCode]| move |k: KeyCode| keys.contains(&k);
+        // A and D turn; with the right button looking, they strafe.
+        assert_eq!(chase_keys(held(&[KeyCode::KeyA]), false), (Vec3::ZERO, 1.0));
+        assert_eq!(
+            chase_keys(held(&[KeyCode::KeyD]), false),
+            (Vec3::ZERO, -1.0)
+        );
+        assert_eq!(chase_keys(held(&[KeyCode::KeyA]), true), (Vec3::NEG_X, 0.0));
+        // Q and E always strafe; the side arrows always turn.
+        assert_eq!(chase_keys(held(&[KeyCode::KeyE]), false), (Vec3::X, 0.0));
+        assert_eq!(
+            chase_keys(held(&[KeyCode::ArrowLeft]), true),
+            (Vec3::ZERO, 1.0)
+        );
+        // W runs and S backpedals along the hero's heading.
+        assert_eq!(
+            chase_keys(held(&[KeyCode::KeyW, KeyCode::KeyQ]), false),
+            (Vec3::new(-1.0, 0.0, -1.0), 0.0)
+        );
+        assert_eq!(chase_keys(held(&[KeyCode::KeyS]), false), (Vec3::Z, 0.0));
+        // A heading's run: W toward it, its right to the right.
+        let yaw = 0.7;
+        assert!(turned(yaw, Vec3::NEG_Z).distance(heading(yaw)) < 1e-5);
+        assert!(heading(yaw).cross(turned(yaw, Vec3::X)).y < 0.0);
+    }
+
+    #[test]
+    fn a_press_is_a_click_unless_the_mouse_moved() {
+        use MouseButton::{Left, Right};
+        let at = Some(Vec2::new(300.0, 200.0));
+        let mut look = MouseLook::default();
+        // Pressed on the world: it looks from there; let go in place, a click there.
+        look.step(Left, true, false, true, false, at);
+        assert!(look.left && look.looking());
+        look.step(Left, false, true, false, false, None);
+        assert!(!look.looking());
+        assert_eq!(look.clicked, Some((Left, at.unwrap())));
+        // Dragged: a look, no click.
+        let mut look = MouseLook::default();
+        look.step(Right, true, false, true, false, at);
+        look.moved = 40.0;
+        look.step(Right, false, true, false, false, None);
+        assert_eq!(look.clicked, None);
+        // Pressed on a button: the UI's, not a look.
+        let mut look = MouseLook::default();
+        look.step(Left, true, false, true, true, at);
+        assert!(!look.looking());
+        // Both held: the second keeps the first's point, and letting one go is no click.
+        let mut look = MouseLook::default();
+        look.step(Left, true, false, true, false, at);
+        look.step(Right, true, false, true, false, Some(Vec2::ZERO));
+        assert_eq!(look.at, at);
+        look.step(Right, false, true, false, false, None);
+        assert!(look.left && look.clicked.is_none());
+    }
+
+    #[test]
+    fn the_camera_swings_back_the_short_way() {
+        use std::f32::consts::PI;
+        assert!((angle_to(0.1, -0.1) + 0.2).abs() < 1e-5);
+        assert!((angle_to(3.0, -3.0) - (2.0 * PI - 6.0)).abs() < 1e-4);
+        assert!(angle_to(-3.0, 3.0) < 0.0);
     }
 
     #[test]

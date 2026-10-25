@@ -29,6 +29,7 @@ mod profile;
 mod stats;
 mod sync;
 mod talents;
+mod targeting;
 mod treasure;
 mod units;
 
@@ -62,6 +63,8 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<hero::CamRig>()
             .init_resource::<hero::MenuStage>()
             .init_resource::<hero::AimPoint>()
+            .init_resource::<hero::MouseLook>()
+            .init_resource::<targeting::HeroTarget>()
             .init_resource::<abilities::PendingHits>()
             .init_resource::<enemies::Spawner>()
             .init_resource::<treasure::Field>()
@@ -77,18 +80,20 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(profile::plugin)
             .add_plugins(kit::plugin)
             .add_plugins(character::plugin)
-            .add_systems(Startup, (hud::setup_hud, hero::setup_crosshair))
+            .add_systems(Startup, hud::setup_hud)
             .add_systems(Update, (hero::daylight, treasure::find_looks))
             .add_systems(
                 Update,
                 (
+                    hero::read_mouse,
                     hero::capture_cursor,
                     hero::turn_camera,
                     hero::aim_cursor,
                     mobility::cast_mobility,
                     hero::drive_hero,
                     hero::place_camera,
-                    hero::show_crosshair,
+                    targeting::pick_target,
+                    targeting::keep_target,
                 )
                     .chain()
                     .in_set(WorldStage::Input),

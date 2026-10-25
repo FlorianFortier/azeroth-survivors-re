@@ -1148,6 +1148,7 @@ pub(super) fn keys(
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
+    target: Option<ResMut<super::targeting::HeroTarget>>,
 ) {
     // A name being typed keeps its keys.
     if focus.typing() {
@@ -1166,7 +1167,11 @@ pub(super) fn keys(
         }
         Phase::Playing => {
             if keys.just_pressed(KeyCode::Escape) {
-                next.set(Phase::Paused);
+                // As in WoW, Escape lets the target go first, and pauses on the next press.
+                match target {
+                    Some(mut t) if t.0.is_some() => t.0 = None,
+                    _ => next.set(Phase::Paused),
+                }
             }
         }
         Phase::Paused => {
