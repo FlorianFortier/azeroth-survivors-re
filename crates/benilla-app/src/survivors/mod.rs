@@ -222,6 +222,8 @@ pub(super) struct Selection {
     pub appearance: outfit::Appearance,
     /// The difficulty picked under Run Options ([`data::DIFFICULTIES`] index).
     pub difficulty: usize,
+    /// What the profile brings the picked hero, for the lobby loadout.
+    pub brings: Brings,
     /// An index into [`data::MAPS`].
     pub map: usize,
     /// The battleground the world is standing in: the last one entered (or the saved pick at
@@ -246,6 +248,14 @@ impl Selection {
     }
 }
 
+/// What a hero brings from its profile beyond its race: bonuses as the wire carries them, and the
+/// gear worn by name.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct Brings {
+    pub bonuses: Vec<(u8, u8, i32)>,
+    pub gear: Vec<String>,
+}
+
 /// Who plays the run on this machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(super) enum Mode {
@@ -268,6 +278,8 @@ pub(super) struct Seat {
     pub race: u8,
     pub sex: u8,
     pub appearance: outfit::Appearance,
+    /// What its profile brings, as its loadout carried it.
+    pub brings: Brings,
 }
 
 /// The run's mode, its rules, and the table it is played at.

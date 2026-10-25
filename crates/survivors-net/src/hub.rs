@@ -538,7 +538,7 @@ impl Hub {
                         .get(&s.conn)
                         .and_then(|c| c.name.clone())
                         .unwrap_or_default(),
-                    loadout: s.loadout,
+                    loadout: s.loadout.clone(),
                     ready: s.ready,
                 })
             })

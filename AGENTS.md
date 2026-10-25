@@ -92,8 +92,9 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   local hero's view. Visuals go through `units::Fx`, which the host also logs for its guests.
 - **Every stat goes through `survivors/stats.rs`.** A hero's numbers are `Vitals::stats()`:
   the class head start, the run's passives, `Vitals::meta` (what the profile brings in:
-  collection, talents, racials, gear, through `Profile::run_bonuses(race)`; racials alone are
-  `data::racial_bonuses`, which the host also gives its guests) and the running effects,
+  collection, talents, racials, gear, through `Profile::run_bonuses`; a guest's lobby `Loadout` carries its
+  `Profile::meta_bonuses` and gear names, and the host adds `data::racial_bonuses` to them in
+  `sync::seat_bonuses`) and the running effects,
   all as `data::Bonus`, combined `(base + Σflat) × (1 + Σpercent)`. A new source adds bonuses;
   it never edits a stat by hand. `stats.rs`'s tests hold the old numbers fixed.
 - **A text field owns the keyboard while focused.** `kit::KitFocus::typing()` is set while a

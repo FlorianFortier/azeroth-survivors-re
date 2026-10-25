@@ -165,6 +165,8 @@ pub(super) fn loadout(selection: &Selection) -> Loadout {
         race,
         sex,
         appearance: selection.appearance,
+        bonuses: selection.brings.bonuses.clone(),
+        gear: selection.brings.gear.clone(),
     }
 }
 
@@ -380,6 +382,10 @@ fn start_session(
             race: m.loadout.race,
             sex: m.loadout.sex,
             appearance: m.loadout.appearance,
+            brings: super::Brings {
+                bonuses: m.loadout.bonuses.clone(),
+                gear: m.loadout.gear.clone(),
+            },
         })
         .collect();
     session.in_lobby = true;
@@ -505,6 +511,7 @@ mod tests {
                         race: 1,
                         sex: 0,
                         appearance: [0; 5],
+                        brings: Default::default(),
                     },
                     Seat {
                         slot: 1,
@@ -514,6 +521,7 @@ mod tests {
                         race: 2,
                         sex: 1,
                         appearance: [0; 5],
+                        brings: Default::default(),
                     },
                 ],
                 ..Session::default()
