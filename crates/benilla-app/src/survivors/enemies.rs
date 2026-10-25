@@ -734,6 +734,7 @@ pub(super) fn collect_gems(
             h.xp -= need;
             h.level += 1;
             h.pending_levels += 1;
+            super::offer::earn_tokens(&mut h.v);
             if h.level == super::mobility::LEARN_LEVEL && h.slot == session.slot {
                 if let Some(m) = super::mobility::for_class(h.class.id) {
                     learned = Some(format!("You have learned {}! Press F.", m.name));

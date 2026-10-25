@@ -79,6 +79,8 @@ pub struct AbilityView {
     pub level: u8,
     /// Seconds of cooldown left.
     pub cd: f32,
+    /// The ranks' worth its damage grows by: the sum of each card's rarity weight.
+    pub power: f32,
 }
 
 /// One hero's numbers, sent to its own player.
@@ -88,7 +90,8 @@ pub struct Vitals {
     pub xp: f32,
     pub hp: f32,
     pub abilities: Vec<AbilityView>,
-    pub passives: Vec<(String, u8)>,
+    /// Each passive's key, rank, and the ranks' worth its bonus grows by.
+    pub passives: Vec<(String, u8, f32)>,
     pub shield: f32,
     pub shield_t: f32,
     pub immune_t: f32,
@@ -110,6 +113,12 @@ pub struct Vitals {
     pub gold: f32,
     /// The run's items, by key, and their stacks.
     pub run_items: Vec<(String, u8)>,
+    /// The level-up cards the host dealt this hero, which only they may be picked from.
+    pub offer: Vec<Card>,
+    /// What the hero has left to reroll the cards, banish one, or skip a level.
+    pub rerolls: u8,
+    pub banishes: u8,
+    pub skips: u8,
 }
 
 /// A hero in the party frames.
@@ -131,6 +140,26 @@ pub enum Choice {
     NewPassive(String),
     UpPassive(String),
     Heal,
+}
+
+/// A dealt card: what it gives, and the rarity it was drawn at (`0` Common to `4` Legendary).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Card {
+    pub choice: Choice,
+    pub rarity: u8,
+}
+
+/// What a player does at the level-up cards, for the host to check against the hero's offer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardAction {
+    /// Take a card of the offer.
+    Pick(Card),
+    /// Deal the offer again, spending a reroll.
+    Reroll,
+    /// Take a card out of the hero's deals for the rest of the run, spending a banish.
+    Banish(Card),
+    /// Let a level go by without a card, spending a skip.
+    Skip,
 }
 
 /// What a mobility cast does to the horde, for the host to apply.
@@ -230,7 +259,8 @@ pub enum Game {
         haste_t: f32,
         vanish_t: f32,
     },
-    Pick(Choice),
+    /// A move at the level-up cards.
+    Card(CardAction),
     Mobility {
         spell: u32,
         effect: MobilityEffect,
@@ -385,11 +415,11 @@ impl Wire for Vitals {
             .f32(self.hp)
             .len(self.abilities.len());
         for a in &self.abilities {
-            w.str(&a.key).u8(a.level).f32(a.cd);
+            w.str(&a.key).u8(a.level).f32(a.cd).f32(a.power);
         }
         w.len(self.passives.len());
-        for (k, l) in &self.passives {
-            w.str(k).u8(*l);
+        for (k, l, p) in &self.passives {
+            w.str(k).u8(*l).f32(*p);
         }
         w.f32(self.shield)
             .f32(self.shield_t)
@@ -412,24 +442,30 @@ impl Wire for Vitals {
         for (k, n) in &self.run_items {
             w.str(k).u8(*n);
         }
+        w.len(self.offer.len());
+        for c in &self.offer {
+            c.put(w);
+        }
+        w.u8(self.rerolls).u8(self.banishes).u8(self.skips);
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
         let xp = r.f32()?;
         let hp = r.f32()?;
-        let n = r.len(7)?;
+        let n = r.len(11)?;
         let mut abilities = Vec::with_capacity(n);
         for _ in 0..n {
             abilities.push(AbilityView {
                 key: r.str()?,
                 level: r.u8()?,
                 cd: r.f32()?,
+                power: r.f32()?,
             });
         }
-        let n = r.len(3)?;
+        let n = r.len(7)?;
         let mut passives = Vec::with_capacity(n);
         for _ in 0..n {
-            passives.push((r.str()?, r.u8()?));
+            passives.push((r.str()?, r.u8()?, r.f32()?));
         }
         Ok(Self {
             level,
@@ -465,6 +501,60 @@ impl Wire for Vitals {
                 }
                 out
             },
+            offer: {
+                let n = r.len(2)?;
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push(Card::get(r)?);
+                }
+                out
+            },
+            rerolls: r.u8()?,
+            banishes: r.u8()?,
+            skips: r.u8()?,
+        })
+    }
+}
+
+impl Wire for Card {
+    fn put(&self, w: &mut Writer) {
+        self.choice.put(w);
+        w.u8(self.rarity);
+    }
+    fn get(r: &mut Reader) -> Result<Self, WireError> {
+        Ok(Self {
+            choice: Choice::get(r)?,
+            rarity: r.u8()?,
+        })
+    }
+}
+
+impl Wire for CardAction {
+    fn put(&self, w: &mut Writer) {
+        match self {
+            CardAction::Pick(c) => {
+                w.u8(0);
+                c.put(w);
+            }
+            CardAction::Reroll => {
+                w.u8(1);
+            }
+            CardAction::Banish(c) => {
+                w.u8(2);
+                c.put(w);
+            }
+            CardAction::Skip => {
+                w.u8(3);
+            }
+        }
+    }
+    fn get(r: &mut Reader) -> Result<Self, WireError> {
+        Ok(match r.u8()? {
+            0 => CardAction::Pick(Card::get(r)?),
+            1 => CardAction::Reroll,
+            2 => CardAction::Banish(Card::get(r)?),
+            3 => CardAction::Skip,
+            t => return Err(WireError::BadTag(t)),
         })
     }
 }
@@ -630,9 +720,9 @@ impl Wire for Game {
                 motion.put(w);
                 w.f32(*haste).f32(*haste_t).f32(*vanish_t);
             }
-            Game::Pick(c) => {
+            Game::Card(a) => {
                 w.u8(14);
-                c.put(w);
+                a.put(w);
             }
             Game::Mobility { spell, effect } => {
                 w.u8(15).u32(*spell);
@@ -746,7 +836,7 @@ impl Wire for Game {
                 haste_t: r.f32()?,
                 vanish_t: r.f32()?,
             },
-            14 => Game::Pick(Choice::get(r)?),
+            14 => Game::Card(CardAction::get(r)?),
             15 => Game::Mobility {
                 spell: r.u32()?,
                 effect: MobilityEffect::get(r)?,
@@ -874,8 +964,9 @@ mod tests {
                     key: "frostbolt".into(),
                     level: 3,
                     cd: 0.4,
+                    power: 3.5,
                 }],
-                passives: vec![("might".into(), 2)],
+                passives: vec![("might".into(), 2, 2.25)],
                 pending_levels: 1,
                 dead_t: Some(1.0),
                 damage_done: 12345.0,
@@ -884,6 +975,19 @@ mod tests {
                 loot: vec!["Hogger's Helm".into()],
                 gold: 42.5,
                 run_items: vec![("lodestone".into(), 3)],
+                offer: vec![
+                    Card {
+                        choice: Choice::Upgrade("frostbolt".into()),
+                        rarity: 4,
+                    },
+                    Card {
+                        choice: Choice::Heal,
+                        rarity: 0,
+                    },
+                ],
+                rerolls: 2,
+                banishes: 1,
+                skips: 3,
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {
@@ -910,8 +1014,16 @@ mod tests {
                 haste_t: 2.0,
                 vanish_t: 0.0,
             },
-            Game::Pick(Choice::Upgrade("frostbolt".into())),
-            Game::Pick(Choice::Heal),
+            Game::Card(CardAction::Pick(Card {
+                choice: Choice::Upgrade("frostbolt".into()),
+                rarity: 2,
+            })),
+            Game::Card(CardAction::Reroll),
+            Game::Card(CardAction::Banish(Card {
+                choice: Choice::NewPassive("might".into()),
+                rarity: 1,
+            })),
+            Game::Card(CardAction::Skip),
             Game::Mobility {
                 spell: 100,
                 effect: MobilityEffect::Stun {

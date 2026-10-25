@@ -715,6 +715,70 @@ mod tests {
     }
 
     #[test]
+    fn the_host_deals_a_guests_cards_and_checks_its_moves() {
+        use crate::survivors::{offer, Rng, Selection};
+        use survivors_net::game::{Card as WireCard, CardAction};
+        let mut host = world(Mode::Host, 0);
+        host.init_resource::<Rng>()
+            .init_resource::<Selection>()
+            .init_resource::<crate::loading_screen::LoadingScreen>()
+            .init_resource::<crate::survivors::mobility::MobilityQueue>()
+            .add_systems(Update, host::receive)
+            .add_systems(PostUpdate, (offer::deal_offers, host::stream).chain());
+        let mut guest = world(Mode::Client, 1);
+        guest.add_systems(Update, client::receive);
+
+        // The guest's hero has a level banked: the host deals it three cards.
+        let mut v = Vitals::new(&data::CLASSES[7], 2);
+        v.pending_levels = 1;
+        let hero = host
+            .world_mut()
+            .spawn((
+                unit(400, 100),
+                HeroState { slot: 1, v },
+                crate::survivors::hero::Hero::default(),
+            ))
+            .id();
+        host.world_mut().resource_mut::<host::Replicator>().due();
+        host.update();
+        deliver(&mut host, &mut guest);
+        guest.update();
+        let dealt = host.world().get::<HeroState>(hero).unwrap().offer.clone();
+        assert_eq!(dealt.len(), data::CARDS_DEALT);
+        let seen = guest.world().resource::<Run>().offer.clone();
+        assert_eq!(seen, dealt, "the guest sees the cards the host dealt");
+
+        // A card claimed at a rarity it was not dealt at is refused.
+        let mut forged = dealt[0].to_wire();
+        forged.rarity = (forged.rarity + 1) % 5;
+        let never = WireCard {
+            choice: survivors_net::game::Choice::NewAbility("no_such_spell".into()),
+            rarity: 0,
+        };
+        for bad in [forged, never] {
+            host.world_mut()
+                .resource_mut::<Net>()
+                .inbox
+                .push((1, Game::Card(CardAction::Pick(bad))));
+        }
+        host.update();
+        let h = host.world().get::<HeroState>(hero).unwrap();
+        assert_eq!(h.pending_levels, 1);
+        assert_eq!(h.picks, 0);
+
+        // The card as dealt lands.
+        host.world_mut()
+            .resource_mut::<Net>()
+            .inbox
+            .push((1, Game::Card(CardAction::Pick(dealt[0].to_wire()))));
+        host.update();
+        let h = host.world().get::<HeroState>(hero).unwrap();
+        assert_eq!(h.pending_levels, 0);
+        assert_eq!(h.picks, 1);
+        assert!(h.offer.is_empty(), "no level left, no cards");
+    }
+
+    #[test]
     fn the_wire_knows_every_zone() {
         assert_eq!(usize::from(ZONE_COUNT), data::MAPS.len());
     }

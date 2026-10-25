@@ -1309,7 +1309,12 @@ impl PassiveDef {
     /// The passive at `level`: health, speed and pickup range grow by a percent of themselves,
     /// every other stat by its own amount.
     pub fn bonus(&self, level: u8) -> Bonus {
-        let v = self.per_level * f32::from(level);
+        self.bonus_at(f32::from(level))
+    }
+
+    /// The passive at `power` ranks' worth: its ranks, each weighed by its card's rarity.
+    pub fn bonus_at(&self, power: f32) -> Bonus {
+        let v = self.per_level * power;
         match self.stat {
             Stat::MaxHp | Stat::Speed | Stat::Magnet => Bonus::pct(self.stat, v),
             _ => Bonus::flat(self.stat, v),
@@ -2803,7 +2808,81 @@ pub(crate) fn elite(zone: usize, kind: usize) -> &'static EnemyDef {
 }
 
 /// Rerolls of the level-up cards a run starts with (R at the cards).
-pub(crate) const REROLLS_PER_RUN: u32 = 3;
+pub(crate) const REROLLS_PER_RUN: u8 = 3;
+/// Banishes a run starts with: a card taken out of the hero's deals for the rest of the run.
+pub(crate) const BANISHES_PER_RUN: u8 = 1;
+/// Skips a run starts with: a level let go by without a card.
+pub(crate) const SKIPS_PER_RUN: u8 = 1;
+/// Every this many levels, the hero earns one more reroll, banish or skip, in turn.
+pub(crate) const CARD_TOKEN_LEVELS: u32 = 5;
+/// The most of each a hero can hold.
+pub(crate) const MAX_CARD_TOKENS: u8 = 9;
+/// Cards on offer at a level-up.
+pub(crate) const CARDS_DEALT: usize = 3;
+
+/// A card's rarity, drawn when it is dealt: the rarer, the more its rank is worth.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub(crate) enum CardRarity {
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+    Legendary,
+}
+
+impl CardRarity {
+    pub const ALL: [CardRarity; 5] = [
+        CardRarity::Common,
+        CardRarity::Uncommon,
+        CardRarity::Rare,
+        CardRarity::Epic,
+        CardRarity::Legendary,
+    ];
+
+    /// How likely each rarity is dealt, in parts of 100.
+    pub const fn odds(self) -> f32 {
+        match self {
+            CardRarity::Common => 52.0,
+            CardRarity::Uncommon => 28.0,
+            CardRarity::Rare => 13.0,
+            CardRarity::Epic => 5.5,
+            CardRarity::Legendary => 1.5,
+        }
+    }
+
+    /// The ranks' worth one card of this rarity adds: a spell's damage and a passive's bonus
+    /// grow by it, where a rank's count, cooldown and reach grow by one rank as always.
+    pub const fn weight(self) -> f32 {
+        match self {
+            CardRarity::Common => 1.0,
+            CardRarity::Uncommon => 1.25,
+            CardRarity::Rare => 1.5,
+            CardRarity::Epic => 2.0,
+            CardRarity::Legendary => 3.0,
+        }
+    }
+
+    /// The rarity `roll` (uniform in `[0, 1)`) draws.
+    pub fn draw(roll: f32) -> CardRarity {
+        let total: f32 = CardRarity::ALL.iter().map(|r| r.odds()).sum();
+        let mut at = roll.clamp(0.0, 0.999_999) * total;
+        for r in CardRarity::ALL {
+            if at < r.odds() {
+                return r;
+            }
+            at -= r.odds();
+        }
+        CardRarity::Legendary
+    }
+
+    pub fn to_wire(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_wire(n: u8) -> Option<CardRarity> {
+        CardRarity::ALL.get(usize::from(n)).copied()
+    }
+}
 
 /// A solo run's difficulty, picked under Run Options: each opens a zone at a time, once the one
 /// below it has been won there.
@@ -3347,6 +3426,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn rarities_draw_by_their_odds_and_rise_in_worth() {
+        let mut seen = [0u32; 5];
+        for i in 0..10_000 {
+            seen[CardRarity::draw(i as f32 / 10_000.0) as usize] += 1;
+        }
+        for (r, n) in CardRarity::ALL.iter().zip(seen) {
+            let want = r.odds() * 100.0;
+            assert!((n as f32 - want).abs() <= 2.0, "{r:?}: {n} for {want}");
+        }
+        assert_eq!(CardRarity::draw(0.0), CardRarity::Common);
+        assert_eq!(CardRarity::draw(1.0), CardRarity::Legendary);
+        for w in CardRarity::ALL.windows(2) {
+            assert!(w[0].weight() < w[1].weight());
+            assert!(w[0].odds() > w[1].odds());
+        }
+        assert_eq!(
+            CardRarity::Common.weight(),
+            1.0,
+            "a Common rank is a rank, as before"
+        );
+        for r in CardRarity::ALL {
+            assert_eq!(CardRarity::from_wire(r.to_wire()), Some(r));
+        }
+        assert_eq!(CardRarity::from_wire(9), None);
     }
 
     #[test]

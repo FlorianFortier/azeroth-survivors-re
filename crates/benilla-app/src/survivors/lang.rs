@@ -168,6 +168,11 @@ fn french(s: &str) -> Option<&'static str> {
         "Co-op" => "Coopération",
         "Play with friends" => "Jouer entre amis",
         "Back to your lobby" => "Retour au salon",
+        "WASD or both mouse buttons to run · 1 2 3 picks a card · \
+         R reroll · B banish · X skip · Enter to play" => {
+            "ZQSD ou les deux boutons de la souris pour courir · 1 2 3 choisit une carte · \
+             R relancer · B bannir · X passer · Entrée pour jouer"
+        }
         "WASD to run · the mouse to look · 1 2 3 picks a card · Enter to play" => {
             "ZQSD ou WASD pour courir · la souris pour regarder · 1 2 3 choisit une carte · Entrée pour jouer"
         }
@@ -328,12 +333,13 @@ fn french(s: &str) -> Option<&'static str> {
         "LEVEL UP" => "NIVEAU SUPÉRIEUR",
         "Choose your power" => "Choisissez votre pouvoir",
         "Click a card, or press 1, 2 or 3" => "Cliquez une carte, ou appuyez sur 1, 2 ou 3",
-        "Click a card, or press 1, 2 or 3  ·  R rerolls the cards ({} left)" => {
-            "Cliquez une carte, ou appuyez sur 1, 2 ou 3  ·  R relance les cartes ({} restantes)"
+        "Banish: click a card, or press 1, 2 or 3  ·  B again to cancel" => {
+            "Bannir : cliquez une carte, ou appuyez sur 1, 2 ou 3  ·  B de nouveau pour annuler"
         }
-        "Click a card, or press 1, 2 or 3  ·  no rerolls left" => {
-            "Cliquez une carte, ou appuyez sur 1, 2 ou 3  ·  plus de relance"
-        }
+        "Reroll" => "Relancer",
+        "Banish" => "Bannir",
+        "Skip" => "Passer",
+        "Common" => "Commun",
         "Victory!" => "Victoire !",
         "You have fallen" => "Vous êtes tombé",
         "The horde was too much this time." => "La horde était trop forte cette fois.",

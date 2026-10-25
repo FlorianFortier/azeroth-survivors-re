@@ -113,14 +113,16 @@ won when the zone's final boss falls, and every player's profile counts the win.
   - `client.rs`: a guest builds those units exactly as the client builds a server's (a `Guid`, a
     `NetEntity` and an `ObjectStore` are all the engine's attach, animation and spell-visual
     systems need), glides them toward the host's positions, and sends back its own hero's motion,
-    card picks and mobility casts;
+    moves at the level-up cards (pick, reroll, banish, skip) and mobility casts;
   - `ui.rs`: the lobby screen, the party frames and the scoreboard.
 - **The simulation** (`survivors/`) plays any number of heroes: each carries its own numbers
   (`HeroState`), enemies chase the nearest hero they can see, every blow is credited to the hero
   who dealt it, and gems fly to the nearest magnet.
 
-The host checks what guests send: positions are held to the battleground, a card must be one the
-rules could have dealt, a mobility cast must be the hero's own and learned. It is a co-op game
+The host checks what guests send: positions are held to the battleground; the host deals every
+hero's level-up cards and their rarities, so a pick must be a card it dealt that hero at the
+rarity it dealt it, and a reroll, banish or skip one the hero holds (the banished cards stay on
+the host); a mobility cast must be the hero's own and learned. It is a co-op game
 among friends, not an anti-cheat: a guest's hero position is trusted within the battleground.
 
 ## Limits

@@ -189,17 +189,15 @@ pub(super) fn drive(
                 if auto.all {
                     for key in run.class.pool {
                         if !run.abilities.iter().any(|o| o.def.key == *key) {
-                            run.abilities.push(super::Owned {
-                                def: data::ability(key),
-                                level: 1,
-                                cd: 0.5,
-                            });
+                            run.abilities
+                                .push(super::Owned::learned(data::ability(key), 1.0, 0.5));
                         }
                     }
                 }
                 if auto.late {
                     for o in &mut run.abilities {
                         o.level = data::MAX_ABILITY_LEVEL;
+                        o.power = f32::from(data::MAX_ABILITY_LEVEL);
                     }
                     run.elapsed = data::FINAL_BOSS_SECS * 2.0 / 3.0;
                     run.bosses = 3;
@@ -217,7 +215,13 @@ pub(super) fn drive(
             if auto.wait > 1.6 {
                 let n = offer.len().max(1);
                 let i = (rng.range(0.0, n as f32) as usize).min(n - 1);
-                hud::pick(i, &mut run, &mut offer, &mut rng, &mut next, &mut picks);
+                hud::make_move(
+                    hud::Move::Pick(i),
+                    &mut run,
+                    &mut offer,
+                    &mut next,
+                    &mut picks,
+                );
                 auto.wait = 0.0;
             }
         }
@@ -243,7 +247,11 @@ pub(super) fn drive(
             .abilities
             .iter()
             .map(|o| format!("{}:{}", o.def.key, o.level))
-            .chain(run.passives.iter().map(|(p, l)| format!("{}:{}", p.key, l)))
+            .chain(
+                run.passives
+                    .iter()
+                    .map(|(p, l, _)| format!("{}:{}", p.key, l)),
+            )
             .collect();
         info!(
             "survivors auto: {:?} t={:.0}s fps={fps:.0} alive={alive} level={} hp={:.0} kills={} damage={:.0} build=[{}]",

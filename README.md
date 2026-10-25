@@ -72,8 +72,7 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   three real trees from the client's `Talent.dbc` (names, icons, tiers, prerequisites), each
   talent giving a stat of its tree's theme per rank.
 - **Run Options**: Normal, Heroic and Mythic, each opened per zone by a win at the one below,
-  tougher and better paid. **R** rerolls the level-up cards (three a run), and both mouse buttons
-  run forward as in WoW.
+  tougher and better paid. Both mouse buttons run forward as in WoW.
 - **Drop Tables and a Codex**: every zone's five pieces with who drops them and the horde's odds,
   and an encyclopedia of the horde, the bosses (with their times) and the spells your runs have
   met.
@@ -86,9 +85,13 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.
-- **Level-up cards** that deal in, tilt toward the cursor and lift on hover. Their WoW item-quality
-  colour says how strong a pick is, and each card lists exactly what changes, like
-  `Damage 20 » 26` or `Targets 2 » 3`.
+- **Level-up cards, Megabonk-style**, that deal in, tilt toward the cursor and lift on hover.
+  Each is drawn at a rarity, Common to Legendary in WoW's item-quality colours, and the rarer it
+  is the more its rank is worth (a Legendary rank adds three ranks' worth of damage or bonus);
+  each card lists exactly what changes, like `Damage 20 » 26` or `Targets 2 » 3`. Under them,
+  **Reroll** (R), **Banish** (B, then a card: it is never dealt again that run) and **Skip** (X):
+  three rerolls, one banish and one skip to start, and one more of them, in turn, every five
+  levels. In co-op the host deals every hero's cards and takes only a pick of what it dealt.
 - **A class movement spell on F** from level 5, aimed at the pointer: Blink, Charge, Sprint, Dash,
   Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
 - **A third-person 3D view with WoW's controls:** the pointer stays free; a left-drag swings the
