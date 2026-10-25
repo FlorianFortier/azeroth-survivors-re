@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -18,8 +18,14 @@ pub const MAX_FRAME: usize = 256 * 1024;
 /// A seat at a lobby's table: 0 is always the host.
 pub type Slot = u8;
 
-/// The hero a player brings: an index into the game's classes and the look picked for it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Most bonuses and pieces of gear a loadout carries; past it, the rest are dropped.
+pub const MAX_LOADOUT_BONUSES: usize = 128;
+pub const MAX_LOADOUT_GEAR: usize = 16;
+
+/// The hero a player brings: an index into the game's classes, the look picked for it, and what
+/// its profile brings into a run (the gear worn, the collection, the talents) for the host, who
+/// plays every hero, to give it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Loadout {
     pub class: u8,
     /// `CreatureDisplayInfo` id of the look.
@@ -28,6 +34,11 @@ pub struct Loadout {
     pub sex: u8,
     /// The five character-creation dials: skin, face, hair style, hair colour, facial hair.
     pub appearance: [u8; 5],
+    /// The profile's bonuses beyond the race's own: `(stat index, 0 flat or 1 percent, value in
+    /// ten-thousandths)`.
+    pub bonuses: Vec<(u8, u8, i32)>,
+    /// The gear worn, by item name, for the host to dress the hero in.
+    pub gear: Vec<String>,
 }
 
 /// Who a relayed game message goes to.
@@ -228,6 +239,16 @@ impl Wire for Loadout {
         for d in self.appearance {
             w.u8(d);
         }
+        let bonuses = &self.bonuses[..self.bonuses.len().min(MAX_LOADOUT_BONUSES)];
+        w.len(bonuses.len());
+        for &(stat, kind, value) in bonuses {
+            w.u8(stat).u8(kind).u32(value as u32);
+        }
+        let gear = &self.gear[..self.gear.len().min(MAX_LOADOUT_GEAR)];
+        w.len(gear.len());
+        for name in gear {
+            w.str(name);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -236,6 +257,22 @@ impl Wire for Loadout {
             race: r.u8()?,
             sex: r.u8()?,
             appearance: [r.u8()?, r.u8()?, r.u8()?, r.u8()?, r.u8()?],
+            bonuses: {
+                let n = r.len(6)?.min(MAX_LOADOUT_BONUSES);
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push((r.u8()?, r.u8()?, r.u32()? as i32));
+                }
+                out
+            },
+            gear: {
+                let n = r.len(2)?.min(MAX_LOADOUT_GEAR);
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push(r.str()?);
+                }
+                out
+            },
         })
     }
 }
@@ -520,6 +557,8 @@ mod tests {
             race: 2,
             sex: 1,
             appearance: [1, 2, 3, 4, 5],
+            bonuses: vec![(1, 1, 400), (9, 0, -50)],
+            gear: vec!["Hogger's Helm".into()],
         }
     }
 

@@ -404,6 +404,19 @@ impl Profile {
         talents: Option<&benilla_formats::TalentCatalog>,
     ) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
         let (mut bonuses, procs) = data::racial_bonuses(race);
+        bonuses.extend(self.meta_bonuses(race, class, talents));
+        (bonuses, procs)
+    }
+
+    /// What the profile itself brings, beyond the race's own: the gear worn, the collection and
+    /// the class's talents. A guest's loadout carries these to the host.
+    pub fn meta_bonuses(
+        &self,
+        race: u8,
+        class: &data::ClassDef,
+        talents: Option<&benilla_formats::TalentCatalog>,
+    ) -> Vec<data::Bonus> {
+        let mut bonuses = Vec::new();
         for item in self.gear() {
             bonuses.extend_from_slice(&item.bonuses);
         }
@@ -412,7 +425,7 @@ impl Profile {
             let trees = super::talents::trees(catalog, race, class.id);
             bonuses.extend(super::talents::bonuses(spent, &trees));
         }
-        (bonuses, procs)
+        bonuses
     }
 
     /// The pick file the profile replaced: `class race sex zone`, all indices.
@@ -563,7 +576,10 @@ impl ProfileStore {
 
 pub(super) fn plugin(app: &mut App) {
     app.insert_resource(ProfileStore::load())
-        .add_systems(Update, (save_when_settled, keep_to_open_zones))
+        .add_systems(
+            Update,
+            (save_when_settled, keep_to_open_zones, refresh_brings),
+        )
         .add_systems(OnEnter(Phase::GameOver), record_run)
         .add_systems(Last, save_on_exit);
 }
@@ -586,6 +602,41 @@ fn keep_to_open_zones(
         .unwrap_or(0);
     selection.map = furthest;
     selection.version += 1;
+}
+
+/// What the picked hero brings from the profile, kept on the selection for the lobby loadout.
+fn refresh_brings(
+    store: Res<ProfileStore>,
+    talents: Option<Res<crate::ui_talent::Talents>>,
+    mut selection: ResMut<Selection>,
+) {
+    if !store.is_changed()
+        && !selection.is_changed()
+        && !talents.as_ref().is_some_and(|t| t.is_changed())
+    {
+        return;
+    }
+    let Some(class) = selection.class_def() else {
+        return;
+    };
+    let race = super::menu::current_look(&selection).map_or(1, |l| l.0);
+    let brings = super::Brings {
+        bonuses: store
+            .profile
+            .meta_bonuses(race, class, talents.as_deref().map(|t| &t.catalog))
+            .iter()
+            .map(data::bonus_to_wire)
+            .collect(),
+        gear: store
+            .profile
+            .gear()
+            .iter()
+            .map(|i| i.name.clone())
+            .collect(),
+    };
+    if selection.brings != brings {
+        selection.brings = brings;
+    }
 }
 
 /// Write a change once it has settled.

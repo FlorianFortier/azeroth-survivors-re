@@ -2799,6 +2799,31 @@ pub(crate) static ACHIEVEMENTS: std::sync::LazyLock<Vec<AchievementDef>> =
         out
     });
 
+/// A bonus as a lobby loadout carries it: `(stat index, 0 flat or 1 percent, ten-thousandths)`.
+pub(crate) fn bonus_to_wire(b: &Bonus) -> (u8, u8, i32) {
+    let stat = Stat::ALL.iter().position(|s| *s == b.stat).unwrap_or(0) as u8;
+    let (kind, v) = match b.amount {
+        Amount::Flat(v) => (0, v),
+        Amount::Percent(v) => (1, v),
+    };
+    (stat, kind, (v * 10_000.0).round() as i32)
+}
+
+/// The most a carried bonus may be worth, so a loadout cannot make a god of its hero.
+const WIRE_BONUS_CAP: f32 = 1_000.0;
+
+/// A carried bonus back, `None` for a stat the tables do not have; the value is held to
+/// [`WIRE_BONUS_CAP`].
+pub(crate) fn bonus_from_wire((stat, kind, v): (u8, u8, i32)) -> Option<Bonus> {
+    let stat = *Stat::ALL.get(usize::from(stat))?;
+    let v = (v as f32 / 10_000.0).clamp(-WIRE_BONUS_CAP, WIRE_BONUS_CAP);
+    Some(if kind == 0 {
+        Bonus::flat(stat, v)
+    } else {
+        Bonus::pct(stat, v)
+    })
+}
+
 /// The share of an item's first bonus its place in the collection gives for good, worn or not.
 pub(crate) const COLLECTION_SHARE: f32 = 0.25;
 
@@ -3654,5 +3679,28 @@ mod tests {
         assert!(ACHIEVEMENTS
             .iter()
             .any(|a| a.goal == Goal::Collect(ITEMS.len())));
+    }
+
+    #[test]
+    fn bonuses_cross_the_wire_whole() {
+        for b in [
+            Bonus::flat(Stat::MaxHp, 25.0),
+            Bonus::pct(Stat::Magnet, 0.08),
+            Bonus::flat(Stat::Crit, 0.0125),
+            Bonus::flat(Stat::Gold, -0.5),
+        ] {
+            let back = bonus_from_wire(bonus_to_wire(&b)).unwrap();
+            assert_eq!(back.stat, b.stat);
+            let (Amount::Flat(x) | Amount::Percent(x), Amount::Flat(y) | Amount::Percent(y)) =
+                (back.amount, b.amount);
+            assert!((x - y).abs() < 1e-4);
+            assert_eq!(
+                matches!(back.amount, Amount::Flat(_)),
+                matches!(b.amount, Amount::Flat(_))
+            );
+        }
+        assert!(bonus_from_wire((99, 0, 1)).is_none());
+        let huge = bonus_from_wire((0, 0, i32::MAX)).unwrap();
+        assert_eq!(huge.amount, Amount::Flat(WIRE_BONUS_CAP));
     }
 }
