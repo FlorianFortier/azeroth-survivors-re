@@ -1,8 +1,8 @@
 # Controls
 
 **Azeroth Survivors** — a third-person 3D view behind your hero, with WoW's mouse and keys: the
-pointer stays free, a drag looks around, A/D turn and Q/E strafe. **C** switches to the classic
-top-down views.
+pointer stays free, a drag looks around, A/D turn and Q/E strafe. **C** opens the character
+sheet, and **V** switches to the classic top-down views.
 
 | When | Key / Input | Action |
 |---|---|---|
@@ -26,7 +26,9 @@ top-down views.
 | Playing | **Space** | jump; a running jump keeps its momentum, a standing one may be steered once |
 | Playing | **F** (from level 5) | your class's movement spell: Blink, Charge… aimed at the pointer |
 | Playing | **mouse wheel** | zoom the camera in and out |
-| Playing | **C** | cycle the view: third person → top-down → top-down unlocked |
+| Playing | **C** | the character sheet: the paper doll around your hero, your numbers, what your run items do; the run waits under it. **C**, **Esc** or its **X** shut it |
+| Sheet | drag the hero, or the arrows over it | turn the hero |
+| Playing | **V** | cycle the view: third person → top-down → top-down unlocked |
 | Any | **G** | toggle the picture polish (`?grade=0` starts it off) |
 | Playing | **Esc** | clear the target, or pause |
 | Playing | — | abilities cast themselves (no aim) |

@@ -1175,6 +1175,7 @@ pub(super) fn keys(
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
     target: Option<ResMut<super::targeting::HeroTarget>>,
+    sheet: Option<ResMut<super::sheet::SheetOpen>>,
 ) {
     // A name being typed keeps its keys.
     if focus.typing() {
@@ -1192,6 +1193,14 @@ pub(super) fn keys(
             }
         }
         Phase::Playing => {
+            // C opens the character sheet over the paused run, as WoW's character pane.
+            if keys.just_pressed(KeyCode::KeyC) {
+                if let Some(mut sheet) = sheet {
+                    sheet.0 = true;
+                    next.set(Phase::Paused);
+                }
+                return;
+            }
             if keys.just_pressed(KeyCode::Escape) {
                 // As in WoW, Escape lets the target go first, and pauses on the next press.
                 match target {
@@ -1201,7 +1210,11 @@ pub(super) fn keys(
             }
         }
         Phase::Paused => {
-            if keys.just_pressed(KeyCode::Escape) {
+            let open = sheet.as_ref().is_some_and(|s| s.0);
+            if keys.just_pressed(KeyCode::Escape) || (open && keys.just_pressed(KeyCode::KeyC)) {
+                if let Some(mut sheet) = sheet {
+                    sheet.0 = false;
+                }
                 next.set(Phase::Playing);
             }
         }
@@ -1876,7 +1889,7 @@ fn compact(v: f64) -> String {
     }
 }
 
-fn num(v: f32) -> String {
+pub(super) fn num(v: f32) -> String {
     if (v - v.round()).abs() < 0.05 {
         format!("{}", v.round() as i64)
     } else {
@@ -1884,7 +1897,7 @@ fn num(v: f32) -> String {
     }
 }
 
-fn pct(v: f32) -> String {
+pub(super) fn pct(v: f32) -> String {
     format!("{}%", num(v * 100.0))
 }
 
@@ -2197,7 +2210,7 @@ fn passive_tip(p: &PassiveDef, level: u8, power: f32, stats: &Stats) -> Vec<TipL
 
 /// A run item's tooltip: its name in its rarity's colour and its stacks, what its stacks give
 /// and do now, and how many more it can take.
-fn item_tip(item: &data::RunItemDef, stacks: u8, stats: &Stats) -> Vec<TipLine> {
+pub(super) fn item_tip(item: &data::RunItemDef, stacks: u8, stats: &Stats) -> Vec<TipLine> {
     use super::lang::tr;
     let color = super::cards::rarity_color(item.rarity);
     let b = super::stats::scaled(item.bonus, f32::from(stacks));
@@ -2450,6 +2463,7 @@ pub(super) fn fill_tooltip(
 #[allow(clippy::type_complexity)]
 pub(super) fn show_panels(
     phase: Res<State<Phase>>,
+    sheet: Option<Res<super::sheet::SheetOpen>>,
     mut roots: ParamSet<(
         Query<(&mut Visibility, &mut Node), With<MenuRoot>>,
         Query<(&mut Visibility, &mut Node), With<HudRoot>>,
@@ -2487,8 +2501,10 @@ pub(super) fn show_panels(
     for root in &mut roots.p2() {
         set(root, p == Phase::LevelUp);
     }
+    // The character sheet pauses the run too, without the pause screen.
+    let sheet = sheet.is_some_and(|s| s.0);
     for root in &mut roots.p3() {
-        set(root, p == Phase::Paused);
+        set(root, p == Phase::Paused && !sheet);
     }
     for root in &mut roots.p4() {
         set(root, p == Phase::GameOver);

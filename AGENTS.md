@@ -52,6 +52,7 @@ it holds; read it before changing the file.
 | `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
 | `hero.rs` | the local hero: WoW's mouse and keys in the chase view (`MouseLook`: a left-drag swings the camera, a right-drag turns the hero, both run, a press let go in place is a click; `CamRig::facing` is the hero's heading, A/D turn it, Q/E strafe), movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
 | `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks; the local hero's target first for those that strike the nearest (`aimed_order`) |
+| `sheet.rs` | the character sheet on `C`, over a paused run: the paper doll (gear worn, else the starting outfit; the neck, rings and trinkets are the run items), the live hero framed in its stage, the hero's numbers and its items' effects |
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
 | `enemies.rs` | the horde: spawning, the chase, contact damage, death, experience gems, loot |
@@ -188,7 +189,9 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   coins from kills, a pile from bosses, a purse from elites); a chest opens for a hero who stands
   at it with `data::chest_cost` gold. Elites hold fixed posts (`data::ELITES`, `Enemy::home`),
   drop their kind's `data::Reward` and come back on its timer; run items (`data::RUN_ITEMS`) stack
-  on `Vitals::run_items` and count in `Vitals::stats`. Half the unspent gold goes to the profile.
+  on `Vitals::run_items` and count in `Vitals::stats`, five kinds at most
+  (`data::MAX_RUN_ITEM_KINDS`, the sheet's neck, rings and trinkets): once full, `treasure::grant`
+  draws among the kinds held, and gold once each is at `MAX_RUN_ITEM_STACKS`. Half the unspent gold goes to the profile.
   A run item has a rarity (`data::CardRarity`, drawn by `item_odds` in `data::draw_run_item`)
   and may have a `data::ItemEffect` beyond its stat (lifesteal, an arc, thorns, a burst, a
   heal on kills), each number per stack (`ItemEffect::at`). Only the simulation fires them, in
@@ -236,7 +239,7 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
 
 | symptom | look at |
 |---|---|
-| the hero sits outside its portrait or the Armory's stage | `hero::stage_eye` frames it into `hero::MenuStage`, which `character.rs`'s `frame_stage` fills from the frame on screen; a fill on that frame hides it |
+| the hero sits outside its portrait, the Armory's stage or the sheet's | `hero::stage_eye` frames it into `hero::MenuStage`, which `hero::frame_stage` fills from the `StageFrame` on screen (at the menu, or over a paused run); a fill on that frame hides it |
 | the wasm panics at boot with `RuntimeError: unreachable` | rebuild with `WEB_DEBUG=1`; check for a WebGPU adapter first; `?bridge=0` rules the bridge out |
 | `survivors: no ability "…"` at boot | a class's `start`/`pool` names a key missing from `ABILITIES`; `cargo test -p benilla-app --lib survivors::data` |
 | wasm-bindgen glue errors at load | version drift: rerun `scripts/web-setup.sh` |

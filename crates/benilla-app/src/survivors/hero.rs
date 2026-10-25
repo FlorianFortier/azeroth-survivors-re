@@ -74,7 +74,7 @@ const FIXED_PITCH: f32 = 61.0 * std::f32::consts::PI / 180.0;
 const ZOOM_MIN: f32 = 1.5;
 const ZOOM_MAX: f32 = 70.0;
 
-/// The view; `C` cycles them.
+/// The view; `V` cycles them.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(super) enum CamMode {
     /// Third person behind the hero, as in WoW: the pointer free, a left-drag swinging the camera,
@@ -717,7 +717,7 @@ pub(super) fn drive_hero(
     player.pos = focus;
 }
 
-/// The view's controls, before the hero moves: `C` cycles the views, the wheel zooms, and the
+/// The view's controls, before the hero moves: `V` cycles the views, the wheel zooms, and the
 /// mouse turns the chase view (while the cursor is held) or drags the orbit.
 pub(super) fn turn_camera(
     phase: Res<State<Phase>>,
@@ -729,8 +729,8 @@ pub(super) fn turn_camera(
     focus: Res<super::kit::KitFocus>,
     look: Res<MouseLook>,
 ) {
-    // On the lobby screen, or in a name field, C is a letter.
-    if *phase.get() != Phase::Lobby && !focus.typing() && keys.just_pressed(KeyCode::KeyC) {
+    // On the lobby screen, or in a name field, V is a letter; C is the character sheet's.
+    if *phase.get() != Phase::Lobby && !focus.typing() && keys.just_pressed(KeyCode::KeyV) {
         let next = rig.mode.next();
         rig.switch(next);
     }
@@ -787,6 +787,52 @@ pub(super) struct MenuStage {
     pub turning: bool,
 }
 
+/// A frame on screen the hero is shown in ([`MenuStage`]): the main screen's portrait, which turns
+/// the hero slowly, the Armory's stage and the character sheet's, which a drag turns.
+#[derive(Component)]
+pub(super) struct StageFrame {
+    pub turning: bool,
+}
+
+/// A stage that turns the hero while dragged.
+#[derive(Component)]
+pub(super) struct StageDrag;
+
+/// The frame the hero shows in, for the camera: whichever is on screen at the menu, or in the
+/// character sheet over a paused run.
+pub(super) fn frame_stage(
+    phase: Res<State<Phase>>,
+    frames: Query<(&StageFrame, &ComputedNode, &bevy::ui::UiGlobalTransform)>,
+    mut stage: ResMut<MenuStage>,
+) {
+    let found = matches!(phase.get(), Phase::Menu | Phase::Paused)
+        .then(|| {
+            frames
+                .iter()
+                .find(|(_, n, _)| n.size().x > 1.0 && n.size().y > 1.0)
+        })
+        .flatten();
+    let (frame, turning) = match found {
+        Some((s, n, at)) => (Some((at.translation, n.size())), s.turning),
+        None => (None, true),
+    };
+    if stage.frame != frame || stage.turning != turning {
+        stage.frame = frame;
+        stage.turning = turning;
+    }
+}
+
+/// A drag on a stage turns the hero.
+pub(super) fn drag_stage(
+    stage: Query<&Interaction, With<StageDrag>>,
+    motion: Res<AccumulatedMouseMotion>,
+    mut rig: ResMut<CamRig>,
+) {
+    if motion.delta.x != 0.0 && stage.iter().any(|i| *i == Interaction::Pressed) {
+        rig.orbit -= motion.delta.x * 0.01;
+    }
+}
+
 /// The share of a stage's height the hero stands in, and the height that share is taken of (yd).
 const STAGE_FILL: f32 = 0.8;
 const STAGE_HERO_HEIGHT: f32 = 2.1;
@@ -817,7 +863,7 @@ fn stage_eye(focus: Vec3, orbit: f32, frame: (Vec2, Vec2), window: Vec2) -> (Vec
     (eye + slide, look + slide)
 }
 
-/// A slow orbit at the menu; in play, the view `C` picked, on the hero where it now stands.
+/// A slow orbit at the menu; in play, the view `V` picked, on the hero where it now stands.
 pub(super) fn place_camera(
     time: Res<Time<Real>>,
     phase: Res<State<Phase>>,
@@ -837,7 +883,7 @@ pub(super) fn place_camera(
         .map(|w| Vec2::new(w.physical_width() as f32, w.physical_height() as f32))
         .filter(|w| w.x > 0.0 && w.y > 0.0);
     let staged = match (*phase.get(), stage.frame, window) {
-        (Phase::Menu, Some(frame), Some(window)) => Some((frame, window)),
+        (Phase::Menu | Phase::Paused, Some(frame), Some(window)) => Some((frame, window)),
         _ => None,
     };
     let (eye, look) = if let Some((frame, window)) = staged {

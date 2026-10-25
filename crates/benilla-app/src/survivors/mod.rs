@@ -28,6 +28,7 @@ mod net;
 mod offer;
 mod outfit;
 mod profile;
+mod sheet;
 mod stats;
 mod sync;
 mod talents;
@@ -82,6 +83,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(profile::plugin)
             .add_plugins(kit::plugin)
             .add_plugins(character::plugin)
+            .add_plugins(sheet::plugin)
             .add_systems(Startup, hud::setup_hud)
             .add_systems(Update, (hero::daylight, treasure::find_looks))
             .add_systems(
@@ -177,6 +179,8 @@ impl Plugin for SurvivorsPlugin {
                     minimap::map_buttons,
                     minimap::zone_text,
                     minimap::compose,
+                    hero::drag_stage,
+                    hero::frame_stage,
                 )
                     .chain()
                     .after(hud::show_panels),

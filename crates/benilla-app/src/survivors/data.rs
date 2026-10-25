@@ -2691,6 +2691,11 @@ impl ItemEffect {
 
 /// The most of one run item a hero carries.
 pub(crate) const MAX_RUN_ITEM_STACKS: u8 = 9;
+/// The most kinds of run item a hero carries: the character sheet's neck, two rings and two
+/// trinkets. Once full, a run item is drawn among the kinds held.
+pub(crate) const MAX_RUN_ITEM_KINDS: usize = 5;
+/// The gold a run item gives instead when every kind held is at its most stacks.
+pub(crate) const FULL_RUN_ITEMS_GOLD: u32 = 25;
 
 pub(crate) static RUN_ITEMS: &[RunItemDef] = &[
     RunItemDef {
@@ -2878,6 +2883,23 @@ pub(crate) fn draw_run_item(rarity_roll: f32, item_roll: f32) -> &'static RunIte
     }
     let of: Vec<&RunItemDef> = RUN_ITEMS.iter().filter(|i| i.rarity == rarity).collect();
     of[((item_roll.clamp(0.0, 0.999_999)) * of.len() as f32) as usize]
+}
+
+/// A run item drawn among `held`, each as likely as its rarity ([`CardRarity::item_odds`]);
+/// `roll` uniform in `[0, 1)`. `None` when `held` is empty.
+pub(crate) fn draw_held_run_item(
+    held: &[&'static RunItemDef],
+    roll: f32,
+) -> Option<&'static RunItemDef> {
+    let total: f32 = held.iter().map(|i| i.rarity.item_odds()).sum();
+    let mut at = roll.clamp(0.0, 0.999_999) * total;
+    for i in held {
+        if at < i.rarity.item_odds() {
+            return Some(i);
+        }
+        at -= i.rarity.item_odds();
+    }
+    held.last().copied()
 }
 
 /// What a chest, or an elite's drop, gives.

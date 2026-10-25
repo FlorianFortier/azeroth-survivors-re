@@ -23,6 +23,7 @@
 use bevy::prelude::*;
 
 use super::data::{self, ClassDef};
+use super::hero::{StageDrag, StageFrame};
 use super::hud::{self, TipLine};
 use super::kit::{self, theme, FieldDone, IconSource, KitClicks, KitFonts, TextField, Tooltip};
 use super::lang::{self, tr, trf};
@@ -50,14 +51,12 @@ pub(super) fn plugin(app: &mut App) {
                     build_screen,
                     show_screen,
                     clicks,
-                    drag_stage,
                     name_edits,
                     refresh_class_column,
                     refresh_hero_card,
                     refresh_equipment,
                     refresh_hero_buttons,
                     show_pages,
-                    frame_stage,
                     refresh_collection,
                     refresh_talents,
                     refresh_drops,
@@ -136,17 +135,6 @@ enum Chrome {
 /// The slot the Armory picks pieces for, if one is picked.
 #[derive(Resource, Default)]
 struct ArmorySlot(Option<usize>);
-
-/// A frame the hero is shown in ([`super::hero::MenuStage`]): the Character tab's portrait, which
-/// turns the hero slowly, and the Armory's stage, which a drag turns.
-#[derive(Component)]
-struct StageFrame {
-    turning: bool,
-}
-
-/// The Armory's stage, which turns the hero while dragged.
-#[derive(Component)]
-struct StageDrag;
 
 /// The Collection tab's body, and the collection bar under the equipment.
 #[derive(Component)]
@@ -1353,41 +1341,6 @@ fn armory_page(root: &mut ChildSpawnerCommands, f: &KitFonts) {
     });
 }
 
-/// The frame the hero shows in, for the camera: the portrait or the Armory's stage, whichever is
-/// on screen at the menu.
-fn frame_stage(
-    phase: Res<State<Phase>>,
-    frames: Query<(&StageFrame, &ComputedNode, &bevy::ui::UiGlobalTransform)>,
-    mut stage: ResMut<super::hero::MenuStage>,
-) {
-    let found = (*phase.get() == Phase::Menu)
-        .then(|| {
-            frames
-                .iter()
-                .find(|(_, n, _)| n.size().x > 1.0 && n.size().y > 1.0)
-        })
-        .flatten();
-    let (frame, turning) = match found {
-        Some((s, n, at)) => (Some((at.translation, n.size())), s.turning),
-        None => (None, true),
-    };
-    if stage.frame != frame || stage.turning != turning {
-        stage.frame = frame;
-        stage.turning = turning;
-    }
-}
-
-/// A drag on the Armory's stage turns the hero.
-fn drag_stage(
-    stage: Query<&Interaction, With<StageDrag>>,
-    motion: Res<bevy::input::mouse::AccumulatedMouseMotion>,
-    mut rig: ResMut<super::hero::CamRig>,
-) {
-    if motion.delta.x != 0.0 && stage.iter().any(|i| *i == Interaction::Pressed) {
-        rig.orbit -= motion.delta.x * 0.01;
-    }
-}
-
 /// The Armory and Talents buttons, with the talent points trained.
 fn refresh_hero_buttons(
     mut commands: Commands,
@@ -1952,7 +1905,7 @@ fn racial_tip(def: &data::RacialDef) -> Tooltip {
 
 /// A piece of gear's tooltip: its name in its quality's colour, the slot, what it gives, where
 /// it drops, and how to change it.
-fn gear_tip(item: &data::ItemDef, hint: String) -> Tooltip {
+pub(super) fn gear_tip(item: &data::ItemDef, hint: String) -> Tooltip {
     let mut lines = vec![
         TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
         TipLine::new(tr(item.slot.name()), Color::WHITE).right(tr(item.rarity.name()), theme::DIM),
@@ -1970,7 +1923,7 @@ fn gear_tip(item: &data::ItemDef, hint: String) -> Tooltip {
 }
 
 /// One bonus as the tooltips word it: "4% max health", "1.5 armor".
-fn bonus_text(b: &data::Bonus) -> String {
+pub(super) fn bonus_text(b: &data::Bonus) -> String {
     use data::{Amount, Stat};
     let what = match b.stat {
         Stat::Might => "damage",

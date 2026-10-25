@@ -38,7 +38,9 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   and open for a hero who stands at one with the gold (20, then 40% dearer each time) for a run
   item, a spell's rank or a roll for gear. Four elites hold fixed posts, each over a reward of its
   own (gear, a spell's rank, a run item, a purse), and come back a while after they fall. Run
-  items stack for the run, Common to Legendary (the rarer, the less often drawn), shown with
+  items stack for the run, five kinds at most (the neck, rings and trinkets of the character
+  sheet: once five are held, a chest gives more of one of them), Common to Legendary (the rarer,
+  the less often drawn), shown with
   their stacks under your talents; besides a stat, some do more: a vampiric fang heals off your
   damage, a storm charm arcs lightning, thornmail strikes back, a volatile ember bursts on kills,
   a soul shard heals on them. Half the gold left unspent goes to your profile. A ring on the ground
@@ -99,8 +101,11 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
 - **A third-person 3D view with WoW's controls:** the pointer stays free; a left-drag swings the
   camera, a right-drag turns the hero, both buttons run; A/D turn and Q/E strafe; a click on an
-  enemy (or **Tab**) targets it, and your single-target spells strike it first. **C** switches to
+  enemy (or **Tab**) targets it, and your single-target spells strike it first. **V** switches to
   the classic top-down views, locked or free.
+- **A character sheet on C**, as WoW's: your hero in the middle of its paper doll, the gear worn
+  on its slots, your run items in the neck, ring and trinket slots, your numbers under it and
+  what your items do beside it.
 - **WoW's movement:** no inertia on the ground, backpedalling at the stock 4.5 against 7 yards a
   second, strafing at full speed, and a running jump that keeps its momentum to the landing (a
   standing one may be steered once, at walk speed).
@@ -146,7 +151,7 @@ files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](do
 See [CONTROLS.md](CONTROLS.md). The short version, as in WoW: drag with the **left button** to
 look, the **right button** to turn, both to run; **W/S** to run, **A/D** to turn, **Q/E** to
 strafe; **click** or **Tab** to target; **Space** to jump, **F** for your class's movement spell,
-the **mouse wheel** to zoom, **C** to change the view, **Esc** to clear the target or pause,
+the **mouse wheel** to zoom, **C** for the character sheet, **V** to change the view, **Esc** to clear the target or pause,
 **1/2/3** to pick a level-up card.
 
 ## Options
