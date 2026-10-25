@@ -186,12 +186,12 @@ pub(super) struct RerollHint;
 /// The line under the cards says how many rerolls are left.
 pub(super) fn reroll_hint(run: Res<Run>, mut hints: Query<&mut Text, With<RerollHint>>) {
     let want = if run.rerolls > 0 {
-        format!(
+        super::lang::trf(
             "Click a card, or press 1, 2 or 3  ·  R rerolls the cards ({} left)",
-            run.rerolls
+            &[&run.rerolls.to_string()],
         )
     } else {
-        "Click a card, or press 1, 2 or 3  ·  no rerolls left".to_string()
+        super::lang::tr("Click a card, or press 1, 2 or 3  ·  no rerolls left").to_string()
     };
     for mut t in &mut hints {
         if **t != want {
@@ -730,10 +730,15 @@ pub(super) fn setup_hud(
                 UiTransform::default(),
                 bevy::ui::FocusPolicy::Pass,
             ));
-            root.spawn(centered(f, "LEVEL UP", 52.0, GOLD));
+            root.spawn(centered(f, super::lang::tr("LEVEL UP"), 52.0, GOLD));
             root.spawn((
                 LevelUpSub,
-                centered(f, "Choose your power", 16.0, Color::srgb(0.85, 0.78, 0.6)),
+                centered(
+                    f,
+                    super::lang::tr("Choose your power"),
+                    16.0,
+                    Color::srgb(0.85, 0.78, 0.6),
+                ),
             ));
             root.spawn((
                 OfferRow,
@@ -1375,11 +1380,11 @@ pub(super) fn refresh_hud(
             **t = banner;
         }
     }
-    let title = if run.won {
+    let title = super::lang::tr(if run.won {
         "Victory!"
     } else {
         "You have fallen"
-    }
+    })
     .to_string();
     if let Ok(mut t) = texts.p4().single_mut() {
         **t = title;
@@ -1755,18 +1760,20 @@ pub(super) fn refresh_results(
     let mut stats_line = if run.won {
         selection.map_def().victory
     } else {
-        "The horde was too much this time."
+        super::lang::tr("The horde was too much this time.")
     }
     .to_string();
     let reward = data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward;
     let gold = data::run_gold(run.kills, run.bosses, run.won, run.stats().gold * reward);
     if gold > 0 {
-        stats_line.push_str(&format!("\nGold earned: {gold}"));
+        stats_line.push('\n');
+        stats_line.push_str(&super::lang::trf("Gold earned: {}", &[&gold.to_string()]));
     }
     // What was found comes home either way.
     if !run.loot.is_empty() {
         let names: Vec<&str> = run.loot.iter().map(|i| i.name.as_str()).collect();
-        stats_line.push_str(&format!("\nFound: {}", names.join(", ")));
+        stats_line.push('\n');
+        stats_line.push_str(&super::lang::trf("Found: {}", &[&names.join(", ")]));
     }
     let values = [
         format!("{:02}:{:02}", secs / 60, secs % 60),

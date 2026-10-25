@@ -16,6 +16,14 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-app/src/survivors/` | **the game**; file by file in [The survivors mode](#the-survivors-mode-file-by-file) | ours |
 | `crates/benilla-*` | the client: formats, world, UI, protocol, app | upstream's, plus our `#[cfg]`-gated carries |
 | `crates/benilla-app/src/webbridge/` | the JavaScript bridge, wasm side | wenilla's |
+| `crates/benilla-app/src/survivors/character.rs` | the main screen (title, tabs, Character tab: class column, hero column with the hero's portrait, zone column, bottom bar; the Armory: race, look and gear around the hero on its stage), built from the kit on the same `Selection` and profile as the glue menu (`menu.rs`), which it replaces; `WOW_NEW_MENU=0` (`?new_menu=0`) brings the glue menu back | ours |
+| `crates/benilla-app/src/survivors/outfit.rs` | the hero as a player character: the race's body, the five appearance dials, and the pieces it wears, dressed from item entries the mode answers itself (`outfit::template`); `WOW_HERO_BODY=trainer` brings back the class trainer's look | ours |
+| `crates/benilla-app/src/survivors/talents.rs` | talents: the class's three trees from `Talent.dbc`/`TalentTab.dbc` under vanilla's rules, each talent a stat of its tree's theme per rank; points trained with gold (`point_cost`), 51 at most | ours |
+| `crates/benilla-app/src/survivors/lang.rs` | the mode's languages: text is written in English and looked up for French (`lang::tr`, `trf` for `{}` templates); the profile's `options.language` picks it, and a change rebuilds the main screen | ours |
+| `crates/benilla-app/src/survivors/names.rs` | hero names: a random one in each race's sound, and what a typed one may hold | ours |
+| `crates/benilla-app/src/survivors/kit.rs` | the menu's UI kit: panels, headings, tabs, icon and call-to-action buttons, stat tiles, progress bars, chips, tooltips; clicks read through `KitClicks`. `WOW_UI_KIT=1` (`?ui_kit=1`) shows a gallery over the menu | ours |
+| `crates/benilla-app/src/survivors/profile.rs` | the saved profile (`benilla-config/survivors-profile.toml`, `localStorage` on the web): pick, run records, and the meta-progression as it lands | ours |
+| `crates/benilla-app/src/survivors/net/` | multiplayer, game side: socket, host stream, guest copy, lobby screen | ours |
 | `crates/survivors-net` | multiplayer protocol, lobby settings, the lobby hub's state machine. No I/O, no deps | ours |
 | `crates/survivors-server` | the lobby server (`make lobby`); its router is mounted by `wenilla-host` at `/lobby` | ours |
 | `crates/warcraft-survivors` | the native launcher (`make native`) | ours |
@@ -172,6 +180,9 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   a display picked from `ItemDisplayInfo` by the icon's slot (`outfit::gear_worn`).
   Every item ever found is in the collection (`Profile::collected`), which adds
   `data::collection_bonus` (a `COLLECTION_SHARE` of its first bonus) to every run.
+- **Shown text goes through `lang::tr`.** A new label on the main screen or the HUD is written
+  in English inside `tr(…)`, and its French added to `lang.rs`'s table; a name the profile stores
+  (zones, items, classes) stays English in data and is translated only where it is shown.
 - **The wire is versioned.** Any change to `survivors-net`'s `protocol` or `game` messages bumps
   `PROTOCOL_VERSION`. `ZONE_COUNT` must equal `data::MAPS.len()` (a test holds them).
 

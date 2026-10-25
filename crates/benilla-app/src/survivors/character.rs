@@ -25,6 +25,7 @@ use bevy::prelude::*;
 use super::data::{self, ClassDef};
 use super::hud::{self, TipLine};
 use super::kit::{self, theme, FieldDone, IconSource, KitClicks, KitFonts, TextField, Tooltip};
+use super::lang::{self, tr, trf};
 use super::profile::ProfileStore;
 use super::{menu, names, outfit, Owned, Phase, Rng, Run, Selection, Vitals};
 
@@ -44,25 +45,33 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                build_screen,
-                show_screen,
-                clicks,
-                drag_stage,
-                name_edits,
-                refresh_class_column,
-                refresh_hero_card,
-                refresh_equipment,
-                refresh_hero_buttons,
-                show_pages,
-                frame_stage,
-                refresh_collection,
-                refresh_talents,
-                refresh_drops,
-                refresh_codex,
-                refresh_achievements,
-                refresh_zone_list,
-                refresh_bottom_bar,
-                adopt_name,
+                (
+                    rebuild_on_language,
+                    build_screen,
+                    show_screen,
+                    clicks,
+                    drag_stage,
+                    name_edits,
+                    refresh_class_column,
+                    refresh_hero_card,
+                    refresh_equipment,
+                    refresh_hero_buttons,
+                    show_pages,
+                    frame_stage,
+                    refresh_collection,
+                    refresh_talents,
+                    refresh_drops,
+                    refresh_codex,
+                    refresh_achievements,
+                )
+                    .chain(),
+                (
+                    refresh_options,
+                    refresh_zone_list,
+                    refresh_bottom_bar,
+                    adopt_name,
+                )
+                    .chain(),
             )
                 .chain()
                 // The camera, placed earlier in the frame, frames the hero where the last
@@ -94,6 +103,7 @@ const TALENTS: usize = 4;
 const ACHIEVEMENTS: usize = 5;
 const REWARDS: usize = 6;
 const ARMORY: usize = 100;
+const OPTIONS: usize = 101;
 const BUILT_TABS: [usize; 7] = [
     CHARACTER,
     COLLECTION,
@@ -166,6 +176,18 @@ struct CodexBody;
 struct AchievementsBody;
 #[derive(Component)]
 struct RewardsBody;
+#[derive(Component)]
+struct OptionsBody;
+
+/// One Options setting a button steps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Setting {
+    Master,
+    Music,
+    Sfx,
+    Sens,
+    Polish,
+}
 
 /// The class column's body, rebuilt when the pick changes.
 #[derive(Component)]
@@ -207,6 +229,12 @@ enum ScreenAction {
     /// Claim one achievement's reward ([`data::ACHIEVEMENTS`] index), or all of them.
     Claim(usize),
     ClaimAll,
+    /// Open the Options.
+    Options,
+    /// Step a setting down (-1) or up (+1).
+    Set(Setting, i8),
+    /// Show text in a language ([`lang::Lang::ALL`] index).
+    Language(usize),
     Zone(usize),
     Enter,
     Coop,
@@ -241,6 +269,19 @@ enum HeroPart {
 #[derive(Component)]
 struct EquipmentRow;
 
+/// Times the screen has been built: a refresh whose drawing went with an older screen draws again.
+static BUILDS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Whether the screen was built again since a refresh last drew (its `seen`).
+fn rebuilt(seen: &mut u32) -> bool {
+    let now = BUILDS.load(std::sync::atomic::Ordering::Relaxed);
+    if *seen == now {
+        return false;
+    }
+    *seen = now;
+    true
+}
+
 fn build_screen(
     mut commands: Commands,
     fonts: Option<Res<KitFonts>>,
@@ -250,6 +291,7 @@ fn build_screen(
     if !built.is_empty() {
         return;
     }
+    BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let f = &*fonts;
     commands
         .spawn((
@@ -280,7 +322,12 @@ fn build_screen(
                 },
             ))
             .with_children(|h| {
-                h.spawn(kit::text(&f.title, "Azeroth Survivors", 56.0, theme::GOLD));
+                h.spawn(kit::text(
+                    &f.title,
+                    tr("Azeroth Survivors"),
+                    56.0,
+                    theme::GOLD,
+                ));
                 tab_row(h, f);
             });
             // The Armory's header: its title and what it holds on the left, the tabs and Done on
@@ -302,14 +349,14 @@ fn build_screen(
                     ..default()
                 })
                 .with_children(|c| {
-                    c.spawn(kit::text(&f.title, "Armory", 44.0, theme::GOLD));
+                    c.spawn(kit::text(&f.title, tr("Armory"), 44.0, theme::GOLD));
                     c.spawn((ArmorySub, Node::default()));
                 });
                 tab_row(h, f);
                 kit::button(
                     h,
                     f,
-                    "Done",
+                    tr("Done"),
                     None,
                     kit::ButtonLook::ACTION,
                     ScreenAction::Back,
@@ -323,6 +370,7 @@ fn build_screen(
                 (CODEX, 4),
                 (ACHIEVEMENTS, 5),
                 (REWARDS, 6),
+                (OPTIONS, 7),
             ] {
                 root.spawn((
                     PageRoot(page),
@@ -338,14 +386,15 @@ fn build_screen(
                     kit::panel(
                         pg,
                         f,
-                        Some(match marker {
+                        Some(tr(match marker {
                             0 => "Collection",
                             2 => "Talents",
                             3 => "Drop Tables",
                             4 => "Codex",
                             5 => "Achievements",
-                            _ => "Rewards",
-                        }),
+                            6 => "Rewards",
+                            _ => "Options",
+                        })),
                         Node {
                             width: Val::Percent(100.0),
                             min_height: Val::Px(0.0),
@@ -371,7 +420,8 @@ fn build_screen(
                                         3 => e.insert(DropsBody),
                                         4 => e.insert(CodexBody),
                                         5 => e.insert(AchievementsBody),
-                                        _ => e.insert(RewardsBody),
+                                        6 => e.insert(RewardsBody),
+                                        _ => e.insert(OptionsBody),
                                     };
                                 },
                             );
@@ -395,7 +445,7 @@ fn build_screen(
                 kit::panel(
                     cols,
                     f,
-                    Some("Class"),
+                    Some(tr("Class")),
                     Node {
                         flex_grow: 0.85,
                         flex_basis: Val::Px(0.0),
@@ -417,7 +467,7 @@ fn build_screen(
                 kit::panel(
                     cols,
                     f,
-                    Some("Zone"),
+                    Some(tr("Zone")),
                     Node {
                         flex_grow: 0.85,
                         flex_basis: Val::Px(0.0),
@@ -462,8 +512,10 @@ fn build_screen(
                 Chrome::Bar,
                 kit::text(
                     &f.body,
-                    "WASD or both mouse buttons to run · 1 2 3 picks a card · R rerolls · \
+                    tr(
+                        "WASD or both mouse buttons to run · 1 2 3 picks a card · R rerolls · \
                      Enter to play",
+                    ),
                     13.0,
                     theme::TEXT,
                 ),
@@ -478,7 +530,7 @@ fn build_screen(
                 },
             ))
             .with_children(|c| {
-                c.spawn(kit::text(&f.body, "Made by Aethus", 10.0, theme::DIM));
+                c.spawn(kit::text(&f.body, tr("Made by Aethus"), 10.0, theme::DIM));
             });
         });
 }
@@ -488,7 +540,7 @@ fn tab_row(p: &mut ChildSpawnerCommands, f: &KitFonts) {
     let tabs: Vec<(&str, ScreenAction)> = TABS
         .iter()
         .enumerate()
-        .map(|(i, t)| (*t, ScreenAction::Tab(i)))
+        .map(|(i, t)| (tr(t), ScreenAction::Tab(i)))
         .collect();
     let ids = kit::tab_bar(p, f, &tabs, 0);
     for (i, id) in ids.into_iter().enumerate() {
@@ -496,7 +548,7 @@ fn tab_row(p: &mut ChildSpawnerCommands, f: &KitFonts) {
         if !BUILT_TABS.contains(&i) {
             p.commands().entity(id).insert((
                 kit::Disabled(true),
-                Tooltip::simple(TABS[i], "Coming soon."),
+                Tooltip::simple(tr(TABS[i]), tr("Coming soon.")),
             ));
         }
     }
@@ -556,6 +608,29 @@ fn clicks(
             }
         }
         ScreenAction::Armory => page.0 = ARMORY,
+        ScreenAction::Options => page.0 = OPTIONS,
+        ScreenAction::Set(setting, d) => {
+            store.edit(|p| {
+                let o = &mut p.options;
+                let step = f32::from(d);
+                match setting {
+                    Setting::Master => o.master = (o.master + 0.1 * step).clamp(0.0, 1.0),
+                    Setting::Music => o.music = (o.music + 0.1 * step).clamp(0.0, 1.0),
+                    Setting::Sfx => o.sfx = (o.sfx + 0.1 * step).clamp(0.0, 1.0),
+                    Setting::Sens => o.mouse_sens = (o.mouse_sens + 0.1 * step).clamp(0.2, 3.0),
+                    Setting::Polish => o.polish = !o.polish,
+                }
+                // Tenths stay tenths, however many steps.
+                for v in [&mut o.master, &mut o.music, &mut o.sfx, &mut o.mouse_sens] {
+                    *v = (*v * 10.0).round() / 10.0;
+                }
+            });
+        }
+        ScreenAction::Language(i) => {
+            if let Some(l) = lang::Lang::ALL.get(i) {
+                store.edit(|p| p.options.language = l.code().into());
+            }
+        }
         ScreenAction::Slot(k) => armory_slot.0 = Some(k),
         ScreenAction::Turn(step) => rig.orbit += f32::from(step) * 0.5,
         ScreenAction::Claim(i) => {
@@ -738,7 +813,11 @@ fn refresh_class_column(
     talents: Option<Res<crate::ui_talent::Talents>>,
     column: Query<Entity, With<ClassColumn>>,
     mut shown: Local<Option<ClassView>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(column)) = (fonts, column.single()) else {
         return;
     };
@@ -776,41 +855,52 @@ fn refresh_class_column(
                     f,
                     class_icon(c),
                     42.0,
-                    Some(c.name),
+                    Some(tr(c.name)),
                     selection.class == Some(i),
                     ScreenAction::Class(i),
                 );
             }
         });
         let Some(class) = selection.class_def() else {
-            p.spawn(kit::text(&f.body, "Pick a class.", 13.0, theme::DIM));
+            p.spawn(kit::text(&f.body, tr("Pick a class."), 13.0, theme::DIM));
             return;
         };
         let hero = Vitals::new(class, race).with_meta(meta, &procs);
         let stats = hero.stats();
-        p.spawn(kit::text(&f.body, class.name, 20.0, hud::rgb(class.color)));
+        p.spawn(kit::text(
+            &f.body,
+            tr(class.name),
+            20.0,
+            hud::rgb(class.color),
+        ));
         p.spawn(kit::text(&f.body, class.blurb, 13.0, theme::TEXT));
         p.spawn(Node {
             column_gap: Val::Px(6.0),
             ..default()
         })
         .with_children(|r| {
-            kit::stat_tile(r, f, "Health", &format!("{:.0}", stats.max_hp));
+            kit::stat_tile(r, f, tr("Health"), &format!("{:.0}", stats.max_hp));
             let start = data::ability(class.start);
             kit::stat_tile(
                 r,
                 f,
-                "Starts with",
+                tr("Starts with"),
                 &hud::spell_name(spells, start.spell, start.key),
             );
             kit::stat_tile(
                 r,
                 f,
-                "Zones open",
-                &format!("{} of {}", open_zones(&store), data::MAPS.len()),
+                tr("Zones open"),
+                &trf(
+                    "{} of {}",
+                    &[
+                        &open_zones(&store).to_string(),
+                        &data::MAPS.len().to_string(),
+                    ],
+                ),
             );
         });
-        p.spawn(kit::text(&f.body, "SPELL POOL", 10.0, theme::DIM));
+        p.spawn(kit::text(&f.body, tr("SPELL POOL"), 10.0, theme::DIM));
         p.spawn(Node {
             flex_wrap: FlexWrap::Wrap,
             column_gap: Val::Px(4.0),
@@ -930,7 +1020,7 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                     kit::Selected(false),
                     kit::Disabled(false),
                     ScreenAction::Armory,
-                    Tooltip::simple("Armory", "Race, look, gear and drop tables."),
+                    Tooltip::simple(tr("Armory"), tr("Race, look, gear and drop tables.")),
                     Node {
                         width: Val::Px(PORTRAIT.x),
                         height: Val::Px(PORTRAIT.y),
@@ -1005,7 +1095,7 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                     kit::button(
                         n,
                         f,
-                        "Random",
+                        tr("Random"),
                         None,
                         kit::ButtonLook::PLAIN,
                         ScreenAction::RandomName,
@@ -1043,7 +1133,7 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
             ])),
         ))
         .with_children(|p| {
-            kit::heading(p, f, "Equipment");
+            kit::heading(p, f, tr("Equipment"));
             p.spawn((
                 EquipmentRow,
                 Node {
@@ -1103,7 +1193,7 @@ fn armory_page(root: &mut ChildSpawnerCommands, f: &KitFonts) {
             min_height: Val::Px(0.0),
             ..default()
         };
-        kit::panel(cols, f, Some("Appearance"), side(0.9), |p| {
+        kit::panel(cols, f, Some(tr("Appearance")), side(0.9), |p| {
             p.spawn((
                 HeroPart::ArmoryRaces,
                 Node {
@@ -1112,7 +1202,7 @@ fn armory_page(root: &mut ChildSpawnerCommands, f: &KitFonts) {
                     ..default()
                 },
             ));
-            kit::heading(p, f, "Equipment");
+            kit::heading(p, f, tr("Equipment"));
             kit::scroll_area(
                 p,
                 Node {
@@ -1205,14 +1295,14 @@ fn armory_page(root: &mut ChildSpawnerCommands, f: &KitFonts) {
                 turn(r, "Left", -1);
                 r.spawn(kit::text(
                     &f.body,
-                    "Drag the hero to turn",
+                    tr("Drag the hero to turn"),
                     14.0,
                     theme::TEXT,
                 ));
                 turn(r, "Right", 1);
             });
         });
-        kit::panel(cols, f, Some("Features"), side(0.9), |p| {
+        kit::panel(cols, f, Some(tr("Features")), side(0.9), |p| {
             p.spawn((
                 HeroPart::ArmoryDials,
                 Node {
@@ -1287,7 +1377,11 @@ fn refresh_hero_buttons(
     store: Res<ProfileStore>,
     row: Query<Entity, With<HeroButtons>>,
     mut shown: Local<Option<u32>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(row)) = (fonts, row.single()) else {
         return;
     };
@@ -1299,7 +1393,10 @@ fn refresh_hero_buttons(
     let f = &*fonts;
     commands.entity(row).despawn_related::<Children>();
     commands.entity(row).with_children(|r| {
-        let points = format!("{points} of {} points", super::talents::MAX_POINTS);
+        let points = trf(
+            "{} of {} points",
+            &[&points.to_string(), &super::talents::MAX_POINTS.to_string()],
+        );
         for (label, sub, action) in [
             (
                 "Armory",
@@ -1308,7 +1405,14 @@ fn refresh_hero_buttons(
             ),
             ("Talents", points.as_str(), ScreenAction::Tab(TALENTS)),
         ] {
-            let b = kit::button(r, f, label, Some(sub), kit::ButtonLook::ACTION, action);
+            let b = kit::button(
+                r,
+                f,
+                tr(label),
+                Some(tr(sub)),
+                kit::ButtonLook::ACTION,
+                action,
+            );
             r.commands().entity(b).entry::<Node>().and_modify(|mut n| {
                 n.flex_grow = 1.0;
                 n.flex_basis = Val::Px(0.0);
@@ -1404,7 +1508,11 @@ fn refresh_hero_card(
     mut name: Query<&mut TextField, With<NameField>>,
     parts: Query<(Entity, &HeroPart)>,
     mut shown: Local<Option<HeroView>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let Some(fonts) = fonts else { return };
     let look = menu::current_look(&selection);
     // A hero always has a name: the profile's, or one rolled for the race.
@@ -1465,8 +1573,8 @@ fn refresh_hero_card(
         return;
     };
     let class = selection.class_def();
-    let race_name = crate::char_select::race_name(race);
-    let sex_name = if sex == 1 { "Female" } else { "Male" };
+    let race_name = tr(crate::char_select::race_name(race));
+    let sex_name = tr(if sex == 1 { "Female" } else { "Male" });
     let race_icon = |race_id: u8| {
         crate::glue::art::race_tc(race_id, sex).map(|tc| {
             IconSource::Atlas(
@@ -1582,7 +1690,12 @@ fn refresh_hero_card(
                 theme::TEXT,
             ));
             if let Some(class) = class {
-                r.spawn(kit::text(&f.body, class.name, 17.0, hud::rgb(class.color)));
+                r.spawn(kit::text(
+                    &f.body,
+                    tr(class.name),
+                    17.0,
+                    hud::rgb(class.color),
+                ));
             }
         });
     });
@@ -1644,7 +1757,7 @@ fn refresh_hero_card(
                 let b = kit::button(
                     r,
                     f,
-                    label,
+                    tr(label),
                     None,
                     kit::ButtonLook::PLAIN,
                     ScreenAction::Sex(s),
@@ -1669,7 +1782,7 @@ fn refresh_hero_card(
             kit::button(
                 p,
                 f,
-                "Randomize",
+                tr("Randomize"),
                 None,
                 kit::ButtonLook::PLAIN,
                 ScreenAction::RandomLook,
@@ -1712,7 +1825,7 @@ fn race_button(
     if !playable {
         r.commands().entity(e).insert(Visibility::Hidden);
     }
-    let name = crate::char_select::race_name(race_id);
+    let name = tr(crate::char_select::race_name(race_id));
     let class = selection.class_def();
     // The client's looks decide; without them, vanilla's own pairs.
     let keeps_class = if all.is_empty() {
@@ -1724,9 +1837,9 @@ fn race_button(
             .is_some_and(|looks| looks.iter().any(|l| l.1 == race_id))
     };
     let note = if keeps_class {
-        format!("Play as a {name}.")
+        trf("Play as a {}.", &[tr(name)])
     } else {
-        format!("Picking {name} changes your class.")
+        trf("Picking {} changes your class.", &[tr(name)])
     };
     r.commands().entity(e).insert(Tooltip::simple(name, note));
 }
@@ -1805,15 +1918,15 @@ fn dial_row(p: &mut ChildSpawnerCommands, f: &KitFonts, i: usize, label: &str, a
 
 /// A racial's tooltip: its name, what it does, and whether it is always on or fires.
 fn racial_tip(def: &data::RacialDef) -> Tooltip {
-    let kind = if def.proc.is_some() {
+    let kind = tr(if def.proc.is_some() {
         "Fires on its own"
     } else {
         "Always on"
-    };
+    });
     Tooltip(vec![
         TipLine::new(def.name, Color::WHITE)
             .header()
-            .right("Racial", theme::DIM),
+            .right(tr("Racial"), theme::DIM),
         TipLine::new(kind, theme::DIM),
         TipLine::new(def.text, theme::GREEN),
     ])
@@ -1824,14 +1937,14 @@ fn racial_tip(def: &data::RacialDef) -> Tooltip {
 fn gear_tip(item: &data::ItemDef, hint: String) -> Tooltip {
     let mut lines = vec![
         TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
-        TipLine::new(item.slot.name(), Color::WHITE).right(item.rarity.name(), theme::DIM),
+        TipLine::new(tr(item.slot.name()), Color::WHITE).right(tr(item.rarity.name()), theme::DIM),
     ];
     for b in &item.bonuses {
         lines.push(TipLine::new(format!("+{}", bonus_text(b)), theme::GREEN));
     }
     let boss = data::roster(item.zone).bosses[item.boss].name;
     lines.push(TipLine::new(
-        format!("Dropped by {boss}, {}", data::MAPS[item.zone].name),
+        trf("Dropped by {}, {}", &[boss, tr(data::MAPS[item.zone].name)]),
         theme::DIM,
     ));
     lines.push(TipLine::new(hint, theme::GOLD));
@@ -1864,6 +1977,7 @@ fn bonus_text(b: &data::Bonus) -> String {
         let t = format!("{v:.1}");
         t.strip_suffix(".0").map(str::to_string).unwrap_or(t)
     };
+    let what = tr(what);
     match b.amount {
         Amount::Percent(v) => format!("{}% {what}", n(v * 100.0)),
         Amount::Flat(v) if fraction => format!("{}% {what}", n(v * 100.0)),
@@ -1916,7 +2030,11 @@ fn refresh_equipment(
     picker: Query<Entity, With<ArmoryPicker>>,
     note: Query<Entity, With<ArmoryNote>>,
     mut shown: Local<Option<EquipmentView>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(row), Ok(slots), Ok(picker), Ok(note)) = (
         fonts,
         row.single(),
@@ -1987,9 +2105,9 @@ fn refresh_equipment(
                     gear_tip(
                         item,
                         if owned > 1 {
-                            format!("{owned} owned for this slot.")
+                            trf("{} owned for this slot.", &[&owned.to_string()])
                         } else {
-                            "The only one you own for this slot.".to_string()
+                            tr("The only one you own for this slot.").to_string()
                         },
                     ),
                 ),
@@ -1999,8 +2117,8 @@ fn refresh_equipment(
                         (_, n) if n > 0 => {
                             TipLine::new(format!("{n} found: pick one to wear."), theme::GOLD)
                         }
-                        (Some(_), _) => TipLine::new("Starting gear", theme::TEXT),
-                        (None, _) => TipLine::new("Empty", theme::DIM),
+                        (Some(_), _) => TipLine::new(tr("Starting gear"), theme::TEXT),
+                        (None, _) => TipLine::new(tr("Empty"), theme::DIM),
                     };
                     (
                         label,
@@ -2078,7 +2196,7 @@ fn refresh_equipment(
                             15.0,
                             hud::rgb(item.rarity.color()),
                         )),
-                        None => c.spawn(kit::text(&f.body, "Empty", 15.0, theme::DIM)),
+                        None => c.spawn(kit::text(&f.body, tr("Empty"), 15.0, theme::DIM)),
                     };
                 });
             });
@@ -2090,7 +2208,7 @@ fn refresh_equipment(
         let Some(k) = picked.0.filter(|&k| k < data::GearSlot::ALL.len()) else {
             p.spawn(kit::text(
                 &f.body,
-                "Pick a slot on the left to choose what the hero shows there.",
+                tr("Pick a slot on the left to choose what the hero shows there."),
                 13.0,
                 theme::TEXT,
             ));
@@ -2111,7 +2229,7 @@ fn refresh_equipment(
             let none = kit::button(
                 r,
                 f,
-                "None",
+                tr("None"),
                 None,
                 kit::ButtonLook::PLAIN,
                 ScreenAction::Unwear(k),
@@ -2139,9 +2257,9 @@ fn refresh_equipment(
                     .copied()
                     .unwrap_or(0);
                 let hint = if worn == Some(*item) {
-                    format!("Worn · found {n}×")
+                    trf("Worn · found {}×", &[&n.to_string()])
                 } else {
-                    format!("Click to wear it · found {n}×")
+                    trf("Click to wear it · found {}×", &[&n.to_string()])
                 };
                 r.commands().entity(b).insert(gear_tip(item, hint));
             }
@@ -2149,14 +2267,14 @@ fn refresh_equipment(
         if owned.is_empty() {
             p.spawn(kit::text(
                 &f.body,
-                "Nothing found for this slot yet: the bosses drop it.",
+                tr("Nothing found for this slot yet: the bosses drop it."),
                 12.0,
                 theme::DIM,
             ));
         } else {
             p.spawn(kit::text(
                 &f.body,
-                "What you wear shows on your hero and adds to every run.",
+                tr("What you wear shows on your hero and adds to every run."),
                 12.0,
                 theme::DIM,
             ));
@@ -2167,7 +2285,7 @@ fn refresh_equipment(
     commands.entity(note).with_children(|n| {
         let (text, color) = worn_summary(
             &gear,
-            "Nothing worn adds anything yet: bosses drop the class's gear.",
+            tr("Nothing worn adds anything yet: bosses drop the class's gear."),
         );
         n.spawn(kit::text(&f.body, text, 13.0, color));
     });
@@ -2219,7 +2337,7 @@ fn bonus_summary(bonuses: &[data::Bonus]) -> String {
         .map(|b| format!("+{}", bonus_text(b)))
         .collect();
     if lines.is_empty() {
-        "Find gear to grow your collection: every piece found adds a bonus to every run.".into()
+        tr("Find gear to grow your collection: every piece found adds a bonus to every run.").into()
     } else {
         lines.join(" · ")
     }
@@ -2237,7 +2355,11 @@ fn refresh_collection(
     bar: Query<Entity, With<CollectionBar>>,
     sub: Query<Entity, With<ArmorySub>>,
     mut shown: Local<Option<(usize, Option<usize>, bool, Vec<String>)>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(body), Ok(bar), Ok(sub)) =
         (fonts, body.single(), bar.single(), sub.single())
     else {
@@ -2264,10 +2386,10 @@ fn refresh_collection(
     };
     commands.entity(bar).despawn_related::<Children>();
     commands.entity(bar).with_children(|b| {
-        kit::progress_bar(b, f, "Collection", progress());
+        kit::progress_bar(b, f, tr("Collection"), progress());
         let (text, color) = worn_summary(
             &gear,
-            "No gear worn yet. Bosses drop it for your class, for good.",
+            tr("No gear worn yet. Bosses drop it for your class, for good."),
         );
         b.spawn(kit::text(&f.body, text, 14.0, color));
     });
@@ -2275,8 +2397,13 @@ fn refresh_collection(
     commands.entity(sub).despawn_related::<Children>();
     commands.entity(sub).with_children(|r| {
         if let Some(class) = class {
-            r.spawn(kit::text(&f.body, class.name, 17.0, hud::rgb(class.color)));
-            r.spawn(kit::text(&f.body, "  ·  ", 17.0, theme::DIM));
+            r.spawn(kit::text(
+                &f.body,
+                tr(class.name),
+                17.0,
+                hud::rgb(class.color),
+            ));
+            r.spawn(kit::text(&f.body, tr("  ·  "), 17.0, theme::DIM));
         }
         r.spawn(kit::text(
             &f.body,
@@ -2291,12 +2418,12 @@ fn refresh_collection(
     });
     commands.entity(body).despawn_related::<Children>();
     commands.entity(body).with_children(|p| {
-        kit::progress_bar(p, f, "Collection", progress());
+        kit::progress_bar(p, f, tr("Collection"), progress());
         p.spawn(kit::text(&f.body, summary.clone(), 12.0, theme::GREEN));
         p.spawn(kit::text(
             &f.body,
-            "Each boss drops its own piece. Every piece found adds a quarter of its first bonus \
-             to every run from then on, worn or not.",
+            tr("Each boss drops its own piece. Every piece found adds a quarter of its first bonus \
+             to every run from then on, worn or not."),
             12.0,
             theme::DIM,
         ));
@@ -2315,10 +2442,13 @@ fn refresh_collection(
                     ..default()
                 })
                 .with_children(|c| {
-                    c.spawn(kit::text(&f.title, map.name, 16.0, theme::GOLD));
+                    c.spawn(kit::text(&f.title, tr(map.name), 16.0, theme::GOLD));
                     c.spawn(kit::text(
                         &f.body,
-                        format!("{found} of {} found", table.len()),
+                        trf(
+                            "{} of {} found",
+                            &[&found.to_string(), &table.len().to_string()],
+                        ),
                         11.0,
                         theme::DIM,
                     ));
@@ -2337,25 +2467,25 @@ fn refresh_collection(
                     let tip = if have {
                         let mut lines = vec![
                             TipLine::new(item.name.clone(), hud::rgb(item.rarity.color())).header(),
-                            TipLine::new(item.slot.name(), Color::WHITE)
-                                .right(item.rarity.name(), theme::DIM),
+                            TipLine::new(tr(item.slot.name()), Color::WHITE)
+                                .right(tr(item.rarity.name()), theme::DIM),
                         ];
                         for b in &item.bonuses {
                             lines.push(TipLine::new(format!("+{}", bonus_text(b)), theme::GREEN));
                         }
                         lines.push(TipLine::new(
-                            format!(
+                            trf(
                                 "Collected: +{} every run",
-                                bonus_text(&data::collection_bonus(item))
+                                &[&bonus_text(&data::collection_bonus(item))],
                             ),
                             theme::GOLD,
                         ));
                         Tooltip(lines)
                     } else {
                         Tooltip(vec![
-                            TipLine::new("Not found yet", Color::WHITE).header(),
+                            TipLine::new(tr("Not found yet"), Color::WHITE).header(),
                             TipLine::new(
-                                format!("{} · dropped by {boss}", item.slot.name()),
+                                format!("{} · dropped by {boss}", tr(item.slot.name())),
                                 theme::DIM,
                             ),
                         ])
@@ -2388,7 +2518,11 @@ fn refresh_talents(
     spells: Option<Res<crate::ui_action::Spells>>,
     body: Query<Entity, With<TalentsBody>>,
     mut shown: Local<Option<String>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
         return;
     };
@@ -2418,13 +2552,13 @@ fn refresh_talents(
     commands.entity(body).despawn_related::<Children>();
     commands.entity(body).with_children(|b| {
         let (Some(class), Some((race, _))) = (class, look) else {
-            b.spawn(kit::text(&f.body, "Pick a class.", 13.0, theme::DIM));
+            b.spawn(kit::text(&f.body, tr("Pick a class."), 13.0, theme::DIM));
             return;
         };
         let Some(catalog) = talents.as_deref().map(|t| &t.catalog) else {
             b.spawn(kit::text(
                 &f.body,
-                "The talent tables load with the game's data.",
+                tr("The talent tables load with the game's data."),
                 13.0,
                 theme::DIM,
             ));
@@ -2443,16 +2577,16 @@ fn refresh_talents(
             kit::button(
                 r,
                 f,
-                "Back",
+                tr("Back"),
                 None,
                 kit::ButtonLook::PLAIN,
                 ScreenAction::Back,
             );
-            kit::stat_tile(r, f, "Gold", &p.gold.to_string());
+            kit::stat_tile(r, f, tr("Gold"), &p.gold.to_string());
             kit::stat_tile(
                 r,
                 f,
-                "Points spent",
+                tr("Points spent"),
                 &format!("{used} of {points} (up to {})", super::talents::MAX_POINTS),
             );
             let cost = super::talents::point_cost(points);
@@ -2460,11 +2594,11 @@ fn refresh_talents(
             let train = kit::button(
                 r,
                 f,
-                "Train a point",
+                tr("Train a point"),
                 Some(&if full {
-                    "Every point is trained".to_string()
+                    tr("Every point is trained").to_string()
                 } else {
-                    format!("{cost} gold")
+                    trf("{} gold", &[&cost.to_string()])
                 }),
                 kit::ButtonLook::ACTION,
                 ScreenAction::TrainPoint,
@@ -2475,20 +2609,22 @@ fn refresh_talents(
             let reset = kit::button(
                 r,
                 f,
-                "Reset",
+                tr("Reset"),
                 Some(class.name),
                 kit::ButtonLook::PLAIN,
                 ScreenAction::ResetTalents,
             );
             r.commands().entity(reset).insert((
                 kit::Disabled(used == 0),
-                Tooltip::simple("Reset", "Take back every point spent, for free."),
+                Tooltip::simple(tr("Reset"), tr("Take back every point spent, for free.")),
             ));
         });
         b.spawn(kit::text(
             &f.body,
-            "Runs earn gold; gold trains points, shared by every class. Five points in a tree \
+            tr(
+                "Runs earn gold; gold trains points, shared by every class. Five points in a tree \
              open its next tier, as in WoW.",
+            ),
             12.0,
             theme::DIM,
         ));
@@ -2541,17 +2677,19 @@ fn refresh_talents(
                                     let per = super::talents::rank_bonus(tree.tab, t);
                                     let mut lines = vec![
                                         TipLine::new(name, Color::WHITE).header(),
-                                        TipLine::new(format!("Rank {r}/{max}"), theme::DIM),
                                         TipLine::new(
-                                            format!("+{} per rank", bonus_text(&per)),
+                                            trf("Rank {}/{}", &[&r.to_string(), &max.to_string()]),
+                                            theme::DIM,
+                                        ),
+                                        TipLine::new(
+                                            trf("+{} per rank", &[&bonus_text(&per)]),
                                             theme::GREEN,
                                         ),
                                     ];
                                     match super::talents::can_learn(&spent, &trees, tree, t, points)
                                     {
-                                        Ok(()) => {
-                                            lines.push(TipLine::new("Click to learn.", theme::GOLD))
-                                        }
+                                        Ok(()) => lines
+                                            .push(TipLine::new(tr("Click to learn."), theme::GOLD)),
                                         Err(why) => lines.push(TipLine::new(why, theme::RED)),
                                     }
                                     let learnable =
@@ -2585,7 +2723,7 @@ fn one_in(chance: f32) -> String {
         }
         grouped.push(c);
     }
-    format!("1 in {grouped}")
+    trf("1 in {}", &[&grouped])
 }
 
 /// The Drop Tables tab: every zone's five pieces, who drops each and at what odds.
@@ -2598,7 +2736,11 @@ fn refresh_drops(
     displays: Option<Res<crate::entities::ItemDisplays>>,
     body: Query<Entity, With<DropsBody>>,
     mut shown: Local<Option<(usize, usize, Option<usize>, bool)>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
         return;
     };
@@ -2629,12 +2771,12 @@ fn refresh_drops(
         ));
         for (z, map) in data::MAPS.iter().enumerate() {
             let open = store.profile.zone_open(z);
-            kit::heading(p, f, map.name);
+            kit::heading(p, f, tr(map.name));
             if !open {
                 if let Some(hint) = data::unlock_hint(z) {
                     p.spawn(kit::text(
                         &f.body,
-                        format!("Locked · {hint}"),
+                        trf("Locked · {}", &[&hint]),
                         11.0,
                         theme::RED,
                     ));
@@ -2678,20 +2820,20 @@ fn refresh_drops(
                             .collect();
                         c.spawn(kit::text(
                             &f.body,
-                            format!("{} · {}", item.slot.name(), bonuses.join(" · ")),
+                            format!("{} · {}", tr(item.slot.name()), bonuses.join(" · ")),
                             11.0,
                             theme::DIM,
                         ));
                     });
-                    kit::chip(row, f, &format!("{boss}: always"), true);
+                    kit::chip(row, f, &trf("{}: always", &[boss]), true);
                     kit::chip(
                         row,
                         f,
-                        &format!("Horde: {}", one_in(data::horde_chance(item))),
+                        &trf("Horde: {}", &[&one_in(data::horde_chance(item))]),
                         false,
                     );
                     if have {
-                        row.spawn(kit::text(&f.body, "Found", 11.0, theme::GREEN));
+                        row.spawn(kit::text(&f.body, tr("Found"), 11.0, theme::GREEN));
                     }
                 });
             }
@@ -2708,7 +2850,11 @@ fn refresh_codex(
     spells: Option<Res<crate::ui_action::Spells>>,
     body: Query<Entity, With<CodexBody>>,
     mut shown: Local<Option<(usize, usize, usize, usize, bool)>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
         return;
     };
@@ -2762,7 +2908,7 @@ fn refresh_codex(
                     kit::progress_bar(
                         c,
                         f,
-                        label,
+                        tr(label),
                         kit::Progress {
                             value: value as f32,
                             max: max as f32,
@@ -2771,7 +2917,7 @@ fn refresh_codex(
                 });
             }
         });
-        kit::heading(p, f, "Bosses");
+        kit::heading(p, f, tr("Bosses"));
         for (z, map) in data::MAPS.iter().enumerate() {
             p.spawn(Node {
                 column_gap: Val::Px(6.0),
@@ -2785,7 +2931,7 @@ fn refresh_codex(
                     ..default()
                 })
                 .with_children(|c| {
-                    c.spawn(kit::text(&f.title, map.name, 14.0, theme::GOLD));
+                    c.spawn(kit::text(&f.title, tr(map.name), 14.0, theme::GOLD));
                 });
                 for (t, name) in boss_timeline(z) {
                     let met = codex.bosses.contains(name);
@@ -2798,7 +2944,7 @@ fn refresh_codex(
                 }
             });
         }
-        kit::heading(p, f, "Horde");
+        kit::heading(p, f, tr("Horde"));
         for (z, map) in data::MAPS.iter().enumerate() {
             let names = enemy_names(z);
             let met: Vec<String> = names
@@ -2833,7 +2979,7 @@ fn refresh_codex(
                 row.spawn(kit::text(&f.body, met.join(", "), 11.0, theme::TEXT));
             });
         }
-        kit::heading(p, f, "Spells");
+        kit::heading(p, f, tr("Spells"));
         p.spawn(Node {
             column_gap: Val::Px(4.0),
             row_gap: Val::Px(4.0),
@@ -2846,7 +2992,7 @@ fn refresh_codex(
                 let tip = if met {
                     Tooltip(spell_tip(a, &stats, spells))
                 } else {
-                    Tooltip::simple("Not played yet", "Take it from a level-up card.")
+                    Tooltip::simple(tr("Not played yet"), tr("Take it from a level-up card."))
                 };
                 let e = kit::icon(g, IconSource::Spell(a.spell), 30.0, Some(tip));
                 if !met {
@@ -2858,7 +3004,7 @@ fn refresh_codex(
                 let tip = if met {
                     Tooltip::simple(ps.name, format!("+{} per rank", bonus_text(&ps.bonus(1))))
                 } else {
-                    Tooltip::simple("Not played yet", "Take it from a level-up card.")
+                    Tooltip::simple(tr("Not played yet"), tr("Take it from a level-up card."))
                 };
                 let e = kit::icon(g, IconSource::Spell(ps.spell), 30.0, Some(tip));
                 if !met {
@@ -2880,7 +3026,11 @@ fn refresh_achievements(
     tabs: Query<(&TabButton, &Children)>,
     mut texts: Query<&mut Text>,
     mut shown: Local<Option<String>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let Some(fonts) = fonts else { return };
     let p = &store.profile;
     let view = format!(
@@ -2911,9 +3061,9 @@ fn refresh_achievements(
         for child in children.iter() {
             if let Ok(mut t) = texts.get_mut(child) {
                 let want = if unclaimed.is_empty() {
-                    TABS[REWARDS].to_string()
+                    tr(TABS[REWARDS]).to_string()
                 } else {
-                    format!("{} ({})", TABS[REWARDS], unclaimed.len())
+                    trf("Rewards ({})", &[&unclaimed.len().to_string()])
                 };
                 if **t != want {
                     **t = want;
@@ -2928,7 +3078,7 @@ fn refresh_achievements(
         kit::progress_bar(
             body,
             f,
-            "Achievements",
+            tr("Achievements"),
             kit::Progress {
                 value: done as f32,
                 max: data::ACHIEVEMENTS.len() as f32,
@@ -2973,18 +3123,23 @@ fn refresh_achievements(
                         },
                     );
                 });
-                kit::chip(row, f, &format!("{} gold", x.gold), ok && !claimed);
+                kit::chip(
+                    row,
+                    f,
+                    &trf("{} gold", &[&x.gold.to_string()]),
+                    ok && !claimed,
+                );
                 if ok && !claimed {
                     kit::button(
                         row,
                         f,
-                        "Claim",
+                        tr("Claim"),
                         None,
                         kit::ButtonLook::ACTION,
                         ScreenAction::Claim(i),
                     );
                 } else if claimed {
-                    row.spawn(kit::text(&f.body, "Claimed", 11.0, theme::GREEN));
+                    row.spawn(kit::text(&f.body, tr("Claimed"), 11.0, theme::GREEN));
                 }
             });
         }
@@ -2994,7 +3149,7 @@ fn refresh_achievements(
         if unclaimed.is_empty() {
             body.spawn(kit::text(
                 &f.body,
-                "Nothing waits to be claimed. Achievements pay gold here once done.",
+                tr("Nothing waits to be claimed. Achievements pay gold here once done."),
                 13.0,
                 theme::DIM,
             ));
@@ -3004,8 +3159,8 @@ fn refresh_achievements(
         kit::button(
             body,
             f,
-            "Claim all",
-            Some(&format!("{total} gold")),
+            tr("Claim all"),
+            Some(&trf("{} gold", &[&total.to_string()])),
             kit::ButtonLook::ACTION,
             ScreenAction::ClaimAll,
         );
@@ -3026,15 +3181,188 @@ fn refresh_achievements(
                 .with_children(|c| {
                     c.spawn(kit::text(&f.title, x.name.clone(), 15.0, theme::GOLD));
                 });
-                kit::chip(row, f, &format!("{} gold", x.gold), true);
+                kit::chip(row, f, &trf("{} gold", &[&x.gold.to_string()]), true);
                 kit::button(
                     row,
                     f,
-                    "Claim",
+                    tr("Claim"),
                     None,
                     kit::ButtonLook::ACTION,
                     ScreenAction::Claim(i),
                 );
+            });
+        }
+    });
+}
+
+/// A new language rebuilds the main screen, every label in it.
+fn rebuild_on_language(
+    mut commands: Commands,
+    roots: Query<Entity, With<ScreenRoot>>,
+    mut page: ResMut<Page>,
+    mut seen: Local<u32>,
+) {
+    if !lang::stale(&mut seen) {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    // The pages show again once built.
+    page.set_changed();
+}
+
+/// The Options page: sound, mouse, picture, language, and the controls.
+fn refresh_options(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    store: Res<ProfileStore>,
+    body: Query<Entity, With<OptionsBody>>,
+    mut shown: Local<Option<super::profile::Options>>,
+    mut seen_language: Local<u32>,
+) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
+    let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
+        return;
+    };
+    let o = store.profile.options.clamped();
+    if shown.as_ref() == Some(&o) {
+        return;
+    }
+    *shown = Some(o.clone());
+    let f = &*fonts;
+    let percent = |v: f32| format!("{:.0}%", v * 100.0);
+    commands.entity(body).despawn_related::<Children>();
+    commands.entity(body).with_children(|p| {
+        kit::button(
+            p,
+            f,
+            tr("Back"),
+            None,
+            kit::ButtonLook::PLAIN,
+            ScreenAction::Back,
+        );
+        let rows: [(&str, String, Setting); 5] = [
+            ("Master volume", percent(o.master), Setting::Master),
+            ("Music", percent(o.music), Setting::Music),
+            ("Sound effects", percent(o.sfx), Setting::Sfx),
+            (
+                "Mouse sensitivity",
+                format!("×{:.1}", o.mouse_sens),
+                Setting::Sens,
+            ),
+            (
+                "Picture polish",
+                tr(if o.polish { "On" } else { "Off" }).to_string(),
+                Setting::Polish,
+            ),
+        ];
+        for (label, value, setting) in rows {
+            p.spawn(Node {
+                column_gap: Val::Px(10.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    width: Val::Px(220.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.body, tr(label), 14.0, theme::TEXT));
+                });
+                if setting == Setting::Polish {
+                    kit::button(
+                        row,
+                        f,
+                        &value,
+                        None,
+                        kit::ButtonLook::PLAIN,
+                        ScreenAction::Set(setting, 1),
+                    );
+                    return;
+                }
+                kit::button(
+                    row,
+                    f,
+                    tr("−"),
+                    None,
+                    kit::ButtonLook::PLAIN,
+                    ScreenAction::Set(setting, -1),
+                );
+                row.spawn(Node {
+                    width: Val::Px(60.0),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.body, value.clone(), 14.0, theme::GOLD));
+                });
+                kit::button(
+                    row,
+                    f,
+                    tr("+"),
+                    None,
+                    kit::ButtonLook::PLAIN,
+                    ScreenAction::Set(setting, 1),
+                );
+            });
+        }
+        p.spawn(Node {
+            column_gap: Val::Px(10.0),
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn(Node {
+                width: Val::Px(220.0),
+                ..default()
+            })
+            .with_children(|c| {
+                c.spawn(kit::text(&f.body, tr("Language"), 14.0, theme::TEXT));
+            });
+            for (i, l) in lang::Lang::ALL.iter().enumerate() {
+                let b = kit::button(
+                    row,
+                    f,
+                    l.name(),
+                    None,
+                    kit::ButtonLook::PLAIN,
+                    ScreenAction::Language(i),
+                );
+                row.commands()
+                    .entity(b)
+                    .insert(kit::Selected(l.code() == o.language));
+            }
+        });
+        kit::heading(p, f, tr("Controls"));
+        for (keys, what) in [
+            ("W A S D", "Run where the camera looks"),
+            (tr("Both mouse buttons"), "Run forward"),
+            ("Mouse", "Look around"),
+            ("Space", "Jump"),
+            ("F", "Movement spell"),
+            ("C", "Switch the camera"),
+            ("G", "Toggle the picture polish"),
+            ("1 2 3", "Pick a card"),
+            ("R", "Reroll the cards"),
+            ("Esc", "Pause"),
+        ] {
+            p.spawn(Node {
+                column_gap: Val::Px(10.0),
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    width: Val::Px(220.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.body, keys, 13.0, theme::GOLD));
+                });
+                row.spawn(kit::text(&f.body, tr(what), 13.0, theme::TEXT));
             });
         }
     });
@@ -3076,7 +3404,11 @@ fn refresh_zone_list(
     store: Res<ProfileStore>,
     list: Query<Entity, With<ZoneList>>,
     mut shown: Local<Option<(usize, usize, usize)>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(list)) = (fonts, list.single()) else {
         return;
     };
@@ -3121,7 +3453,7 @@ fn refresh_zone_list(
             l.commands().entity(button).with_children(|b| {
                 b.spawn(kit::text(
                     &f.title,
-                    map.name,
+                    tr(map.name),
                     if picked { 22.0 } else { 17.0 },
                     if picked {
                         theme::GOLD
@@ -3135,7 +3467,7 @@ fn refresh_zone_list(
                     let hint = data::unlock_hint(i).unwrap_or_default();
                     b.spawn(kit::text(
                         &f.body,
-                        format!("Locked · {hint}"),
+                        trf("Locked · {}", &[&hint]),
                         11.0,
                         theme::RED,
                     ));
@@ -3178,7 +3510,7 @@ fn refresh_zone_list(
                 if let Some((_, final_boss)) = boss_timeline(i).last() {
                     b.spawn(kit::text(
                         &f.body,
-                        format!("Defeat {final_boss} to win."),
+                        trf("Defeat {} to win.", &[final_boss]),
                         11.0,
                         theme::GOLD,
                     ));
@@ -3197,7 +3529,11 @@ fn refresh_bottom_bar(
     store: Res<ProfileStore>,
     bar: Query<Entity, With<BottomBar>>,
     mut shown: Local<Option<(usize, bool, bool, usize, usize)>>,
+    mut seen_language: Local<u32>,
 ) {
+    if rebuilt(&mut seen_language) {
+        *shown = None;
+    }
     let (Some(fonts), Ok(bar)) = (fonts, bar.single()) else {
         return;
     };
@@ -3215,16 +3551,24 @@ fn refresh_bottom_bar(
     let final_boss = timeline.last().map_or("", |t| t.1);
     commands.entity(bar).despawn_related::<Children>();
     commands.entity(bar).with_children(|r| {
+        kit::button(
+            r,
+            f,
+            tr("Options"),
+            None,
+            kit::ButtonLook::PLAIN,
+            ScreenAction::Options,
+        );
         let d = data::DIFFICULTIES[difficulty];
         let options = kit::button(
             r,
             f,
-            "Run Options",
-            Some(&format!("{} difficulty", d.name)),
+            tr("Run Options"),
+            Some(&trf("{} difficulty", &[tr(d.name)])),
             kit::ButtonLook::PLAIN,
             ScreenAction::RunOptions,
         );
-        let mut lines = vec![TipLine::new("Difficulty", Color::WHITE).header()];
+        let mut lines = vec![TipLine::new(tr("Difficulty"), Color::WHITE).header()];
         for (i, x) in data::DIFFICULTIES.iter().enumerate() {
             let (text, color) = if i <= hardest {
                 (
@@ -3264,10 +3608,13 @@ fn refresh_bottom_bar(
             Tooltip(lines),
         ));
         let sub = if open || session.in_lobby {
-            format!(
-                "Defeat {final_boss} at {} · {} bosses on the way",
-                mmss(data::Rules::SOLO.duration),
-                timeline.len()
+            trf(
+                "Defeat {} at {} · {} bosses on the way",
+                &[
+                    final_boss,
+                    &mmss(data::Rules::SOLO.duration),
+                    &timeline.len().to_string(),
+                ],
             )
         } else {
             data::unlock_hint(selection.map).unwrap_or_default()
@@ -3275,7 +3622,7 @@ fn refresh_bottom_bar(
         let enter = kit::big_button(
             r,
             f,
-            &format!("Enter {}", map.name),
+            &trf("Enter {}", &[tr(map.name)]),
             &sub,
             ScreenAction::Enter,
         );
@@ -3283,9 +3630,9 @@ fn refresh_bottom_bar(
             r.commands().entity(enter).insert(kit::Disabled(true));
         }
         let (title, sub) = if session.in_lobby {
-            ("Co-op", "Back to your lobby")
+            (tr("Co-op"), tr("Back to your lobby"))
         } else {
-            ("Co-op", "Play with friends")
+            (tr("Co-op"), tr("Play with friends"))
         };
         kit::button(
             r,
