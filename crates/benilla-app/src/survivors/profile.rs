@@ -11,7 +11,7 @@
 //! profile written by a newer game is read but never overwritten, so going back a version loses
 //! nothing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use bevy::prelude::*;
@@ -114,6 +114,18 @@ pub(super) struct Profile {
     pub talent_points: u32,
     /// Each class's talents, by [`data::ClassDef::name`]: talent id to rank.
     pub talents: BTreeMap<String, super::talents::Spent>,
+    /// What the Codex has seen: the horde and bosses met, by name, and the spells and passives
+    /// played, by key.
+    pub codex: Codex,
+}
+
+/// The Codex's pages, filled as the runs meet things.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub(super) struct Codex {
+    pub horde: BTreeSet<String>,
+    pub bosses: BTreeSet<String>,
+    pub spells: BTreeSet<String>,
 }
 
 impl Default for Profile {
@@ -128,6 +140,7 @@ impl Default for Profile {
             gold: 0,
             talent_points: 0,
             talents: BTreeMap::new(),
+            codex: Codex::default(),
         }
     }
 }
@@ -147,6 +160,10 @@ pub(super) struct RunResult {
     pub gold: u32,
     /// The [`data::DIFFICULTIES`] index it was played at.
     pub difficulty: u8,
+    /// What it met, for the Codex: horde and bosses by name, spells and passives by key.
+    pub met_horde: Vec<String>,
+    pub met_bosses: Vec<String>,
+    pub spells: Vec<String>,
 }
 
 impl Profile {
@@ -218,6 +235,9 @@ impl Profile {
             *self.inventory.entry(name.clone()).or_default() += 1;
         }
         self.gold += u64::from(r.gold);
+        self.codex.horde.extend(r.met_horde.iter().cloned());
+        self.codex.bosses.extend(r.met_bosses.iter().cloned());
+        self.codex.spells.extend(r.spells.iter().cloned());
     }
 
     /// Whether a difficulty is open in a zone: Normal always, any other once the one below it has
@@ -536,10 +556,17 @@ fn save_on_exit(mut exit: MessageReader<AppExit>, mut store: ResMut<ProfileStore
 }
 
 /// The run that just ended goes on the record.
-fn record_run(run: Res<Run>, selection: Res<Selection>, mut store: ResMut<ProfileStore>) {
+fn record_run(
+    run: Res<Run>,
+    selection: Res<Selection>,
+    session: Res<super::Session>,
+    mut store: ResMut<ProfileStore>,
+) {
     if !run.begun {
         return;
     }
+    let zone = selection.stage;
+    let roster = data::roster(zone);
     let result = RunResult {
         zone: selection.stage_def().name.to_string(),
         won: run.won,
@@ -556,6 +583,22 @@ fn record_run(run: Res<Run>, selection: Res<Selection>, mut store: ResMut<Profil
                 * data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward,
         ),
         difficulty: run.difficulty as u8,
+        met_horde: data::met_horde(zone, run.elapsed, &session.rules)
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        met_bosses: roster
+            .bosses
+            .iter()
+            .take(run.bosses as usize)
+            .map(|b| b.name.to_string())
+            .collect(),
+        spells: run
+            .abilities
+            .iter()
+            .map(|o| o.def.key.to_string())
+            .chain(run.passives.iter().map(|(p, _)| p.key.to_string()))
+            .collect(),
     };
     store.edit(|p| p.record(&result));
     // A finished run is worth writing at once.
@@ -577,11 +620,29 @@ mod tests {
             loot: Vec::new(),
             gold: 0,
             difficulty: 0,
+            met_horde: Vec::new(),
+            met_bosses: Vec::new(),
+            spells: Vec::new(),
         }
     }
 
     fn warrior() -> &'static data::ClassDef {
         data::CLASSES.iter().find(|c| c.id == 1).unwrap()
+    }
+
+    #[test]
+    fn the_codex_fills_as_runs_meet_things() {
+        let mut p = Profile::default();
+        let mut r = result("Elwynn Forest", false, 9, 99);
+        r.met_horde = vec!["Young Wolf".into(), "Kobold Vermin".into()];
+        r.met_bosses = vec!["Hogger".into()];
+        r.spells = vec!["frostbolt".into()];
+        p.record(&r);
+        r.met_horde = vec!["Young Wolf".into(), "Prowler".into()];
+        p.record(&r);
+        assert_eq!(p.codex.horde.len(), 3);
+        assert!(p.codex.bosses.contains("Hogger"));
+        assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
     }
 
     #[test]
