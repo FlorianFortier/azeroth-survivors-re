@@ -66,7 +66,8 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
-| `minimap.rs` | the minimap cluster and the day clock |
+| `marks.rs` | the field's marks over the world: rings on the ground under chests and elites, a fallen elite's post filling as it comes back, a chest's price and an elite's reward over them; all read off `treasure::FieldMark` and `Run::posts`, so guests see them too |
+| `minimap.rs` | the minimap cluster and the day clock; the field's chests, elites and empty posts on it |
 | `grade.rs` | the picture polish pass (`G`, `?grade=0`) |
 | `auto.rs` | `WOW_SURVIVORS_AUTO`: a hands-off run for testing, with screenshots |
 | `net/` | multiplayer, game side: `socket.rs` (WebSocket, native or browser), `host.rs` (plays and streams the run), `client.rs` (a guest's copy), `ui.rs` (lobby screens, party frames, scoreboard) |
@@ -187,6 +188,9 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   at it with `data::chest_cost` gold. Elites hold fixed posts (`data::ELITES`, `Enemy::home`),
   drop their kind's `data::Reward` and come back on its timer; run items (`data::RUN_ITEMS`) stack
   on `Vitals::run_items` and count in `Vitals::stats`. Half the unspent gold goes to the profile.
+  Chests and elites carry a `treasure::FieldMark` on every machine (the host sets it; a guest
+  reads it off `Role::Chest`/`Role::Elite`), and the posts reach guests as `Run::posts` on
+  `Game::Run`: what shows the field (`marks.rs`, the minimap) reads only those, never `Field`.
 - **Shown text goes through `lang::tr`.** A new label on the main screen or the HUD is written
   in English inside `tr(…)`, and its French added to `lang.rs`'s table; a name the profile stores
   (zones, items, classes) stays English in data and is translated only where it is shown.
