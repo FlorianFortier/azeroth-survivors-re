@@ -60,7 +60,7 @@ it holds; read it before changing the file.
 | `talents.rs` | the class's three trees from `Talent.dbc`, vanilla's rules, the mode's numbers |
 | `profile.rs` | the saved profile: pick, records, gold, inventory, equipped, talents, codex, achievements |
 | `names.rs` | random names in each race's sound, and what a typed one may hold |
-| `kit.rs` | the menu's UI kit (panels, headings, tabs, buttons, icons, tiles, bars, chips, tooltips, text fields, scroll areas); `?ui_kit=1` shows a gallery |
+| `kit.rs` | the menu's UI kit (panels, headings, tabs, buttons, icons, tiles, bars, chips, tooltips, text fields, scroll areas: the wheel scrolls the one under the pointer, and a bar on its right shows and drags it); `?ui_kit=1` shows a gallery |
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
