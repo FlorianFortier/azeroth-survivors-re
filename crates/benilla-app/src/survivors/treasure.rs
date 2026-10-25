@@ -78,6 +78,24 @@ fn chest_look() -> (u32, f32) {
         .map_or((1307, 3.0), |d| (d, 1.2))
 }
 
+/// What a unit is to the field, on every machine: the host sets it, a guest reads it off the
+/// spawn's role, and the marks (`marks.rs`) draw from it.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FieldMark {
+    Chest,
+    /// An elite of the [`data::ELITES`] kind.
+    Elite(u8),
+}
+
+/// One elite post as the marks see it: where, which kind, and how long until it is back (0 while
+/// its elite stands). The host's [`Field`] on solo and the host, the host's stream on a guest.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PostView {
+    pub kind: usize,
+    pub pos: Vec3,
+    pub wait: f32,
+}
+
 /// A chest on the field, and how long a hero has stood at it.
 #[derive(Component)]
 pub(super) struct Chest {
@@ -124,6 +142,7 @@ fn spawn_chest(commands: &mut Commands, run: &mut Run, pos: Vec3) {
             told: false,
         },
         super::Pickup,
+        FieldMark::Chest,
     ));
 }
 
@@ -256,6 +275,7 @@ pub(super) fn tend_field(
         );
         commands
             .entity(e)
+            .insert(FieldMark::Elite(kind as u8))
             .entry::<Enemy>()
             .and_modify(move |mut en| {
                 en.elite = Some(kind as u8);
@@ -341,6 +361,16 @@ pub(super) fn tend_field(
         break;
     }
     run.chest_cost = data::chest_cost(field.opened);
+    run.posts.clear();
+    run.posts.extend(field.posts.iter().map(|p| PostView {
+        kind: p.kind,
+        pos: p.pos,
+        wait: if p.unit.is_some() {
+            0.0
+        } else {
+            p.wait.max(0.0)
+        },
+    }));
 }
 
 #[cfg(test)]

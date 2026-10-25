@@ -5,7 +5,8 @@
 //! Bevy UI clips only to rectangles, so the round map is composited here each frame: the ADT tiles
 //! through `md5translate.trs` (north up, 533.33 yd per 256-px tile), masked by `MinimapMask.blp`,
 //! then the player arrow, then the red `ObjectIcons` cell per live enemy, the dot the reference
-//! draws for a tracked creature. Sizes are the engine minimap's ([`crate::minimap`]), measured
+//! draws for a tracked creature, then the run's field: a gold diamond per chest, a diamond in its
+//! reward's colour per elite and a ring per empty post, the far ones held at the edge. Sizes are the engine minimap's ([`crate::minimap`]), measured
 //! against its 140.8-px blip basis.
 
 use std::collections::HashMap;
@@ -21,8 +22,9 @@ use benilla_world::world_point::WorldPoint;
 
 use super::hero::Hero;
 use super::hud::UiArt;
+use super::treasure::FieldMark;
 use super::units::is_dead;
-use super::Run;
+use super::{data, Run};
 use super::{Hostile, LocalHero};
 use crate::area::AreaTableRes;
 use crate::net::ObjectStore;
@@ -42,6 +44,11 @@ const BLIP_BASIS_PX: f32 = 140.8;
 const DOT_PX: f32 = 8.0;
 /// `ObjectIcons.blp` cell 1 (left, right, top, bottom): a unit passing creature tracking.
 const TRACKED_UNIT_CELL: [f32; 4] = [0.25, 0.5, 0.0, 0.25];
+/// The field's marks: a chest's diamond and an elite's (or its empty post's ring).
+const CHEST_PX: f32 = 9.0;
+const ELITE_PX: f32 = 12.0;
+/// How far out, of the view's radius, a far elite or post is held at the edge.
+const EDGE_HOLD: f32 = 0.88;
 const ARROW_PX: f32 = 33.6;
 const ARROW_OFFSET_PX: Vec2 = Vec2::new(0.51, -1.73);
 
@@ -364,7 +371,9 @@ pub(super) fn compose(
     phase: Res<State<super::Phase>>,
     hero: Query<&Transform, With<LocalHero>>,
     allies: Query<&Transform, (With<Hero>, Without<LocalHero>)>,
-    enemies: Query<(&Transform, &ObjectStore), With<Hostile>>,
+    enemies: Query<(&Transform, &ObjectStore), (With<Hostile>, Without<FieldMark>)>,
+    marks: Query<(&Transform, &FieldMark, Option<&ObjectStore>)>,
+    run: Res<Run>,
     mut images: ResMut<Assets<Image>>,
 ) {
     if *phase.get() == super::Phase::Menu || !map.shown {
@@ -524,6 +533,52 @@ pub(super) fn compose(
         }
     }
 
+    // The field over the horde: chests where they stand, and the elites and their empty posts
+    // held at the ring's edge when farther, so the map points the way to them.
+    let rgb = |c: [f32; 3]| c.map(|v| v * 255.0);
+    let edge = radius * EDGE_HOLD;
+    for (tf, mark, store) in &marks {
+        if store.is_some_and(is_dead) {
+            continue;
+        }
+        let off = Vec2::new(tf.translation.x - p.x, tf.translation.z - p.z);
+        match mark {
+            FieldMark::Chest => {
+                if off.length() > radius {
+                    continue;
+                }
+                let size = CHEST_PX * scale;
+                blit(buf, center + off / yd_per_px, size, |q| {
+                    diamond(q, size, rgb(data::CHEST_COLOR))
+                });
+            }
+            FieldMark::Elite(k) => {
+                let c = data::ELITES[usize::from(*k).min(data::ELITES.len() - 1)].color;
+                let size = ELITE_PX * scale;
+                blit(
+                    buf,
+                    center + off.clamp_length_max(edge) / yd_per_px,
+                    size,
+                    |q| diamond(q, size, rgb(c)),
+                );
+            }
+        }
+    }
+    for post in &run.posts {
+        if post.wait <= 0.0 {
+            continue;
+        }
+        let c = data::ELITES[post.kind.min(data::ELITES.len() - 1)].color;
+        let off = Vec2::new(post.pos.x - p.x, post.pos.z - p.z).clamp_length_max(edge);
+        let size = ELITE_PX * scale;
+        blit(buf, center + off / yd_per_px, size, |q| {
+            let d = q.length() / (size / 2.0);
+            (0.55..=1.0)
+                .contains(&d)
+                .then_some([c[0] * 255.0, c[1] * 255.0, c[2] * 255.0, 170.0])
+        });
+    }
+
     // The other heroes: a round party-blue dot each, over the horde.
     let ally = DOT_PX * scale * 1.3;
     for tf in &allies {
@@ -550,6 +605,18 @@ pub(super) fn compose(
         if let Some(data) = image.data.as_mut() {
             data.copy_from_slice(&map.buf);
         }
+    }
+}
+
+/// A diamond `size` px across in `rgb`, edged in black: the field's chests and elites.
+fn diamond(q: Vec2, size: f32, rgb: [f32; 3]) -> Option<[f32; 4]> {
+    let d = (q.x.abs() + q.y.abs()) / (size / 2.0);
+    if d > 1.0 {
+        None
+    } else if d > 0.7 {
+        Some([0.0, 0.0, 0.0, 255.0])
+    } else {
+        Some([rgb[0], rgb[1], rgb[2], 255.0])
     }
 }
 

@@ -2725,28 +2725,47 @@ pub(crate) struct EliteKind {
     pub title: &'static str,
     pub reward: Reward,
     pub respawn: f32,
+    /// The `Spell.dbc` row whose icon shows the reward over the elite (the icon only).
+    pub icon: u32,
+    /// Its marks' colour, on the ground, the minimap and its label (sRGB, 0..1).
+    pub color: [f32; 3],
 }
+
+/// The `Spell.dbc` row whose icon shows over a chest: Pick Pocket's purse.
+pub(crate) const CHEST_ICON: u32 = 921;
+/// A chest's marks' colour.
+pub(crate) const CHEST_COLOR: [f32; 3] = [1.0, 0.82, 0.2];
+/// Yards from the hero within which the field's labels show over the world.
+pub(crate) const MARK_RANGE: f32 = 90.0;
 
 pub(crate) const ELITES: [EliteKind; 4] = [
     EliteKind {
         title: "Armory Guardian",
         reward: Reward::Gear { percent: 35 },
         respawn: 90.0,
+        icon: 13262,
+        color: [0.64, 0.21, 0.93],
     },
     EliteKind {
         title: "Arcane Sentinel",
         reward: Reward::SpellRank,
         respawn: 75.0,
+        icon: 1459,
+        color: [0.25, 0.6, 1.0],
     },
     EliteKind {
         title: "Relic Keeper",
         reward: Reward::RunItem,
         respawn: 75.0,
+        icon: 2481,
+        color: [0.12, 1.0, 0.0],
     },
     EliteKind {
         title: "Hoard Warden",
         reward: Reward::Gold(40),
         respawn: 60.0,
+        icon: 921,
+        color: [1.0, 0.5, 0.0],
     },
 ];
 

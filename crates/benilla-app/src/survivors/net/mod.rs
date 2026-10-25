@@ -482,7 +482,7 @@ mod tests {
     use crate::creature_anim::{CastEvent, MovementState, PlaySeq, SpellGoTargets, SwingMessage};
     use crate::net::{FieldChanged, Guid, NetEntity, ObjectStore};
     use crate::survivors::units::{FxEvent, FxLog};
-    use crate::survivors::{HeroState, Hostile, LocalHero, RunEntity, Vitals};
+    use crate::survivors::{HeroState, Hostile, LocalHero, Pickup, RunEntity, Vitals};
     use benilla_protocol::messages::ObjectFields;
 
     /// A world with what the stream and its copy need, and nothing of the engine.
@@ -669,6 +669,49 @@ mod tests {
             "the despawn reached the guest"
         );
         assert!(by_guid(&mut guest, 200).is_some());
+    }
+
+    #[test]
+    fn the_field_reaches_the_guest() {
+        use crate::survivors::treasure::{FieldMark, PostView};
+        let mut host = world(Mode::Host, 0);
+        host.add_systems(Update, host::stream);
+        let mut guest = world(Mode::Client, 1);
+        guest.add_systems(Update, client::receive);
+
+        // An elite at its post, a chest, and an empty post coming back.
+        host.world_mut()
+            .spawn((unit(300, 100), Hostile, FieldMark::Elite(2)));
+        host.world_mut()
+            .spawn((unit(301, 100), Pickup, FieldMark::Chest));
+        host.world_mut().resource_mut::<Run>().posts = vec![PostView {
+            kind: 1,
+            pos: Vec3::new(4.0, 0.0, -8.0),
+            wait: 30.0,
+        }];
+        host.world_mut().resource_mut::<Run>().chest_cost = 55;
+        host.world_mut().resource_mut::<host::Replicator>().due();
+        host.update();
+        deliver(&mut host, &mut guest);
+        guest.update();
+
+        let elite = by_guid(&mut guest, 300).expect("the elite is copied");
+        assert_eq!(
+            guest.world().get::<FieldMark>(elite),
+            Some(&FieldMark::Elite(2))
+        );
+        assert!(guest.world().get::<Hostile>(elite).is_some());
+        let chest = by_guid(&mut guest, 301).expect("the chest is copied");
+        assert_eq!(
+            guest.world().get::<FieldMark>(chest),
+            Some(&FieldMark::Chest)
+        );
+        let run = guest.world().resource::<Run>();
+        assert_eq!(run.chest_cost, 55);
+        assert_eq!(run.posts.len(), 1);
+        assert_eq!(run.posts[0].kind, 1);
+        assert!((run.posts[0].wait - 30.0).abs() < 1e-4);
+        assert_eq!(run.posts[0].pos, Vec3::new(4.0, 0.0, -8.0));
     }
 
     #[test]

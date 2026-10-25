@@ -19,6 +19,7 @@ use crate::net::{FieldChanged, Guid, NetEntity, ObjectStore, ScriptedFacing};
 use crate::survivors::hero::Hero;
 use crate::survivors::mobility::{self, MobilityQueue};
 use crate::survivors::sync::{self, LocalPicks};
+use crate::survivors::treasure::{FieldMark, PostView};
 use crate::survivors::units::Fx;
 use crate::survivors::{data, Hostile, LocalHero, Mode, Owned, Pickup, Run, RunEntity, Session};
 
@@ -119,6 +120,12 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
         }
         Role::Pickup => {
             ec.insert((Pickup, copy));
+        }
+        Role::Chest => {
+            ec.insert((Pickup, FieldMark::Chest, copy));
+        }
+        Role::Elite(kind) => {
+            ec.insert((Hostile, FieldMark::Elite(kind), copy));
         }
         Role::Totem | Role::Area => {
             ec.insert(copy);
@@ -331,8 +338,17 @@ pub(super) fn receive(
                 waiting,
                 banner,
                 chest_cost,
+                posts,
             } => {
                 run.chest_cost = chest_cost;
+                run.posts = posts
+                    .into_iter()
+                    .map(|p| PostView {
+                        kind: usize::from(p.kind),
+                        pos: Vec3::from_array(p.pos),
+                        wait: p.wait,
+                    })
+                    .collect();
                 run.elapsed = elapsed;
                 run.bosses = bosses;
                 run.waiting = waiting;

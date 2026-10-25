@@ -19,6 +19,7 @@ mod hero;
 mod hud;
 mod kit;
 mod lang;
+mod marks;
 mod menu;
 mod minimap;
 mod mobility;
@@ -165,6 +166,8 @@ impl Plugin for SurvivorsPlugin {
                     hud::xp_hover,
                     hud::icon_tooltip,
                     hud::hero_plate,
+                    marks::place_labels,
+                    marks::draw_rings,
                     minimap::map_buttons,
                     minimap::zone_text,
                     minimap::compose,
@@ -565,6 +568,8 @@ pub(super) struct Run {
     pub run_id: u32,
     /// What the next chest costs (the host's, for a guest).
     pub chest_cost: u32,
+    /// The field's elite posts (the host's, for a guest), for the marks.
+    pub posts: Vec<treasure::PostView>,
     /// The [`data::DIFFICULTIES`] index the run is played at; Normal in a lobby, whose own rules
     /// set its difficulty.
     pub difficulty: usize,
@@ -587,6 +592,7 @@ impl Default for Run {
             rerolls: data::REROLLS_PER_RUN,
             run_id: 0,
             chest_cost: data::chest_cost(0),
+            posts: Vec::new(),
             difficulty: 0,
         }
     }

@@ -21,6 +21,20 @@ pub enum Role {
     Pickup,
     /// A ground spell's dynamic object.
     Area,
+    /// A chest of the run's field, opened with the run's gold.
+    Chest,
+    /// An elite holding a post of the field, by kind (`data::ELITES`).
+    Elite(u8),
+}
+
+/// One elite's post of the run's field, as the host tends it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Post {
+    /// The elite's kind (`data::ELITES`).
+    pub kind: u8,
+    pub pos: [f32; 3],
+    /// Seconds until its elite comes back; 0 while it stands.
+    pub wait: f32,
 }
 
 /// The engine's object kind, as `NetEntity` holds it.
@@ -194,6 +208,8 @@ pub enum Game {
         banner: Option<(String, f32)>,
         /// What the next chest costs.
         chest_cost: u32,
+        /// The field's elite posts.
+        posts: Vec<Post>,
     },
     /// Your hero's numbers.
     Me(Vitals),
@@ -261,6 +277,8 @@ impl Wire for Role {
             Role::Totem => w.u8(2),
             Role::Pickup => w.u8(3),
             Role::Area => w.u8(4),
+            Role::Chest => w.u8(5),
+            Role::Elite(k) => w.u8(6).u8(*k),
         };
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -270,6 +288,8 @@ impl Wire for Role {
             2 => Role::Totem,
             3 => Role::Pickup,
             4 => Role::Area,
+            5 => Role::Chest,
+            6 => Role::Elite(r.u8()?),
             t => return Err(WireError::BadTag(t)),
         })
     }
@@ -560,6 +580,7 @@ impl Wire for Game {
                 waiting,
                 banner,
                 chest_cost,
+                posts,
             } => {
                 w.u8(8).f32(*elapsed).u32(*bosses).bool(*waiting).opt(
                     banner.as_ref(),
@@ -567,7 +588,10 @@ impl Wire for Game {
                         w.str(s).f32(*t);
                     },
                 );
-                w.u32(*chest_cost);
+                w.u32(*chest_cost).len(posts.len());
+                for p in posts {
+                    w.u8(p.kind).vec3(p.pos).f32(p.wait);
+                }
             }
             Game::Me(v) => {
                 w.u8(9);
@@ -672,6 +696,18 @@ impl Wire for Game {
                 waiting: r.bool()?,
                 banner: r.opt(|r| Ok((r.str()?, r.f32()?)))?,
                 chest_cost: r.u32()?,
+                posts: {
+                    let n = r.len(17)?;
+                    let mut posts = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        posts.push(Post {
+                            kind: r.u8()?,
+                            pos: r.vec3()?,
+                            wait: r.f32()?,
+                        });
+                    }
+                    posts
+                },
             },
             9 => Game::Me(Vitals::get(r)?),
             10 => {
@@ -758,6 +794,26 @@ mod tests {
                 pos: [0.0; 3],
                 yaw: 0.0,
             }),
+            Game::Spawn(Spawn {
+                guid: 9,
+                kind: ObjectKind::GameObject,
+                role: Role::Chest,
+                display: Some(259),
+                scale: 1.2,
+                fields: vec![],
+                pos: [5.0, 0.0, -5.0],
+                yaw: 0.0,
+            }),
+            Game::Spawn(Spawn {
+                guid: 10,
+                kind: ObjectKind::Unit,
+                role: Role::Elite(2),
+                display: Some(321),
+                scale: 1.6,
+                fields: vec![(22, 900)],
+                pos: [9.0, 1.0, 9.0],
+                yaw: 0.5,
+            }),
             Game::Fields {
                 guid: 7,
                 changes: vec![(22, 0)],
@@ -797,6 +853,18 @@ mod tests {
                 waiting: false,
                 banner: Some(("Echeyakee approaches!".into(), 4.0)),
                 chest_cost: 30,
+                posts: vec![
+                    Post {
+                        kind: 0,
+                        pos: [1.0, 2.0, 3.0],
+                        wait: 0.0,
+                    },
+                    Post {
+                        kind: 3,
+                        pos: [-4.0, 0.5, 9.0],
+                        wait: 41.5,
+                    },
+                ],
             },
             Game::Me(Vitals {
                 level: 9,

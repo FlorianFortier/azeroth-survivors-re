@@ -229,6 +229,17 @@ fn french(s: &str) -> Option<&'static str> {
         "Done" => "Terminé",
         "Kills {}  ·  Gold {}  ·  Chest {}" => "Victimes {}  ·  Or {}  ·  Coffre {}",
         "Run items: {}" => "Objets de la partie : {}",
+        // The field's marks.
+        "Stand here to open" => "Restez ici pour ouvrir",
+        "You have {}" => "Vous en avez {}",
+        "Gear {}%" => "Équipement {} %",
+        "Spell rank" => "Rang de sort",
+        "Run item" => "Objet de partie",
+        "Back in {}s" => "De retour dans {} s",
+        "Armory Guardian" => "Gardien de l'armurerie",
+        "Arcane Sentinel" => "Sentinelle arcanique",
+        "Relic Keeper" => "Gardien des reliques",
+        "Hoard Warden" => "Garde du magot",
         // Options.
         "Master volume" => "Volume général",
         "Music" => "Musique",
@@ -366,6 +377,10 @@ mod tests {
             ("Enter {}", "Entrer : {}"),
             ("Defeat {} at {} · {} bosses on the way", ""),
             ("Rank {}/{}", ""),
+            ("{} gold", "{} or"),
+            ("Gear {}%", ""),
+            ("Back in {}s", ""),
+            ("You have {}", ""),
         ] {
             let got = french(en).unwrap();
             assert_eq!(en.matches("{}").count(), got.matches("{}").count(), "{en}");
@@ -385,6 +400,9 @@ mod tests {
         }
         for s in super::super::data::GearSlot::ALL {
             assert!(french(s.name()).is_some(), "{}", s.name());
+        }
+        for e in super::super::data::ELITES {
+            assert!(french(e.title).is_some(), "{}", e.title);
         }
         for d in super::super::data::DIFFICULTIES {
             assert!(french(d.name).is_some(), "{}", d.name);

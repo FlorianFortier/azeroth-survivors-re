@@ -12,7 +12,8 @@ use benilla_world::model_fade::DespawnFade;
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
 use survivors_net::game::{
-    AbilityView, Game, Motion, ObjectKind, PartyEntry, Role, Score, Spawn, Vitals as WireVitals,
+    AbilityView, Game, Motion, ObjectKind, PartyEntry, Post as WirePost, Role, Score, Spawn,
+    Vitals as WireVitals,
 };
 use survivors_net::protocol::Target;
 
@@ -21,6 +22,7 @@ use crate::creature_anim::MovementState;
 use crate::net::{Guid, NetEntity, ObjectStore};
 use crate::survivors::hero::{self, Hero};
 use crate::survivors::mobility::MobilityQueue;
+use crate::survivors::treasure::FieldMark;
 use crate::survivors::units::{FxEvent, FxLog};
 use crate::survivors::{
     sync, HeroState, Hostile, LocalHero, Mode, Pickup, Run, RunEntity, Selection, Session, SimSet,
@@ -285,6 +287,7 @@ pub(super) fn stream(
             Has<Hostile>,
             Has<Pickup>,
             Has<DespawnFade>,
+            Option<&FieldMark>,
         ),
         With<RunEntity>,
     >,
@@ -303,7 +306,8 @@ pub(super) fn stream(
     let mut motions: Vec<Motion> = Vec::new();
     let mut seen: HashSet<Entity> = HashSet::with_capacity(rep.known.len());
 
-    for (e, guid, net_entity, store, tf, mv, hero_state, hostile, pickup, fading) in &objects {
+    for (e, guid, net_entity, store, tf, mv, hero_state, hostile, pickup, fading, mark) in &objects
+    {
         seen.insert(e);
         if fading {
             if let Some(k) = rep.known.get_mut(&e) {
@@ -326,10 +330,12 @@ pub(super) fn stream(
         let now = motion_of(guid.0, tf, mv);
         match rep.known.get_mut(&e) {
             None => {
-                let role = match (hero_state, hostile, pickup, kind) {
+                let role = match (hero_state, mark, hostile, pickup, kind) {
                     (Some(h), ..) => Role::Hero(h.slot),
-                    (_, true, ..) => Role::Enemy,
-                    (_, _, true, _) => Role::Pickup,
+                    (_, Some(FieldMark::Chest), ..) => Role::Chest,
+                    (_, Some(FieldMark::Elite(k)), ..) => Role::Elite(*k),
+                    (_, _, true, ..) => Role::Enemy,
+                    (_, _, _, true, _) => Role::Pickup,
                     (.., ObjectKind::DynamicObject) => Role::Area,
                     (.., ObjectKind::GameObject) => Role::Pickup,
                     _ => Role::Totem,
@@ -464,7 +470,7 @@ pub(super) fn stream(
     // The run's clock, the party, each guest's own numbers, and the outcome.
     let heroes: Vec<(u64, &HeroState)> = objects
         .iter()
-        .filter_map(|(_, g, .., h, _, _, _)| h.map(|h| (g.0, h)))
+        .filter_map(|(_, g, .., h, _, _, _, _)| h.map(|h| (g.0, h)))
         .collect();
     if rep.slow >= SLOW_TICK {
         rep.slow = 0.0;
@@ -474,6 +480,15 @@ pub(super) fn stream(
             waiting: run.waiting,
             banner: run.banner.clone(),
             chest_cost: run.chest_cost,
+            posts: run
+                .posts
+                .iter()
+                .map(|p| WirePost {
+                    kind: p.kind as u8,
+                    pos: p.pos.to_array(),
+                    wait: p.wait,
+                })
+                .collect(),
         });
         let entries: Vec<PartyEntry> = heroes
             .iter()
