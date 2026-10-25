@@ -7,10 +7,18 @@
 //!
 //! Today: the class column (the class grid, the class's description, its starting health with
 //! everything the profile brings in, its starting spell, the zones open, and its spell pool with
-//! tooltips) and the hero column (faction, name with a race-flavoured Random, race and sex,
-//! an open stage where the live hero turns, the equipment slots and the race), the zone column
-//! (every zone, the picked one opened with its horde, its bosses and when they come, and the
-//! record of past runs there) and the bottom bar (run options, the way in, co-op).
+//! tooltips), the hero column (the hero's portrait with its faction and class, its name with a
+//! race-flavoured Random, race and sex, the equipment slots, the collection, the Armory and
+//! Talents, and the racials), the zone column (every zone, the picked one opened with its horde,
+//! its bosses and when they come, and the record of past runs there) and the bottom bar (run
+//! options, the way in, co-op).
+//!
+//! The Armory, opened from the portrait, the Armory button or an equipment slot, takes the whole
+//! screen: race and sex and the slots on the left, the hero on a stage a drag turns in the middle,
+//! the appearance dials and the pieces owned for the slot picked on the right.
+//!
+//! The hero is the live one in the world: the camera frames it into whichever of the portrait or
+//! the stage is on screen ([`super::hero::MenuStage`]), so neither may carry a fill.
 
 use bevy::prelude::*;
 
@@ -31,29 +39,35 @@ pub(super) fn plugin(app: &mut App) {
     if !enabled() {
         return;
     }
-    app.init_resource::<Page>().add_systems(
-        Update,
-        (
-            build_screen,
-            show_screen,
-            clicks,
-            name_edits,
-            refresh_class_column,
-            refresh_hero_card,
-            refresh_equipment,
-            show_pages,
-            refresh_collection,
-            refresh_talents,
-            refresh_drops,
-            refresh_codex,
-            refresh_armory,
-            refresh_zone_list,
-            refresh_bottom_bar,
-            adopt_name,
-        )
-            .chain()
-            .after(hud::show_panels),
-    );
+    app.init_resource::<Page>()
+        .init_resource::<ArmorySlot>()
+        .add_systems(
+            Update,
+            (
+                build_screen,
+                show_screen,
+                clicks,
+                drag_stage,
+                name_edits,
+                refresh_class_column,
+                refresh_hero_card,
+                refresh_equipment,
+                refresh_hero_buttons,
+                show_pages,
+                frame_stage,
+                refresh_collection,
+                refresh_talents,
+                refresh_drops,
+                refresh_codex,
+                refresh_zone_list,
+                refresh_bottom_bar,
+                adopt_name,
+            )
+                .chain()
+                // The camera, placed earlier in the frame, frames the hero where the last
+                // frame's layout put the stage.
+                .after(hud::show_panels),
+        );
 }
 
 /// The tabs, in the screenshot's order; only Character is built so far.
@@ -89,13 +103,48 @@ struct PageRoot(usize);
 #[derive(Component)]
 struct TabButton(usize);
 
-/// The Collection tab's body, the Armory's, and the collection bar under the equipment.
+/// The screen's parts that only some pages show: the title over the tabs, the Armory's own
+/// header, and the bar under the columns with its hint.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Chrome {
+    Main,
+    Armory,
+    Bar,
+}
+
+/// The slot the Armory picks pieces for, if one is picked.
+#[derive(Resource, Default)]
+struct ArmorySlot(Option<usize>);
+
+/// A frame the hero is shown in ([`super::hero::MenuStage`]): the Character tab's portrait, which
+/// turns the hero slowly, and the Armory's stage, which a drag turns.
+#[derive(Component)]
+struct StageFrame {
+    turning: bool,
+}
+
+/// The Armory's stage, which turns the hero while dragged.
+#[derive(Component)]
+struct StageDrag;
+
+/// The Collection tab's body, and the collection bar under the equipment.
 #[derive(Component)]
 struct CollectionBody;
 #[derive(Component)]
-struct ArmoryBody;
-#[derive(Component)]
 struct CollectionBar;
+/// The Armory and Talents buttons under the collection bar.
+#[derive(Component)]
+struct HeroButtons;
+/// The Armory header's line: the class, the pieces collected.
+#[derive(Component)]
+struct ArmorySub;
+/// The Armory's slot list, the pieces owned for the slot picked, and what the gear worn gives.
+#[derive(Component)]
+struct ArmorySlots;
+#[derive(Component)]
+struct ArmoryPicker;
+#[derive(Component)]
+struct ArmoryNote;
 #[derive(Component)]
 struct TalentsBody;
 #[derive(Component)]
@@ -114,12 +163,16 @@ enum ScreenAction {
     Race(u8),
     Sex(u8),
     RandomName,
-    /// Turn one appearance dial on by one.
-    Dial(usize),
+    /// Turn one appearance dial on by one, or back by one.
+    Dial(usize, bool),
     /// Roll every appearance dial.
     RandomLook,
-    /// Wear the next item owned for one of the ten slots ([`data::GearSlot::ALL`]).
+    /// Open the Armory on one of the ten slots ([`data::GearSlot::ALL`]).
     Equip(usize),
+    /// Pick one of the ten slots in the Armory.
+    Slot(usize),
+    /// Turn the hero on the Armory's stage, a step left (−1) or right (1).
+    Turn(i8),
     /// Open the Armory.
     Armory,
     /// Wear an item ([`data::ITEMS`] index) from the Armory.
@@ -153,16 +206,19 @@ struct BottomBar;
 #[derive(Component)]
 struct NameField;
 
-/// The hero card's parts that follow the pick: the faction badge, the race-and-class line, the
-/// race and sex pickers, and the race section under the stage.
-#[derive(Component)]
-struct HeroFaction;
-#[derive(Component)]
-struct HeroLine;
-#[derive(Component)]
-struct HeroPickers;
-#[derive(Component)]
-struct RaceSection;
+/// The parts that follow the pick: on the Character tab the faction badge, the class badge, the
+/// race-and-class line and the race section; in the Armory the hero's title, the race and sex
+/// pickers and the appearance dials.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+enum HeroPart {
+    Faction,
+    ClassBadge,
+    Line,
+    Race,
+    ArmoryTitle,
+    ArmoryRaces,
+    ArmoryDials,
+}
 /// The Equipment panel's slot row, filled with what the hero wears.
 #[derive(Component)]
 struct EquipmentRow;
@@ -195,30 +251,54 @@ fn build_screen(
             Visibility::Hidden,
         ))
         .with_children(|root| {
-            root.spawn(kit::text(&f.title, "Azeroth Survivors", 44.0, theme::GOLD));
-            let tabs: Vec<(&str, ScreenAction)> = TABS
-                .iter()
-                .enumerate()
-                .map(|(i, t)| (*t, ScreenAction::Tab(i)))
-                .collect();
-            let ids = kit::tab_bar(root, f, &tabs, 0);
-            for (i, id) in ids.into_iter().enumerate() {
-                root.commands().entity(id).insert(TabButton(i));
-                if !BUILT_TABS.contains(&i) {
-                    root.commands().entity(id).insert((
-                        kit::Disabled(true),
-                        Tooltip::simple(TABS[i], "Coming soon."),
-                    ));
-                }
-            }
-            // The Collection tab and the Armory, shown in the columns' place.
-            for (page, marker) in [
-                (COLLECTION, 0u8),
-                (ARMORY, 1),
-                (TALENTS, 2),
-                (DROPS, 3),
-                (CODEX, 4),
-            ] {
+            // The title over the tabs.
+            root.spawn((
+                Chrome::Main,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(6.0),
+                    ..default()
+                },
+            ))
+            .with_children(|h| {
+                h.spawn(kit::text(&f.title, "Azeroth Survivors", 56.0, theme::GOLD));
+                tab_row(h, f);
+            });
+            // The Armory's header: its title and what it holds on the left, the tabs and Done on
+            // the right.
+            root.spawn((
+                Chrome::Armory,
+                Node {
+                    width: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(16.0),
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .with_children(|h| {
+                h.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0,
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.title, "Armory", 44.0, theme::GOLD));
+                    c.spawn((ArmorySub, Node::default()));
+                });
+                tab_row(h, f);
+                kit::button(
+                    h,
+                    f,
+                    "Done",
+                    None,
+                    kit::ButtonLook::ACTION,
+                    ScreenAction::Back,
+                );
+            });
+            // The tabs' pages, shown in the columns' place.
+            for (page, marker) in [(COLLECTION, 0u8), (TALENTS, 2), (DROPS, 3), (CODEX, 4)] {
                 root.spawn((
                     PageRoot(page),
                     Node {
@@ -235,7 +315,6 @@ fn build_screen(
                         f,
                         Some(match marker {
                             0 => "Collection",
-                            1 => "Armory",
                             2 => "Talents",
                             3 => "Drop Tables",
                             _ => "Codex",
@@ -261,7 +340,6 @@ fn build_screen(
                                     });
                                     match marker {
                                         0 => e.insert(CollectionBody),
-                                        1 => e.insert(ArmoryBody),
                                         2 => e.insert(TalentsBody),
                                         3 => e.insert(DropsBody),
                                         _ => e.insert(CodexBody),
@@ -272,15 +350,15 @@ fn build_screen(
                     );
                 });
             }
-            // The three columns; the middle one stays open so the hero shows through.
+            armory_page(root, f);
+            // The three columns: the class, the hero, the zone.
             root.spawn((
                 PageRoot(CHARACTER),
                 Node {
                     width: Val::Percent(100.0),
                     flex_grow: 1.0,
                     min_height: Val::Px(0.0),
-                    column_gap: Val::Px(14.0),
-                    justify_content: JustifyContent::SpaceBetween,
+                    column_gap: Val::Px(18.0),
                     ..default()
                 },
             ))
@@ -290,7 +368,9 @@ fn build_screen(
                     f,
                     Some("Class"),
                     Node {
-                        width: Val::Px(300.0),
+                        flex_grow: 0.85,
+                        flex_basis: Val::Px(0.0),
+                        min_width: Val::Px(0.0),
                         ..default()
                     },
                     |p| {
@@ -310,7 +390,9 @@ fn build_screen(
                     f,
                     Some("Zone"),
                     Node {
-                        width: Val::Px(320.0),
+                        flex_grow: 0.85,
+                        flex_basis: Val::Px(0.0),
+                        min_width: Val::Px(0.0),
                         min_height: Val::Px(0.0),
                         ..default()
                     },
@@ -339,6 +421,7 @@ fn build_screen(
             });
             // The bar under the columns: run options, the way in, co-op.
             root.spawn((
+                Chrome::Bar,
                 BottomBar,
                 Node {
                     column_gap: Val::Px(14.0),
@@ -346,13 +429,48 @@ fn build_screen(
                     ..default()
                 },
             ));
-            root.spawn(kit::text(
-                &f.body,
-                "WASD to run · the mouse to look · 1 2 3 picks a card · Enter to play",
-                12.0,
-                theme::DIM,
+            root.spawn((
+                Chrome::Bar,
+                kit::text(
+                    &f.body,
+                    "WASD or both mouse buttons to run · 1 2 3 picks a card · R rerolls · \
+                     Enter to play",
+                    13.0,
+                    theme::TEXT,
+                ),
             ));
+            root.spawn((
+                Chrome::Main,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(8.0),
+                    bottom: Val::Px(4.0),
+                    ..default()
+                },
+            ))
+            .with_children(|c| {
+                c.spawn(kit::text(&f.body, "Made by Aethus", 10.0, theme::DIM));
+            });
         });
+}
+
+/// The tabs, the Character tab lit; the ones not built yet are greyed out.
+fn tab_row(p: &mut ChildSpawnerCommands, f: &KitFonts) {
+    let tabs: Vec<(&str, ScreenAction)> = TABS
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (*t, ScreenAction::Tab(i)))
+        .collect();
+    let ids = kit::tab_bar(p, f, &tabs, 0);
+    for (i, id) in ids.into_iter().enumerate() {
+        p.commands().entity(id).insert(TabButton(i));
+        if !BUILT_TABS.contains(&i) {
+            p.commands().entity(id).insert((
+                kit::Disabled(true),
+                Tooltip::simple(TABS[i], "Coming soon."),
+            ));
+        }
+    }
 }
 
 /// Shown at the menu, in place of the glue screen.
@@ -392,6 +510,8 @@ fn clicks(
     mut next: ResMut<NextState<Phase>>,
     mut rng: ResMut<Rng>,
     mut page: ResMut<Page>,
+    mut armory_slot: ResMut<ArmorySlot>,
+    mut rig: ResMut<super::hero::CamRig>,
     mut name_field: Query<&mut TextField, With<NameField>>,
 ) {
     if *phase.get() != Phase::Menu {
@@ -407,6 +527,8 @@ fn clicks(
             }
         }
         ScreenAction::Armory => page.0 = ARMORY,
+        ScreenAction::Slot(k) => armory_slot.0 = Some(k),
+        ScreenAction::Turn(step) => rig.orbit += f32::from(step) * 0.5,
         ScreenAction::RunOptions => {
             let zone = selection.map_def().name;
             let open = store.profile.hardest_open(zone);
@@ -484,14 +606,21 @@ fn clicks(
             }
             menu::save_pick(&selection, &mut store);
         }
-        ScreenAction::Dial(_) | ScreenAction::RandomLook => {
+        ScreenAction::Dial(..) | ScreenAction::RandomLook => {
             let Some((race, sex)) = menu::current_look(&selection) else {
                 return;
             };
             let n = outfit::counts(catalog.as_deref().map(|c| &c.0), race, sex);
             let mut a = outfit::clamp(selection.appearance, n);
             match action {
-                ScreenAction::Dial(i) if i < a.len() => a[i] = (a[i] + 1) % n[i].max(1),
+                ScreenAction::Dial(i, forward) if i < a.len() => {
+                    let k = n[i].max(1);
+                    a[i] = if forward {
+                        (a[i] + 1) % k
+                    } else {
+                        (a[i] + k - 1) % k
+                    };
+                }
                 ScreenAction::RandomLook => {
                     for (d, &k) in a.iter_mut().zip(&n) {
                         *d = (rng.f32() * f32::from(k.max(1))) as u8 % k.max(1);
@@ -521,9 +650,8 @@ fn clicks(
             }
         }
         ScreenAction::Equip(k) => {
-            if let Some(&slot) = data::GearSlot::ALL.get(k) {
-                store.edit(|p| p.equip_next(slot));
-            }
+            armory_slot.0 = Some(k);
+            page.0 = ARMORY;
         }
         ScreenAction::Coop => next.set(Phase::Lobby),
         ScreenAction::Enter => {
@@ -688,45 +816,150 @@ fn alliance(race: u8) -> bool {
 /// The races in the character-create order.
 const RACES: [u8; 8] = [1, 3, 7, 4, 2, 5, 6, 8];
 
-/// The middle column: the hero card on top, the open stage where the live hero turns, and the
-/// equipment and race under it.
+/// The portrait's size, and how far its frame sits in from the column's edge.
+const PORTRAIT: Vec2 = Vec2::new(150.0, 210.0);
+const PORTRAIT_INSET: f32 = 22.0;
+
+/// The portrait's look: no fill, so the hero shows through; a brass rim that lights on hover.
+const STAGE_LOOK: kit::ButtonLook = kit::ButtonLook {
+    rest: Color::NONE,
+    hot: Color::srgba(1.0, 0.82, 0.0, 0.05),
+    edge: Color::srgba(0.62, 0.5, 0.26, 0.8),
+    edge_selected: theme::GOLD,
+};
+
+/// A panel's fill, for the pieces the hero column is built from.
+fn panel_fill() -> BackgroundColor {
+    BackgroundColor(theme::PANEL_TOP)
+}
+
+/// The middle column: the hero's portrait (a click opens the Armory) beside its name, race and
+/// class; then the equipment worn and the collection, the Armory and Talents, and the race.
+///
+/// A fill would hide the hero the camera frames in the portrait, so the column is not one panel
+/// but pieces of fill around the portrait's hole, inside one brass frame.
 fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
-    cols.spawn(Node {
-        flex_grow: 1.0,
-        flex_direction: FlexDirection::Column,
-        align_items: AlignItems::Center,
-        row_gap: Val::Px(8.0),
-        max_width: Val::Px(560.0),
-        ..default()
-    })
+    let r = Val::Px(6.0);
+    cols.spawn((
+        Node {
+            flex_grow: 1.0,
+            flex_basis: Val::Px(0.0),
+            min_width: Val::Px(0.0),
+            flex_direction: FlexDirection::Column,
+            border: UiRect::all(Val::Px(1.5)),
+            border_radius: BorderRadius::all(r),
+            ..default()
+        },
+        BorderColor::all(theme::BRASS),
+    ))
     .with_children(|c| {
-        kit::panel(
-            c,
-            f,
-            None,
-            Node {
-                width: Val::Percent(100.0),
+        // The top band: fill, the portrait's hole, fill with the name and the line.
+        c.spawn(Node {
+            width: Val::Percent(100.0),
+            ..default()
+        })
+        .with_children(|band| {
+            band.spawn((
+                Node {
+                    width: Val::Px(PORTRAIT_INSET),
+                    border_radius: BorderRadius::top_left(r),
+                    ..default()
+                },
+                panel_fill(),
+            ));
+            band.spawn(Node {
+                flex_direction: FlexDirection::Column,
                 ..default()
-            },
-            |p| {
-                p.spawn(Node {
-                    column_gap: Val::Px(8.0),
-                    align_items: AlignItems::Center,
+            })
+            .with_children(|col| {
+                col.spawn((
+                    Node {
+                        height: Val::Px(PORTRAIT_INSET),
+                        ..default()
+                    },
+                    panel_fill(),
+                ));
+                col.spawn((
+                    StageFrame { turning: true },
+                    Button,
+                    STAGE_LOOK,
+                    kit::Selected(false),
+                    kit::Disabled(false),
+                    ScreenAction::Armory,
+                    Tooltip::simple("Armory", "Race, look, gear and drop tables."),
+                    Node {
+                        width: Val::Px(PORTRAIT.x),
+                        height: Val::Px(PORTRAIT.y),
+                        border: UiRect::all(Val::Px(1.5)),
+                        border_radius: BorderRadius::all(Val::Px(8.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::NONE),
+                    BorderColor::all(STAGE_LOOK.edge),
+                ))
+                .with_children(|s| {
+                    s.spawn((
+                        HeroPart::Faction,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(-10.0),
+                            top: Val::Px(-12.0),
+                            ..default()
+                        },
+                    ));
+                    s.spawn((
+                        HeroPart::ClassBadge,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            right: Val::Px(-14.0),
+                            bottom: Val::Px(-14.0),
+                            ..default()
+                        },
+                    ));
+                });
+                // Under the portrait, should the line beside it run taller.
+                col.spawn((
+                    Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                    panel_fill(),
+                ));
+            });
+            band.spawn((
+                Node {
+                    flex_grow: 1.0,
+                    min_width: Val::Px(0.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(10.0),
+                    padding: UiRect {
+                        left: Val::Px(PORTRAIT_INSET),
+                        right: Val::Px(PORTRAIT_INSET),
+                        top: Val::Px(PORTRAIT_INSET + 26.0),
+                        bottom: Val::Px(8.0),
+                    },
+                    border_radius: BorderRadius::top_right(r),
+                    ..default()
+                },
+                panel_fill(),
+            ))
+            .with_children(|info| {
+                info.spawn(Node {
+                    align_items: AlignItems::Stretch,
                     ..default()
                 })
-                .with_children(|r| {
-                    r.spawn((HeroFaction, Node::default()));
+                .with_children(|n| {
                     kit::text_field(
-                        r,
+                        n,
                         f,
                         "",
-                        230.0,
+                        300.0,
                         names::MAX_NAME,
                         names::name_char,
                         NameField,
                     );
                     kit::button(
-                        r,
+                        n,
                         f,
                         "Random",
                         None,
@@ -734,96 +967,310 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                         ScreenAction::RandomName,
                     );
                 });
-                p.spawn((
-                    HeroLine,
+                info.spawn((
+                    HeroPart::Line,
                     Node {
                         flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(6.0),
                         ..default()
                     },
                 ));
-                p.spawn((
-                    HeroPickers,
-                    Node {
-                        column_gap: Val::Px(4.0),
-                        align_items: AlignItems::Center,
-                        flex_wrap: FlexWrap::Wrap,
-                        ..default()
-                    },
-                ));
-            },
-        );
-        // The stage: no fill, so the hero orbiting in the world shows through its frame.
+            });
+        });
+        // Under the band: one fill to the bottom.
         c.spawn((
             Node {
-                width: Val::Percent(100.0),
                 flex_grow: 1.0,
-                min_height: Val::Px(140.0),
-                border: UiRect::all(Val::Px(1.0)),
+                min_height: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(10.0),
+                padding: UiRect {
+                    left: Val::Px(PORTRAIT_INSET),
+                    right: Val::Px(PORTRAIT_INSET),
+                    top: Val::Px(18.0),
+                    bottom: Val::Px(14.0),
+                },
+                border_radius: BorderRadius::bottom(r),
+                ..default()
+            },
+            BackgroundGradient::from(LinearGradient::to_bottom(vec![
+                ColorStop::percent(theme::PANEL_TOP, 0.0),
+                ColorStop::percent(theme::PANEL_BOTTOM, 100.0),
+            ])),
+        ))
+        .with_children(|p| {
+            kit::heading(p, f, "Equipment");
+            p.spawn((
+                EquipmentRow,
+                Node {
+                    column_gap: Val::Px(6.0),
+                    row_gap: Val::Px(6.0),
+                    justify_content: JustifyContent::Center,
+                    flex_wrap: FlexWrap::Wrap,
+                    ..default()
+                },
+            ));
+            p.spawn((
+                CollectionBar,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(6.0),
+                    ..default()
+                },
+            ));
+            p.spawn((
+                HeroButtons,
+                Node {
+                    column_gap: Val::Px(12.0),
+                    ..default()
+                },
+            ));
+            p.spawn((
+                HeroPart::Race,
+                Node {
+                    column_gap: Val::Px(14.0),
+                    margin: UiRect::top(Val::Px(8.0)),
+                    ..default()
+                },
+            ));
+        });
+    });
+}
+
+/// The Armory, in the columns' place: the race, sex and gear on the left, the hero on its stage
+/// in the middle, the appearance dials and the pieces owned for the slot picked on the right.
+fn armory_page(root: &mut ChildSpawnerCommands, f: &KitFonts) {
+    root.spawn((
+        PageRoot(ARMORY),
+        Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            min_height: Val::Px(0.0),
+            column_gap: Val::Px(22.0),
+            display: Display::None,
+            ..default()
+        },
+    ))
+    .with_children(|cols| {
+        let side = |grow: f32| Node {
+            flex_grow: grow,
+            flex_basis: Val::Px(0.0),
+            min_width: Val::Px(0.0),
+            min_height: Val::Px(0.0),
+            ..default()
+        };
+        kit::panel(cols, f, Some("Appearance"), side(0.9), |p| {
+            p.spawn((
+                HeroPart::ArmoryRaces,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(10.0),
+                    ..default()
+                },
+            ));
+            kit::heading(p, f, "Equipment");
+            kit::scroll_area(
+                p,
+                Node {
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    ..default()
+                },
+                |list| {
+                    list.spawn((
+                        ArmorySlots,
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            row_gap: Val::Px(6.0),
+                            ..default()
+                        },
+                    ));
+                },
+            );
+            p.spawn((
+                ArmoryNote,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+            ));
+        });
+        // The stage: a frame with its fill faded out in the middle, so the hero shows through.
+        let edge = theme::PANEL_BOTTOM;
+        cols.spawn((
+            Node {
+                flex_grow: 2.2,
+                flex_basis: Val::Px(0.0),
+                min_width: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                padding: UiRect::all(Val::Px(14.0)),
+                row_gap: Val::Px(6.0),
+                border: UiRect::all(Val::Px(1.5)),
                 border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             },
-            BorderColor::all(theme::BRASS.with_alpha(0.55)),
-            Pickable::IGNORE,
-        ));
-        kit::panel(
-            c,
-            f,
-            Some("Equipment"),
-            Node {
-                width: Val::Percent(100.0),
-                ..default()
-            },
-            |p| {
-                p.spawn((
-                    EquipmentRow,
-                    Node {
-                        column_gap: Val::Px(4.0),
-                        justify_content: JustifyContent::Center,
-                        flex_wrap: FlexWrap::Wrap,
-                        ..default()
-                    },
-                ));
-                p.spawn(Node {
-                    column_gap: Val::Px(8.0),
-                    justify_content: JustifyContent::Center,
+            BackgroundGradient::from(LinearGradient::to_bottom(vec![
+                ColorStop::percent(edge, 0.0),
+                ColorStop::percent(edge.with_alpha(0.0), 16.0),
+                ColorStop::percent(edge.with_alpha(0.0), 84.0),
+                ColorStop::percent(edge, 100.0),
+            ])),
+            BorderColor::all(theme::BRASS),
+        ))
+        .with_children(|p| {
+            p.spawn((
+                HeroPart::ArmoryTitle,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(2.0),
                     ..default()
-                })
-                .with_children(|r| {
-                    kit::button(
+                },
+            ));
+            p.spawn((
+                StageFrame { turning: false },
+                StageDrag,
+                Button,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_grow: 1.0,
+                    min_height: Val::Px(200.0),
+                    ..default()
+                },
+            ));
+            p.spawn(Node {
+                column_gap: Val::Px(16.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|r| {
+                let turn = |r: &mut ChildSpawnerCommands, art: &str, step: i8| {
+                    kit::icon_button(
                         r,
                         f,
-                        "Armory",
-                        Some("Every piece you own, slot by slot"),
-                        kit::ButtonLook::ACTION,
-                        ScreenAction::Armory,
+                        IconSource::Texture(format!(
+                            "Interface\\Buttons\\UI-Rotation{art}-Button-Up"
+                        )),
+                        24.0,
+                        None,
+                        false,
+                        ScreenAction::Turn(step),
                     );
-                    kit::button(
-                        r,
-                        f,
-                        "Talents",
-                        Some("Spend your talent points"),
-                        kit::ButtonLook::ACTION,
-                        ScreenAction::Tab(TALENTS),
-                    );
-                });
-                p.spawn((
-                    CollectionBar,
-                    Node {
-                        flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(3.0),
-                        ..default()
-                    },
+                };
+                turn(r, "Left", -1);
+                r.spawn(kit::text(
+                    &f.body,
+                    "Drag the hero to turn",
+                    14.0,
+                    theme::TEXT,
                 ));
-                p.spawn((
-                    RaceSection,
-                    Node {
-                        flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(3.0),
-                        ..default()
-                    },
-                ));
-            },
-        );
+                turn(r, "Right", 1);
+            });
+        });
+        kit::panel(cols, f, Some("Features"), side(0.9), |p| {
+            p.spawn((
+                HeroPart::ArmoryDials,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: Val::Px(6.0),
+                    ..default()
+                },
+            ));
+            kit::scroll_area(
+                p,
+                Node {
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    margin: UiRect::top(Val::Px(10.0)),
+                    ..default()
+                },
+                |list| {
+                    list.spawn((
+                        ArmoryPicker,
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            row_gap: Val::Px(8.0),
+                            ..default()
+                        },
+                    ));
+                },
+            );
+        });
+    });
+}
+
+/// The frame the hero shows in, for the camera: the portrait or the Armory's stage, whichever is
+/// on screen at the menu.
+fn frame_stage(
+    phase: Res<State<Phase>>,
+    frames: Query<(&StageFrame, &ComputedNode, &bevy::ui::UiGlobalTransform)>,
+    mut stage: ResMut<super::hero::MenuStage>,
+) {
+    let found = (*phase.get() == Phase::Menu)
+        .then(|| {
+            frames
+                .iter()
+                .find(|(_, n, _)| n.size().x > 1.0 && n.size().y > 1.0)
+        })
+        .flatten();
+    let (frame, turning) = match found {
+        Some((s, n, at)) => (Some((at.translation, n.size())), s.turning),
+        None => (None, true),
+    };
+    if stage.frame != frame || stage.turning != turning {
+        stage.frame = frame;
+        stage.turning = turning;
+    }
+}
+
+/// A drag on the Armory's stage turns the hero.
+fn drag_stage(
+    stage: Query<&Interaction, With<StageDrag>>,
+    motion: Res<bevy::input::mouse::AccumulatedMouseMotion>,
+    mut rig: ResMut<super::hero::CamRig>,
+) {
+    if motion.delta.x != 0.0 && stage.iter().any(|i| *i == Interaction::Pressed) {
+        rig.orbit -= motion.delta.x * 0.01;
+    }
+}
+
+/// The Armory and Talents buttons, with the talent points trained.
+fn refresh_hero_buttons(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    store: Res<ProfileStore>,
+    row: Query<Entity, With<HeroButtons>>,
+    mut shown: Local<Option<u32>>,
+) {
+    let (Some(fonts), Ok(row)) = (fonts, row.single()) else {
+        return;
+    };
+    let points = store.profile.talent_points;
+    if *shown == Some(points) {
+        return;
+    }
+    *shown = Some(points);
+    let f = &*fonts;
+    commands.entity(row).despawn_related::<Children>();
+    commands.entity(row).with_children(|r| {
+        let points = format!("{points} of {} points", super::talents::MAX_POINTS);
+        for (label, sub, action) in [
+            (
+                "Armory",
+                "Race, look, gear and drop tables",
+                ScreenAction::Armory,
+            ),
+            ("Talents", points.as_str(), ScreenAction::Tab(TALENTS)),
+        ] {
+            let b = kit::button(r, f, label, Some(sub), kit::ButtonLook::ACTION, action);
+            r.commands().entity(b).entry::<Node>().and_modify(|mut n| {
+                n.flex_grow = 1.0;
+                n.flex_basis = Val::Px(0.0);
+                n.padding = UiRect::axes(Val::Px(14.0), Val::Px(10.0));
+            });
+        }
     });
 }
 
@@ -850,7 +1297,7 @@ fn name_edits(
     }
 }
 
-/// What the hero card shows, to rebuild it only when that changes.
+/// What the hero's parts show, to rebuild them only when that changes.
 #[derive(PartialEq, Clone, Debug)]
 struct HeroView {
     class: Option<usize>,
@@ -858,25 +1305,60 @@ struct HeroView {
     looks_known: bool,
     appearance: outfit::Appearance,
     dials_known: bool,
+    strings_known: bool,
+    name: String,
 }
 
-/// The parts of the hero card that follow the pick; the name too, when the profile has none yet.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// A dial's label as the create screen words it for the race and sex ("Piercings", "Tusks"), from
+/// the glue strings; the built-in caption without them.
+fn dial_label(
+    i: usize,
+    strings: Option<&crate::glue_strings::GlueStrings>,
+    catalog: Option<&crate::entities::CharCreate>,
+    race: u8,
+    sex: u8,
+) -> String {
+    let fallback = [
+        "Skin Color",
+        "Face",
+        "Hair Style",
+        "Hair Color",
+        "Facial Hair",
+    ][i.min(4)];
+    let Some(strings) = strings else {
+        return fallback.to_string();
+    };
+    let cat = catalog.map(|c| &c.0);
+    let hair = cat
+        .and_then(|c| c.hair_customization(race))
+        .unwrap_or("NORMAL");
+    let facial = cat
+        .and_then(|c| c.facial_hair_customization(race, sex))
+        .unwrap_or("NORMAL");
+    let key = match i {
+        0 => "CHAR_CUSTOMIZATION1_DESC".to_string(),
+        1 => "CHAR_CUSTOMIZATION2_DESC".to_string(),
+        2 => format!("HAIR_{hair}_STYLE"),
+        3 => format!("HAIR_{hair}_COLOR"),
+        _ => format!("FACIAL_HAIR_{facial}"),
+    };
+    strings.text(&key, fallback).to_string()
+}
+
+/// The parts that follow the pick, on the Character tab and in the Armory; the name too, when
+/// the profile has none yet.
+#[allow(clippy::too_many_arguments)]
 fn refresh_hero_card(
     mut commands: Commands,
     fonts: Option<Res<KitFonts>>,
     selection: Res<Selection>,
     creatures: Option<Res<crate::entities::Creatures>>,
     catalog: Option<Res<crate::entities::CharCreate>>,
+    strings: Option<Res<crate::glue_strings::GlueStrings>>,
     mut store: ResMut<ProfileStore>,
     mut rng: ResMut<Rng>,
     mut name: Query<&mut TextField, With<NameField>>,
-    mut parts: ParamSet<(
-        Query<Entity, With<HeroFaction>>,
-        Query<Entity, With<HeroLine>>,
-        Query<Entity, With<HeroPickers>>,
-        Query<Entity, With<RaceSection>>,
-    )>,
+    parts: Query<(Entity, &HeroPart)>,
     mut shown: Local<Option<HeroView>>,
 ) {
     let Some(fonts) = fonts else { return };
@@ -899,16 +1381,31 @@ fn refresh_hero_card(
         looks_known: creatures.is_some(),
         appearance: selection.appearance,
         dials_known: catalog.is_some(),
+        strings_known: strings.is_some(),
+        name: store.profile.hero.name.clone(),
     };
     if shown.as_ref() == Some(&view) {
         return;
     }
-    let (Ok(faction), Ok(line), Ok(pickers), Ok(race_section)) = (
-        parts.p0().single(),
-        parts.p1().single(),
-        parts.p2().single(),
-        parts.p3().single(),
-    ) else {
+    let part = |want: HeroPart| parts.iter().find(|(_, p)| **p == want).map(|(e, _)| e);
+    let (
+        Some(faction),
+        Some(badge),
+        Some(line),
+        Some(race_section),
+        Some(title),
+        Some(races),
+        Some(dials),
+    ) = (
+        part(HeroPart::Faction),
+        part(HeroPart::ClassBadge),
+        part(HeroPart::Line),
+        part(HeroPart::Race),
+        part(HeroPart::ArmoryTitle),
+        part(HeroPart::ArmoryRaces),
+        part(HeroPart::ArmoryDials),
+    )
+    else {
         return;
     };
     *shown = Some(view);
@@ -917,44 +1414,126 @@ fn refresh_hero_card(
         .as_deref()
         .map(menu::all_looks)
         .unwrap_or_default();
-    for e in [faction, line, pickers, race_section] {
+    for e in [faction, badge, line, race_section, title, races, dials] {
         commands.entity(e).despawn_related::<Children>();
     }
     let Some((race, sex)) = look else {
         return;
     };
     let class = selection.class_def();
+    let race_name = crate::char_select::race_name(race);
+    let sex_name = if sex == 1 { "Female" } else { "Male" };
+    let race_icon = |race_id: u8| {
+        crate::glue::art::race_tc(race_id, sex).map(|tc| {
+            IconSource::Atlas(
+                "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races".into(),
+                tc,
+            )
+        })
+    };
 
     commands.entity(faction).with_children(|b| {
-        let (label, color) = if alliance(race) {
-            ("ALLIANCE", Color::srgb(0.25, 0.5, 1.0))
-        } else {
-            ("HORDE", Color::srgb(0.9, 0.2, 0.15))
-        };
+        let (label, color) = faction_tag(race);
         b.spawn((
             Node {
-                padding: UiRect::axes(Val::Px(7.0), Val::Px(2.0)),
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)),
                 border: UiRect::all(Val::Px(1.0)),
                 border_radius: BorderRadius::all(Val::Px(9.0)),
                 ..default()
             },
-            BackgroundColor(color.with_alpha(0.2)),
+            BackgroundColor(Color::srgba(0.05, 0.03, 0.02, 0.9)),
             BorderColor::all(color),
         ))
         .with_children(|c| {
-            c.spawn(kit::text(&f.body, label, 10.0, color));
+            c.spawn(kit::text(&f.body, label, 11.0, color));
         });
     });
 
+    if let Some(class) = class {
+        commands.entity(badge).with_children(|b| {
+            b.spawn((
+                Node {
+                    padding: UiRect::all(Val::Px(3.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    border_radius: BorderRadius::MAX,
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.05, 0.03, 0.02, 0.95)),
+                BorderColor::all(theme::BRASS),
+            ))
+            .with_children(|c| {
+                kit::icon_image(c, &class_icon(class), 44.0);
+            });
+        });
+    }
+
     commands.entity(line).with_children(|l| {
         l.spawn(Node {
+            column_gap: Val::Px(7.0),
+            ..default()
+        })
+        .with_children(|r| {
+            r.spawn(kit::text(&f.body, race_name, 22.0, theme::TEXT));
+            if let Some(class) = class {
+                r.spawn(kit::text(&f.body, class.name, 22.0, hud::rgb(class.color)));
+            }
+        });
+        l.spawn(kit::text(&f.body, sex_name, 16.0, theme::DIM));
+    });
+
+    commands.entity(race_section).with_children(|r| {
+        if let Some(icon) = race_icon(race) {
+            kit::icon(r, icon, 48.0, None);
+        }
+        r.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(4.0),
+            flex_grow: 1.0,
+            min_width: Val::Px(0.0),
+            ..default()
+        })
+        .with_children(|c| {
+            c.spawn(kit::text(&f.title, race_name, 24.0, theme::GOLD));
+            for def in data::racials(race) {
+                c.spawn((
+                    Node {
+                        column_gap: Val::Px(8.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    racial_tip(def),
+                    Interaction::default(),
+                    Button,
+                ))
+                .with_children(|row| {
+                    kit::icon(row, IconSource::Spell(def.spell), 18.0, None);
+                    row.spawn(kit::text(
+                        &f.body,
+                        format!("{}: {}", def.name, def.text),
+                        15.0,
+                        theme::TEXT,
+                    ));
+                });
+            }
+        });
+    });
+
+    commands.entity(title).with_children(|t| {
+        t.spawn(kit::text(
+            &f.title,
+            &store.profile.hero.name,
+            40.0,
+            theme::GOLD,
+        ));
+        t.spawn(Node {
             column_gap: Val::Px(6.0),
             ..default()
         })
         .with_children(|r| {
             r.spawn(kit::text(
                 &f.body,
-                crate::char_select::race_name(race),
+                format!("{sex_name} {race_name}"),
                 17.0,
                 theme::TEXT,
             ));
@@ -962,144 +1541,221 @@ fn refresh_hero_card(
                 r.spawn(kit::text(&f.body, class.name, 17.0, hud::rgb(class.color)));
             }
         });
-        l.spawn(kit::text(
-            &f.body,
-            if sex == 1 { "Female" } else { "Male" },
-            13.0,
-            theme::DIM,
-        ));
     });
 
-    commands.entity(pickers).with_children(|r| {
-        for race_id in RACES {
-            let playable = all.is_empty() || menu::race_playable(&all, race_id);
-            let icon = match crate::glue::art::race_tc(race_id, sex) {
-                Some(tc) => IconSource::Atlas(
-                    "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races".into(),
-                    tc,
-                ),
-                None => continue,
-            };
-            let e = kit::icon_button(
-                r,
-                f,
-                icon,
-                26.0,
-                None,
-                race_id == race,
-                ScreenAction::Race(race_id),
-            );
-            if !playable {
-                r.commands().entity(e).insert(Visibility::Hidden);
+    commands.entity(races).with_children(|p| {
+        p.spawn(Node {
+            column_gap: Val::Px(12.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        })
+        .with_children(|sides| {
+            for side_alliance in [true, false] {
+                sides
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        row_gap: Val::Px(4.0),
+                        ..default()
+                    })
+                    .with_children(|side| {
+                        let tag = faction_tag(if side_alliance { 1 } else { 2 });
+                        side.spawn(kit::text(&f.body, tag.0, 11.0, tag.1));
+                        side.spawn(Node {
+                            column_gap: Val::Px(3.0),
+                            ..default()
+                        })
+                        .with_children(|r| {
+                            for race_id in
+                                RACES.into_iter().filter(|&r| alliance(r) == side_alliance)
+                            {
+                                race_button(
+                                    r,
+                                    f,
+                                    race_id,
+                                    race,
+                                    &all,
+                                    &selection,
+                                    race_icon(race_id),
+                                );
+                            }
+                        });
+                    });
             }
-            let name = crate::char_select::race_name(race_id);
-            // The client's looks decide; without them, vanilla's own pairs.
-            let keeps_class = if all.is_empty() {
-                class.is_none_or(|c| data::race_classes(race_id).contains(&c.id))
-            } else {
-                selection
-                    .class
-                    .and_then(|c| all.get(c))
-                    .is_some_and(|looks| looks.iter().any(|l| l.1 == race_id))
-            };
-            let note = if keeps_class {
-                format!("Play as a {name}.")
-            } else {
-                format!("Picking {name} changes your class.")
-            };
-            r.commands().entity(e).insert(Tooltip::simple(name, note));
-        }
-        r.spawn(Node {
-            width: Val::Px(10.0),
-            ..default()
         });
-        for (s, label) in [(0u8, "Male"), (1, "Female")] {
-            let b = kit::button(
-                r,
-                f,
-                label,
-                None,
-                kit::ButtonLook::PLAIN,
-                ScreenAction::Sex(s),
-            );
-            r.commands().entity(b).insert(kit::Selected(s == sex));
-        }
-        // The appearance dials, each a click on; a dial the race has one of is left out.
-        let counts = outfit::counts(catalog.as_deref().map(|c| &c.0), race, sex);
-        let a = outfit::clamp(selection.appearance, counts);
-        r.spawn(Node {
-            width: Val::Percent(100.0),
+        p.spawn(Node {
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(8.0),
             ..default()
+        })
+        .with_children(|r| {
+            r.spawn(Node {
+                flex_grow: 1.0,
+                ..default()
+            })
+            .with_children(|c| {
+                c.spawn(kit::text(&f.body, race_name, 20.0, theme::TEXT));
+            });
+            for (s, label) in [(0u8, "Male"), (1, "Female")] {
+                let b = kit::button(
+                    r,
+                    f,
+                    label,
+                    None,
+                    kit::ButtonLook::PLAIN,
+                    ScreenAction::Sex(s),
+                );
+                r.commands().entity(b).insert(kit::Selected(s == sex));
+            }
         });
-        for (i, label) in outfit::DIALS.iter().enumerate() {
+    });
+
+    // The appearance dials, each a row with its arrows; a dial the race has one of is left out.
+    let counts = outfit::counts(catalog.as_deref().map(|c| &c.0), race, sex);
+    let a = outfit::clamp(selection.appearance, counts);
+    commands.entity(dials).with_children(|p| {
+        for i in 0..outfit::DIALS.len() {
             if counts[i] <= 1 {
                 continue;
             }
-            let b = kit::button(
-                r,
-                f,
-                &format!("{label} {}/{}", a[i] + 1, counts[i]),
-                None,
-                kit::ButtonLook::PLAIN,
-                ScreenAction::Dial(i),
-            );
-            r.commands()
-                .entity(b)
-                .insert(Tooltip::simple(*label, "Click for the next one."));
+            let label = dial_label(i, strings.as_deref(), catalog.as_deref(), race, sex);
+            dial_row(p, f, i, &label, a[i], counts[i]);
         }
         if counts.iter().any(|&n| n > 1) {
             kit::button(
-                r,
+                p,
                 f,
-                "Random look",
+                "Randomize",
                 None,
                 kit::ButtonLook::PLAIN,
                 ScreenAction::RandomLook,
             );
         }
     });
+}
 
-    commands.entity(race_section).with_children(|r| {
-        r.spawn(kit::text(
-            &f.title,
-            crate::char_select::race_name(race),
-            18.0,
-            theme::GOLD,
-        ));
-        r.spawn(kit::text(
-            &f.body,
-            if alliance(race) {
-                "Fights for the Alliance."
-            } else {
-                "Fights for the Horde."
-            },
-            12.0,
-            theme::DIM,
-        ));
-        r.spawn(kit::text(&f.body, "Racials", 13.0, theme::GOLD));
-        for def in data::racials(race) {
-            r.spawn(Node {
-                column_gap: Val::Px(8.0),
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|row| {
-                kit::icon(
-                    row,
-                    IconSource::Spell(def.spell),
-                    24.0,
-                    Some(racial_tip(def)),
-                );
-                row.spawn(Node {
-                    flex_direction: FlexDirection::Column,
+/// "ALLIANCE" in blue or "HORDE" in red, for a race.
+fn faction_tag(race: u8) -> (&'static str, Color) {
+    if alliance(race) {
+        ("ALLIANCE", Color::srgb(0.3, 0.55, 1.0))
+    } else {
+        ("HORDE", Color::srgb(0.95, 0.25, 0.2))
+    }
+}
+
+/// A race's button in the Armory, lit when picked, hidden when the client has no body for it.
+#[allow(clippy::too_many_arguments)]
+fn race_button(
+    r: &mut ChildSpawnerCommands,
+    f: &KitFonts,
+    race_id: u8,
+    race: u8,
+    all: &[Vec<(u32, u8, u8)>],
+    selection: &Selection,
+    icon: Option<IconSource>,
+) {
+    let Some(icon) = icon else { return };
+    let playable = all.is_empty() || menu::race_playable(all, race_id);
+    let e = kit::icon_button(
+        r,
+        f,
+        icon,
+        34.0,
+        None,
+        race_id == race,
+        ScreenAction::Race(race_id),
+    );
+    if !playable {
+        r.commands().entity(e).insert(Visibility::Hidden);
+    }
+    let name = crate::char_select::race_name(race_id);
+    let class = selection.class_def();
+    // The client's looks decide; without them, vanilla's own pairs.
+    let keeps_class = if all.is_empty() {
+        class.is_none_or(|c| data::race_classes(race_id).contains(&c.id))
+    } else {
+        selection
+            .class
+            .and_then(|c| all.get(c))
+            .is_some_and(|looks| looks.iter().any(|l| l.1 == race_id))
+    };
+    let note = if keeps_class {
+        format!("Play as a {name}.")
+    } else {
+        format!("Picking {name} changes your class.")
+    };
+    r.commands().entity(e).insert(Tooltip::simple(name, note));
+}
+
+/// One appearance dial: its arrows either side of its label, "7 / 9", and a dot per choice.
+fn dial_row(p: &mut ChildSpawnerCommands, f: &KitFonts, i: usize, label: &str, at: u8, count: u8) {
+    p.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            border_radius: BorderRadius::all(Val::Px(4.0)),
+            ..default()
+        },
+        BackgroundColor(theme::INSET),
+        BorderColor::all(Color::srgba(0.4, 0.33, 0.2, 0.5)),
+    ))
+    .with_children(|row| {
+        let arrow = |row: &mut ChildSpawnerCommands, art: &str, forward: bool| {
+            kit::icon_button(
+                row,
+                f,
+                IconSource::Texture(format!(
+                    "Interface\\Glues\\Common\\Glue-{art}Arrow-Button-Up"
+                )),
+                28.0,
+                None,
+                false,
+                ScreenAction::Dial(i, forward),
+            );
+        };
+        arrow(row, "Left", false);
+        row.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: Val::Px(3.0),
+            ..default()
+        })
+        .with_children(|c| {
+            c.spawn(kit::text(&f.body, label.to_uppercase(), 11.0, theme::TEXT));
+            c.spawn(kit::text(
+                &f.number,
+                format!("{} / {count}", at + 1),
+                20.0,
+                theme::TEXT,
+            ));
+            if count <= 24 {
+                c.spawn(Node {
+                    column_gap: Val::Px(4.0),
                     ..default()
                 })
-                .with_children(|c| {
-                    c.spawn(kit::text(&f.body, def.name, 12.0, theme::TEXT));
-                    c.spawn(kit::text(&f.body, def.text, 11.0, theme::GREEN));
+                .with_children(|dots| {
+                    for k in 0..count {
+                        dots.spawn((
+                            Node {
+                                width: Val::Px(5.0),
+                                height: Val::Px(5.0),
+                                border_radius: BorderRadius::MAX,
+                                ..default()
+                            },
+                            BackgroundColor(if k == at {
+                                theme::GOLD
+                            } else {
+                                theme::DIM.with_alpha(0.45)
+                            }),
+                        ));
+                    }
                 });
-            });
-        }
+            }
+        });
+        arrow(row, "Right", true);
     });
 }
 
@@ -1117,16 +1773,6 @@ fn racial_tip(def: &data::RacialDef) -> Tooltip {
         TipLine::new(kind, theme::DIM),
         TipLine::new(def.text, theme::GREEN),
     ])
-}
-
-/// What the Equipment panel shows, to rebuild it only when that changes.
-#[derive(PartialEq, Clone, Debug)]
-struct EquipmentView {
-    class: Option<usize>,
-    look: Option<(u8, u8)>,
-    ready: (bool, bool),
-    worn: Vec<String>,
-    owned: usize,
 }
 
 /// A piece of gear's tooltip: its name in its quality's colour, the slot, what it gives, where
@@ -1181,20 +1827,59 @@ fn bonus_text(b: &data::Bonus) -> String {
     }
 }
 
-/// The ten slots: the gear worn there with its icon (a click changes it), else the starting
-/// outfit's piece, else the paper doll's empty art.
+/// What the Equipment parts show, to rebuild them only when that changes.
+#[derive(PartialEq, Clone, Debug)]
+struct EquipmentView {
+    class: Option<usize>,
+    look: Option<(u8, u8)>,
+    ready: (bool, bool),
+    worn: Vec<String>,
+    owned: usize,
+    slot: Option<usize>,
+}
+
+/// "+25 max health · +1% critical strike" for the gear worn, or what to do about wearing none.
+fn worn_summary(gear: &[&data::ItemDef], none: &str) -> (String, Color) {
+    let bonuses: Vec<data::Bonus> = gear
+        .iter()
+        .flat_map(|i| i.bonuses.iter().cloned())
+        .collect();
+    if bonuses.is_empty() {
+        return (none.to_string(), theme::TEXT);
+    }
+    let lines: Vec<String> = data::sum_bonuses(&bonuses)
+        .iter()
+        .map(|b| format!("+{}", bonus_text(b)))
+        .collect();
+    (lines.join(" · "), theme::GREEN)
+}
+
+/// The ten slots, on the Character tab and in the Armory: the gear worn there with its icon,
+/// else the starting outfit's piece, else the paper doll's empty art. A slot clicked on the
+/// Character tab opens the Armory on it; in the Armory, the pieces owned for the slot picked
+/// show on the right, and a click wears one.
 #[allow(clippy::too_many_arguments)]
 fn refresh_equipment(
     mut commands: Commands,
     fonts: Option<Res<KitFonts>>,
     selection: Res<Selection>,
     store: Res<ProfileStore>,
+    picked: Res<ArmorySlot>,
     catalog: Option<Res<crate::entities::CharCreate>>,
     displays: Option<Res<crate::entities::ItemDisplays>>,
     row: Query<Entity, With<EquipmentRow>>,
+    slots: Query<Entity, With<ArmorySlots>>,
+    picker: Query<Entity, With<ArmoryPicker>>,
+    note: Query<Entity, With<ArmoryNote>>,
     mut shown: Local<Option<EquipmentView>>,
 ) {
-    let (Some(fonts), Ok(row)) = (fonts, row.single()) else {
+    let (Some(fonts), Ok(row), Ok(slots), Ok(picker), Ok(note)) = (
+        fonts,
+        row.single(),
+        slots.single(),
+        picker.single(),
+        note.single(),
+    ) else {
         return;
     };
     let look = menu::current_look(&selection);
@@ -1205,6 +1890,7 @@ fn refresh_equipment(
         ready: (catalog.is_some(), displays.is_some()),
         worn: gear.iter().map(|i| i.name.clone()).collect(),
         owned: store.profile.inventory.len(),
+        slot: picked.0,
     };
     if shown.as_ref() == Some(&view) {
         return;
@@ -1231,15 +1917,25 @@ fn refresh_equipment(
     let icon_of = |display: u32| -> Option<String> {
         displays.as_deref()?.catalog.get(display)?.icon.clone()
     };
-    commands.entity(row).despawn_related::<Children>();
-    commands.entity(row).with_children(|r| {
-        for (k, (label, art, slot)) in outfit::SHOWN.into_iter().enumerate() {
+    let item_icon = |item: &data::ItemDef| {
+        displays
+            .as_deref()
+            .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
+            .unwrap_or_else(|| "Interface\\Icons\\INV_Misc_QuestionMark".to_string())
+    };
+    // Each slot: its name, what it wears, the icon it shows, and its tooltip's last lines.
+    let shown_slots: Vec<(&str, Option<&data::ItemDef>, String, Tooltip)> = outfit::SHOWN
+        .into_iter()
+        .enumerate()
+        .map(|(k, (label, art, slot))| {
             let gear_slot = data::GearSlot::ALL[k];
             let worn_item = gear.iter().find(|i| i.slot == gear_slot).copied();
             let owned = store.profile.owned_for(gear_slot).len();
             let empty = format!("Interface\\PaperDoll\\UI-PaperDoll-Slot-{art}");
-            let (icon, tip) = match worn_item {
+            match worn_item {
                 Some(item) => (
+                    label,
+                    Some(item),
                     displays
                         .as_deref()
                         .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
@@ -1247,9 +1943,9 @@ fn refresh_equipment(
                     gear_tip(
                         item,
                         if owned > 1 {
-                            format!("Click for the next of the {owned} you own.")
+                            format!("{owned} owned for this slot.")
                         } else {
-                            "Click to take it off.".to_string()
+                            "The only one you own for this slot.".to_string()
                         },
                     ),
                 ),
@@ -1257,27 +1953,35 @@ fn refresh_equipment(
                     let piece = outfit.iter().find(|w| w.slot == slot);
                     let note = match (piece, owned) {
                         (_, n) if n > 0 => {
-                            TipLine::new(format!("{n} found: click to wear one."), theme::GOLD)
+                            TipLine::new(format!("{n} found: pick one to wear."), theme::GOLD)
                         }
                         (Some(_), _) => TipLine::new("Starting gear", theme::TEXT),
                         (None, _) => TipLine::new("Empty", theme::DIM),
                     };
                     (
+                        label,
+                        None,
                         piece.and_then(|w| icon_of(w.display)).unwrap_or(empty),
                         Tooltip(vec![TipLine::new(label, Color::WHITE).header(), note]),
                     )
                 }
-            };
+            }
+        })
+        .collect();
+
+    commands.entity(row).despawn_related::<Children>();
+    commands.entity(row).with_children(|r| {
+        for (k, (_, worn_item, icon, tip)) in shown_slots.iter().enumerate() {
             let b = kit::icon_button(
                 r,
                 f,
-                IconSource::Texture(icon),
-                30.0,
+                IconSource::Texture(icon.clone()),
+                40.0,
                 None,
                 worn_item.is_some(),
                 ScreenAction::Equip(k),
             );
-            r.commands().entity(b).insert(tip);
+            r.commands().entity(b).insert(Tooltip(tip.0.clone()));
             if let Some(item) = worn_item {
                 r.commands()
                     .entity(b)
@@ -1285,16 +1989,166 @@ fn refresh_equipment(
             }
         }
     });
+
+    commands.entity(slots).despawn_related::<Children>();
+    commands.entity(slots).with_children(|list| {
+        for (k, (label, worn_item, icon, tip)) in shown_slots.iter().enumerate() {
+            let b = list
+                .spawn((
+                    Button,
+                    kit::ButtonLook::PLAIN,
+                    kit::Selected(picked.0 == Some(k)),
+                    kit::Disabled(false),
+                    ScreenAction::Slot(k),
+                    Tooltip(tip.0.clone()),
+                    Node {
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(10.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        border_radius: BorderRadius::all(Val::Px(4.0)),
+                        ..default()
+                    },
+                    BackgroundColor(theme::BUTTON),
+                    BorderColor::all(theme::BRASS),
+                ))
+                .id();
+            list.commands().entity(b).with_children(|r| {
+                let i = kit::icon(r, IconSource::Texture(icon.clone()), 36.0, None);
+                if let Some(item) = worn_item {
+                    r.commands()
+                        .entity(i)
+                        .insert(BorderColor::all(hud::rgb(item.rarity.color())));
+                }
+                r.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    min_width: Val::Px(0.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.body, label.to_uppercase(), 10.0, theme::TEXT));
+                    match worn_item {
+                        Some(item) => c.spawn(kit::text(
+                            &f.body,
+                            item.name.clone(),
+                            15.0,
+                            hud::rgb(item.rarity.color()),
+                        )),
+                        None => c.spawn(kit::text(&f.body, "Empty", 15.0, theme::DIM)),
+                    };
+                });
+            });
+        }
+    });
+
+    commands.entity(picker).despawn_related::<Children>();
+    commands.entity(picker).with_children(|p| {
+        let Some(k) = picked.0.filter(|&k| k < data::GearSlot::ALL.len()) else {
+            p.spawn(kit::text(
+                &f.body,
+                "Pick a slot on the left to choose what the hero shows there.",
+                13.0,
+                theme::TEXT,
+            ));
+            return;
+        };
+        let slot = data::GearSlot::ALL[k];
+        let worn = gear.iter().find(|i| i.slot == slot).copied();
+        let owned = store.profile.owned_for(slot);
+        p.spawn(kit::text(&f.title, slot.name(), 20.0, theme::GOLD));
+        p.spawn(Node {
+            column_gap: Val::Px(6.0),
+            row_gap: Val::Px(6.0),
+            align_items: AlignItems::Center,
+            flex_wrap: FlexWrap::Wrap,
+            ..default()
+        })
+        .with_children(|r| {
+            let none = kit::button(
+                r,
+                f,
+                "None",
+                None,
+                kit::ButtonLook::PLAIN,
+                ScreenAction::Unwear(k),
+            );
+            r.commands()
+                .entity(none)
+                .insert(kit::Selected(worn.is_none()));
+            for item in &owned {
+                let Some(index) = data::ITEMS.iter().position(|i| i == *item) else {
+                    continue;
+                };
+                let b = kit::icon_button(
+                    r,
+                    f,
+                    IconSource::Texture(item_icon(item)),
+                    36.0,
+                    None,
+                    worn == Some(*item),
+                    ScreenAction::Wear(index),
+                );
+                let n = store
+                    .profile
+                    .inventory
+                    .get(&item.name)
+                    .copied()
+                    .unwrap_or(0);
+                let hint = if worn == Some(*item) {
+                    format!("Worn · found {n}×")
+                } else {
+                    format!("Click to wear it · found {n}×")
+                };
+                r.commands().entity(b).insert(gear_tip(item, hint));
+            }
+        });
+        if owned.is_empty() {
+            p.spawn(kit::text(
+                &f.body,
+                "Nothing found for this slot yet: the bosses drop it.",
+                12.0,
+                theme::DIM,
+            ));
+        } else {
+            p.spawn(kit::text(
+                &f.body,
+                "What you wear shows on your hero and adds to every run.",
+                12.0,
+                theme::DIM,
+            ));
+        }
+    });
+
+    commands.entity(note).despawn_related::<Children>();
+    commands.entity(note).with_children(|n| {
+        let (text, color) = worn_summary(
+            &gear,
+            "Nothing worn adds anything yet: bosses drop the class's gear.",
+        );
+        n.spawn(kit::text(&f.body, text, 13.0, color));
+    });
 }
 
 /// The page picked shows in the columns' place, and its tab is lit.
 fn show_pages(
     page: Res<Page>,
-    mut roots: Query<(&PageRoot, &mut Node)>,
+    mut roots: Query<(&PageRoot, &mut Node), Without<Chrome>>,
+    mut chrome: Query<(&Chrome, &mut Node), Without<PageRoot>>,
     mut tabs: Query<(&TabButton, &mut kit::Selected)>,
 ) {
     if !page.is_changed() {
         return;
+    }
+    let armory = page.0 == ARMORY;
+    for (part, mut node) in &mut chrome {
+        let on = match part {
+            Chrome::Main | Chrome::Bar => !armory,
+            Chrome::Armory => armory,
+        };
+        let want = if on { Display::Flex } else { Display::None };
+        if node.display != want {
+            node.display = want;
+        }
     }
     for (root, mut node) in &mut roots {
         let want = if root.0 == page.0 {
@@ -1337,14 +2191,23 @@ fn refresh_collection(
     displays: Option<Res<crate::entities::ItemDisplays>>,
     body: Query<Entity, With<CollectionBody>>,
     bar: Query<Entity, With<CollectionBar>>,
-    mut shown: Local<Option<(usize, Option<usize>, bool)>>,
+    sub: Query<Entity, With<ArmorySub>>,
+    mut shown: Local<Option<(usize, Option<usize>, bool, Vec<String>)>>,
 ) {
-    let (Some(fonts), Ok(body), Ok(bar)) = (fonts, body.single(), bar.single()) else {
+    let (Some(fonts), Ok(body), Ok(bar), Ok(sub)) =
+        (fonts, body.single(), bar.single(), sub.single())
+    else {
         return;
     };
     let collected = store.profile.collected();
-    let view = (collected.len(), selection.class, displays.is_some());
-    if *shown == Some(view) {
+    let gear = store.profile.gear();
+    let view = (
+        collected.len(),
+        selection.class,
+        displays.is_some(),
+        gear.iter().map(|i| i.name.clone()).collect(),
+    );
+    if shown.as_ref() == Some(&view) {
         return;
     }
     *shown = Some(view);
@@ -1358,9 +2221,30 @@ fn refresh_collection(
     commands.entity(bar).despawn_related::<Children>();
     commands.entity(bar).with_children(|b| {
         kit::progress_bar(b, f, "Collection", progress());
-        b.spawn(kit::text(&f.body, summary.clone(), 11.0, theme::GREEN));
+        let (text, color) = worn_summary(
+            &gear,
+            "No gear worn yet. Bosses drop it for your class, for good.",
+        );
+        b.spawn(kit::text(&f.body, text, 14.0, color));
     });
     let class = selection.class_def();
+    commands.entity(sub).despawn_related::<Children>();
+    commands.entity(sub).with_children(|r| {
+        if let Some(class) = class {
+            r.spawn(kit::text(&f.body, class.name, 17.0, hud::rgb(class.color)));
+            r.spawn(kit::text(&f.body, "  ·  ", 17.0, theme::DIM));
+        }
+        r.spawn(kit::text(
+            &f.body,
+            format!(
+                "{} of {total} pieces collected  ·  what you wear shows on the hero and adds \
+                 to every run",
+                collected.len()
+            ),
+            17.0,
+            theme::TEXT,
+        ));
+    });
     commands.entity(body).despawn_related::<Children>();
     commands.entity(body).with_children(|p| {
         kit::progress_bar(p, f, "Collection", progress());
@@ -1442,122 +2326,6 @@ fn refresh_collection(
                             .entity(e)
                             .insert(BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)));
                     }
-                }
-            });
-        }
-    });
-}
-
-/// The Armory: every slot with every piece owned for it, the worn one lit; a click wears one.
-#[allow(clippy::too_many_arguments)]
-fn refresh_armory(
-    mut commands: Commands,
-    fonts: Option<Res<KitFonts>>,
-    selection: Res<Selection>,
-    store: Res<ProfileStore>,
-    displays: Option<Res<crate::entities::ItemDisplays>>,
-    body: Query<Entity, With<ArmoryBody>>,
-    mut shown: Local<Option<(Vec<String>, usize, Option<usize>, bool)>>,
-) {
-    let (Some(fonts), Ok(body)) = (fonts, body.single()) else {
-        return;
-    };
-    let gear = store.profile.gear();
-    let view = (
-        gear.iter().map(|i| i.name.clone()).collect::<Vec<_>>(),
-        store.profile.inventory.len(),
-        selection.class,
-        displays.is_some(),
-    );
-    if shown.as_ref() == Some(&view) {
-        return;
-    }
-    *shown = Some(view);
-    let f = &*fonts;
-    let class = selection.class_def();
-    commands.entity(body).despawn_related::<Children>();
-    commands.entity(body).with_children(|p| {
-        p.spawn(Node {
-            column_gap: Val::Px(10.0),
-            align_items: AlignItems::Center,
-            ..default()
-        })
-        .with_children(|r| {
-            kit::button(
-                r,
-                f,
-                "Back",
-                None,
-                kit::ButtonLook::PLAIN,
-                ScreenAction::Back,
-            );
-            r.spawn(kit::text(
-                &f.body,
-                "What you wear shows on your hero and adds to every run.",
-                12.0,
-                theme::DIM,
-            ));
-        });
-        for (k, slot) in data::GearSlot::ALL.iter().enumerate() {
-            let owned = store.profile.owned_for(*slot);
-            let worn = gear.iter().find(|i| i.slot == *slot).copied();
-            p.spawn(Node {
-                column_gap: Val::Px(6.0),
-                align_items: AlignItems::Center,
-                flex_wrap: FlexWrap::Wrap,
-                ..default()
-            })
-            .with_children(|row| {
-                row.spawn(Node {
-                    width: Val::Px(110.0),
-                    ..default()
-                })
-                .with_children(|c| {
-                    c.spawn(kit::text(&f.title, slot.name(), 15.0, theme::GOLD));
-                });
-                let none = kit::button(
-                    row,
-                    f,
-                    "None",
-                    None,
-                    kit::ButtonLook::PLAIN,
-                    ScreenAction::Unwear(k),
-                );
-                row.commands()
-                    .entity(none)
-                    .insert(kit::Selected(worn.is_none()));
-                if owned.is_empty() {
-                    row.spawn(kit::text(&f.body, "Nothing found yet.", 11.0, theme::DIM));
-                }
-                for item in owned {
-                    let Some(index) = data::ITEMS.iter().position(|i| i == item) else {
-                        continue;
-                    };
-                    let icon = displays
-                        .as_deref()
-                        .and_then(|d| outfit::gear_icon(item, class, &d.catalog))
-                        .unwrap_or_else(|| "Interface\\Icons\\INV_Misc_QuestionMark".to_string());
-                    let b = kit::icon_button(
-                        row,
-                        f,
-                        IconSource::Texture(icon),
-                        32.0,
-                        None,
-                        worn == Some(item),
-                        ScreenAction::Wear(index),
-                    );
-                    let n = store
-                        .profile
-                        .inventory
-                        .get(&item.name)
-                        .copied()
-                        .unwrap_or(0);
-                    let hint = if worn == Some(item) {
-                        format!("Worn · found {n}×")
-                    } else {
-                        format!("Click to wear it · found {n}×")
-                    };
-                    row.commands().entity(b).insert(gear_tip(item, hint));
                 }
             });
         }
