@@ -876,35 +876,91 @@ pub(super) fn bonus_line(
 
 // ── Scrolling ────────────────────────────────────────────────────────────────────────────────
 
-/// A column that scrolls with the mouse wheel while the pointer is over it.
+/// A column that scrolls with the mouse wheel while the pointer is over it, rows and buttons
+/// included, with a bar on its right edge that shows where it is and drags.
 #[derive(Component)]
 pub(super) struct ScrollArea;
 
+/// A scroll area's bar, and the thumb in it; both name the area they follow.
+#[derive(Component)]
+struct ScrollTrack(Entity);
+#[derive(Component)]
+struct ScrollThumb(Entity);
+
 /// Wheel lines to pixels: a notch moves about two rows.
 const SCROLL_LINE: f32 = 36.0;
+/// The bar's width, and the room the rows leave it.
+const SCROLL_BAR: f32 = 5.0;
+const SCROLL_GUTTER: f32 = 10.0;
+/// The thumb's least share of the bar, so a long list's stays easy to grab.
+const THUMB_MIN: f32 = 0.08;
 
-/// A scrolling column, filled by the caller; `node` sets its size.
+/// A scrolling column, filled by the caller; `node` sets its size and its rows' gap. Returns the
+/// column the rows are in.
 pub(super) fn scroll_area(
     p: &mut ChildSpawnerCommands,
     node: Node,
     children: impl FnOnce(&mut ChildSpawnerCommands),
 ) -> Entity {
-    p.spawn((
-        ScrollArea,
-        Node {
-            flex_direction: FlexDirection::Column,
-            overflow: Overflow::scroll_y(),
-            // A flex child shrinks below its content only with this; without it the area grows
-            // to fit and never scrolls.
-            min_height: Val::Px(0.0),
-            ..node
-        },
-        ScrollPosition::default(),
-        Interaction::default(),
-        bevy::ui::FocusPolicy::Pass,
-    ))
-    .with_children(children)
-    .id()
+    let gap = node.row_gap;
+    let mut area = Entity::PLACEHOLDER;
+    p.spawn(Node {
+        flex_direction: FlexDirection::Column,
+        // A flex child shrinks below its content only with this; without it the area grows to
+        // fit and never scrolls.
+        min_height: Val::Px(0.0),
+        ..node
+    })
+    .with_children(|o| {
+        area = o
+            .spawn((
+                ScrollArea,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    min_height: Val::Px(0.0),
+                    row_gap: gap,
+                    padding: UiRect::right(Val::Px(SCROLL_GUTTER)),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                ScrollPosition::default(),
+            ))
+            .with_children(children)
+            .id();
+        o.spawn((
+            ScrollTrack(area),
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(0.0),
+                top: Val::Px(0.0),
+                bottom: Val::Px(0.0),
+                width: Val::Px(SCROLL_BAR),
+                border_radius: BorderRadius::MAX,
+                ..default()
+            },
+            BackgroundColor(theme::INSET),
+            Visibility::Hidden,
+        ))
+        .with_children(|t| {
+            t.spawn((
+                ScrollThumb(area),
+                Button,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    right: Val::Px(0.0),
+                    top: Val::Percent(0.0),
+                    height: Val::Percent(100.0),
+                    border_radius: BorderRadius::MAX,
+                    ..default()
+                },
+                BackgroundColor(theme::BRASS),
+            ));
+        });
+    });
+    area
 }
 
 /// How far a scroll area may scroll, in logical pixels: its content past its own height.
@@ -912,11 +968,39 @@ fn scroll_room(node: &ComputedNode) -> f32 {
     ((node.content_size().y - node.size().y) * node.inverse_scale_factor()).max(0.0)
 }
 
+/// The thumb's top and height, as shares of the bar, for a view `size` tall over `content`
+/// scrolled `at` of `room`; `None` when everything fits.
+fn thumb_geometry(at: f32, room: f32, size: f32, content: f32) -> Option<(f32, f32)> {
+    if room <= 0.5 || size <= 0.0 || content <= size {
+        return None;
+    }
+    let shown = (size / content).clamp(THUMB_MIN, 1.0);
+    let along = (at / room).clamp(0.0, 1.0);
+    Some((along * (1.0 - shown), shown))
+}
+
+/// The wheel scrolls the area under the pointer, and a held thumb drags its area.
+#[allow(clippy::type_complexity)]
 fn scroll_areas(
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
-    mut areas: Query<(&Interaction, &mut ScrollPosition, &ComputedNode), With<ScrollArea>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut areas: Query<
+        (
+            &mut ScrollPosition,
+            &ComputedNode,
+            &bevy::ui::UiGlobalTransform,
+        ),
+        With<ScrollArea>,
+    >,
+    thumbs: Query<(&ScrollThumb, &Interaction)>,
+    // The area dragged, the pointer's height when it was grabbed, and the scroll then.
+    mut drag: Local<Option<(Entity, f32, f32)>>,
 ) {
     use bevy::input::mouse::MouseScrollUnit;
+    let cursor = windows
+        .single()
+        .ok()
+        .and_then(|w| w.physical_cursor_position());
     let dy: f32 = wheel
         .read()
         .map(|w| match w.unit {
@@ -924,16 +1008,75 @@ fn scroll_areas(
             MouseScrollUnit::Pixel => w.y,
         })
         .sum();
-    if dy == 0.0 {
+    if let (Some(c), true) = (cursor, dy != 0.0) {
+        // Over the area's rectangle, not its `Interaction`: the rows' buttons take the hover,
+        // and the area under them never sees it.
+        for (mut pos, node, at) in &mut areas {
+            let half = node.size() * 0.5;
+            if (c - at.translation).abs().cmpgt(half).any() {
+                continue;
+            }
+            let y = (pos.0.y - dy).clamp(0.0, scroll_room(node));
+            if pos.0.y != y {
+                pos.0.y = y;
+            }
+        }
+    }
+    let held = thumbs
+        .iter()
+        .find(|(_, i)| **i == Interaction::Pressed)
+        .map(|(t, _)| t.0);
+    let (Some(area), Some(c)) = (held, cursor) else {
+        *drag = None;
+        return;
+    };
+    let Ok((mut pos, node, _)) = areas.get_mut(area) else {
+        return;
+    };
+    let (_, from_y, from_scroll) = *drag.get_or_insert((area, c.y, pos.0.y));
+    let (size, content) = (node.size().y, node.content_size().y);
+    if size <= 0.0 {
         return;
     }
-    for (i, mut pos, node) in &mut areas {
-        if *i == Interaction::None {
-            continue;
+    // A pixel of thumb travel is `content / size` pixels of the list.
+    let moved = (c.y - from_y) * content / size * node.inverse_scale_factor();
+    let y = (from_scroll + moved).clamp(0.0, scroll_room(node));
+    if pos.0.y != y {
+        pos.0.y = y;
+    }
+}
+
+/// Each bar shows while its list overflows, its thumb as long as the share in view and as far
+/// down as the list is scrolled.
+fn show_scrollbars(
+    areas: Query<(&ScrollPosition, &ComputedNode), With<ScrollArea>>,
+    mut tracks: Query<(&ScrollTrack, &mut Visibility)>,
+    mut thumbs: Query<(&ScrollThumb, &mut Node)>,
+) {
+    let geometry = |area: Entity| {
+        let (pos, n) = areas.get(area).ok()?;
+        thumb_geometry(pos.0.y, scroll_room(n), n.size().y, n.content_size().y)
+    };
+    for (track, mut vis) in &mut tracks {
+        let want = if geometry(track.0).is_some() {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *vis != want {
+            *vis = want;
         }
-        let y = (pos.0.y - dy).clamp(0.0, scroll_room(node));
-        if pos.0.y != y {
-            pos.0.y = y;
+    }
+    for (thumb, mut node) in &mut thumbs {
+        let Some((top, height)) = geometry(thumb.0) else {
+            continue;
+        };
+        let (top, height) = (Val::Percent(top * 100.0), Val::Percent(height * 100.0));
+        if node.top != top {
+            node.top = top;
+        }
+        if node.height != height {
+            node.height = height;
         }
     }
 }
@@ -1138,6 +1281,7 @@ pub(super) fn plugin(app: &mut App) {
                 show_tooltips,
                 show_fields,
                 scroll_areas,
+                show_scrollbars,
             ),
         );
     if crate::webenv::var("WOW_UI_KIT").is_some_and(|v| v != "0") {
@@ -1347,6 +1491,40 @@ mod tests {
 
     #[derive(Component, Clone, Debug, PartialEq)]
     struct Act(u8);
+
+    #[test]
+    fn the_thumb_shows_the_share_in_view_and_where_it_is() {
+        // Everything fits: no bar.
+        assert_eq!(thumb_geometry(0.0, 0.0, 400.0, 300.0), None);
+        // Twice the view: half the bar, at the top, then at the bottom.
+        assert_eq!(thumb_geometry(0.0, 400.0, 400.0, 800.0), Some((0.0, 0.5)));
+        assert_eq!(thumb_geometry(400.0, 400.0, 400.0, 800.0), Some((0.5, 0.5)));
+        // A long list's thumb keeps a grabbable length and still reaches the bottom.
+        let (top, height) = thumb_geometry(9_600.0, 9_600.0, 400.0, 10_000.0).unwrap();
+        assert_eq!(height, THUMB_MIN);
+        assert!((top + height - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_scroll_area_carries_its_bar() {
+        let mut app = app();
+        build(&mut app, |p, _| {
+            scroll_area(p, Node::default(), |_| {});
+        });
+        app.update();
+        let w = app.world_mut();
+        let area = w
+            .query_filtered::<Entity, With<ScrollArea>>()
+            .single(w)
+            .unwrap();
+        let mut thumbs = w.query::<&ScrollThumb>();
+        assert!(
+            thumbs.iter(w).any(|t| t.0 == area),
+            "the thumb follows its area"
+        );
+        let mut tracks = w.query::<&ScrollTrack>();
+        assert!(tracks.iter(w).any(|t| t.0 == area));
+    }
 
     fn build(
         app: &mut App,
