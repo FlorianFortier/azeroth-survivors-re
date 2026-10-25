@@ -46,6 +46,7 @@ pub(super) fn plugin(app: &mut App) {
             refresh_talents,
             refresh_drops,
             refresh_codex,
+            refresh_achievements,
             refresh_armory,
             refresh_zone_list,
             refresh_bottom_bar,
@@ -76,8 +77,18 @@ const COLLECTION: usize = 1;
 const DROPS: usize = 2;
 const CODEX: usize = 3;
 const TALENTS: usize = 4;
+const ACHIEVEMENTS: usize = 5;
+const REWARDS: usize = 6;
 const ARMORY: usize = 100;
-const BUILT_TABS: [usize; 5] = [CHARACTER, COLLECTION, DROPS, CODEX, TALENTS];
+const BUILT_TABS: [usize; 7] = [
+    CHARACTER,
+    COLLECTION,
+    DROPS,
+    CODEX,
+    TALENTS,
+    ACHIEVEMENTS,
+    REWARDS,
+];
 
 /// The page shown.
 #[derive(Resource, Default)]
@@ -102,6 +113,10 @@ struct TalentsBody;
 struct DropsBody;
 #[derive(Component)]
 struct CodexBody;
+#[derive(Component)]
+struct AchievementsBody;
+#[derive(Component)]
+struct RewardsBody;
 
 /// The class column's body, rebuilt when the pick changes.
 #[derive(Component)]
@@ -136,6 +151,9 @@ enum ScreenAction {
     ResetTalents,
     /// The next difficulty open in the zone picked.
     RunOptions,
+    /// Claim one achievement's reward ([`data::ACHIEVEMENTS`] index), or all of them.
+    Claim(usize),
+    ClaimAll,
     Zone(usize),
     Enter,
     Coop,
@@ -218,6 +236,8 @@ fn build_screen(
                 (TALENTS, 2),
                 (DROPS, 3),
                 (CODEX, 4),
+                (ACHIEVEMENTS, 5),
+                (REWARDS, 6),
             ] {
                 root.spawn((
                     PageRoot(page),
@@ -238,7 +258,9 @@ fn build_screen(
                             1 => "Armory",
                             2 => "Talents",
                             3 => "Drop Tables",
-                            _ => "Codex",
+                            4 => "Codex",
+                            5 => "Achievements",
+                            _ => "Rewards",
                         }),
                         Node {
                             width: Val::Percent(100.0),
@@ -264,7 +286,9 @@ fn build_screen(
                                         1 => e.insert(ArmoryBody),
                                         2 => e.insert(TalentsBody),
                                         3 => e.insert(DropsBody),
-                                        _ => e.insert(CodexBody),
+                                        4 => e.insert(CodexBody),
+                                        5 => e.insert(AchievementsBody),
+                                        _ => e.insert(RewardsBody),
                                     };
                                 },
                             );
@@ -407,6 +431,21 @@ fn clicks(
             }
         }
         ScreenAction::Armory => page.0 = ARMORY,
+        ScreenAction::Claim(i) => {
+            if let Some(a) = data::ACHIEVEMENTS.get(i) {
+                store.edit(|p| {
+                    p.claim(&a.key);
+                });
+            }
+        }
+        ScreenAction::ClaimAll => {
+            store.edit(|p| {
+                let keys: Vec<String> = p.unclaimed().iter().map(|a| a.key.clone()).collect();
+                for k in keys {
+                    p.claim(&k);
+                }
+            });
+        }
         ScreenAction::RunOptions => {
             let zone = selection.map_def().name;
             let open = store.profile.hardest_open(zone);
@@ -2057,6 +2096,177 @@ fn refresh_codex(
     });
 }
 
+/// The Achievements tab, every one with its progress; the Rewards tab, those done and waiting to
+/// be claimed; and the Rewards tab's count.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn refresh_achievements(
+    mut commands: Commands,
+    fonts: Option<Res<KitFonts>>,
+    store: Res<ProfileStore>,
+    bodies: Query<(Entity, Has<AchievementsBody>), Or<(With<AchievementsBody>, With<RewardsBody>)>>,
+    tabs: Query<(&TabButton, &Children)>,
+    mut texts: Query<&mut Text>,
+    mut shown: Local<Option<String>>,
+) {
+    let Some(fonts) = fonts else { return };
+    let p = &store.profile;
+    let view = format!(
+        "{:?}{:?}{}{}{}{}{}",
+        p.totals,
+        p.claimed,
+        p.gold,
+        p.talent_points,
+        p.inventory.len(),
+        p.codex.bosses.len(),
+        p.zones.len()
+    );
+    if shown.as_deref() == Some(view.as_str()) {
+        return;
+    }
+    let mut bodies = bodies.iter();
+    let (Some(a), Some(b)) = (bodies.next(), bodies.next()) else {
+        return;
+    };
+    *shown = Some(view);
+    let (achievements, rewards) = if a.1 { (a.0, b.0) } else { (b.0, a.0) };
+    let unclaimed = p.unclaimed();
+    // The Rewards tab says how many wait.
+    for (tab, children) in &tabs {
+        if tab.0 != REWARDS {
+            continue;
+        }
+        for child in children.iter() {
+            if let Ok(mut t) = texts.get_mut(child) {
+                let want = if unclaimed.is_empty() {
+                    TABS[REWARDS].to_string()
+                } else {
+                    format!("{} ({})", TABS[REWARDS], unclaimed.len())
+                };
+                if **t != want {
+                    **t = want;
+                }
+            }
+        }
+    }
+    let f = &*fonts;
+    let done = data::ACHIEVEMENTS.iter().filter(|x| p.achieved(x)).count();
+    commands.entity(achievements).despawn_related::<Children>();
+    commands.entity(achievements).with_children(|body| {
+        kit::progress_bar(
+            body,
+            f,
+            "Achievements",
+            kit::Progress {
+                value: done as f32,
+                max: data::ACHIEVEMENTS.len() as f32,
+            },
+        );
+        for (i, x) in data::ACHIEVEMENTS.iter().enumerate() {
+            let (now, goal) = p.progress(x);
+            let ok = now >= goal;
+            let claimed = p.claimed.contains(&x.key);
+            body.spawn(Node {
+                column_gap: Val::Px(12.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Px(320.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(
+                        &f.title,
+                        x.name.clone(),
+                        15.0,
+                        if ok { theme::GOLD } else { theme::TEXT },
+                    ));
+                    c.spawn(kit::text(&f.body, x.text.clone(), 11.0, theme::DIM));
+                });
+                row.spawn(Node {
+                    width: Val::Px(220.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    kit::progress_bar(
+                        c,
+                        f,
+                        "",
+                        kit::Progress {
+                            value: now.min(goal) as f32,
+                            max: goal as f32,
+                        },
+                    );
+                });
+                kit::chip(row, f, &format!("{} gold", x.gold), ok && !claimed);
+                if ok && !claimed {
+                    kit::button(
+                        row,
+                        f,
+                        "Claim",
+                        None,
+                        kit::ButtonLook::ACTION,
+                        ScreenAction::Claim(i),
+                    );
+                } else if claimed {
+                    row.spawn(kit::text(&f.body, "Claimed", 11.0, theme::GREEN));
+                }
+            });
+        }
+    });
+    commands.entity(rewards).despawn_related::<Children>();
+    commands.entity(rewards).with_children(|body| {
+        if unclaimed.is_empty() {
+            body.spawn(kit::text(
+                &f.body,
+                "Nothing waits to be claimed. Achievements pay gold here once done.",
+                13.0,
+                theme::DIM,
+            ));
+            return;
+        }
+        let total: u64 = unclaimed.iter().map(|x| x.gold).sum();
+        kit::button(
+            body,
+            f,
+            "Claim all",
+            Some(&format!("{total} gold")),
+            kit::ButtonLook::ACTION,
+            ScreenAction::ClaimAll,
+        );
+        for x in &unclaimed {
+            let Some(i) = data::ACHIEVEMENTS.iter().position(|y| y == *x) else {
+                continue;
+            };
+            body.spawn(Node {
+                column_gap: Val::Px(12.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    width: Val::Px(320.0),
+                    ..default()
+                })
+                .with_children(|c| {
+                    c.spawn(kit::text(&f.title, x.name.clone(), 15.0, theme::GOLD));
+                });
+                kit::chip(row, f, &format!("{} gold", x.gold), true);
+                kit::button(
+                    row,
+                    f,
+                    "Claim",
+                    None,
+                    kit::ButtonLook::ACTION,
+                    ScreenAction::Claim(i),
+                );
+            });
+        }
+    });
+}
+
 /// Minutes and seconds, "2:15".
 fn mmss(secs: f32) -> String {
     let s = secs.max(0.0).round() as u32;
@@ -2426,6 +2636,9 @@ mod tests {
         assert_eq!(TABS[TALENTS], "Talents");
         assert_eq!(TABS[DROPS], "Drop Tables");
         assert_eq!(TABS[CODEX], "Codex");
+        assert_eq!(TABS[ACHIEVEMENTS], "Achievements");
+        assert_eq!(TABS[REWARDS], "Rewards");
+        assert_eq!(BUILT_TABS.len(), TABS.len(), "every tab is built");
         assert_eq!(one_in(1.0 / 600.0), "1 in 600");
         assert_eq!(one_in(1.0 / 1500.0), "1 in 1,500");
         assert_eq!(one_in(0.0), "never");
