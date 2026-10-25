@@ -34,8 +34,15 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 
 ### In this build
 
-- **A character-create pick screen** built from the client's own glue art: eight races, both
-  genders, every class the race can be.
+- **A main screen in tabs** (Character, Collection, Drop Tables, Codex, Talents, Achievements,
+  Rewards). The Character tab shows the class on the left (its health, starting spell and spell
+  pool), your hero in the middle (portrait, name, race, equipment, collection, racials) and the
+  zones on the right, with Run Options, Enter and Co-op under them. The older pick screen built
+  from the client's glue art is still there with `?new_menu=0` (`WOW_NEW_MENU=0` native).
+- **The Armory**, opened from the hero's portrait, the Armory button or an equipment slot: eight
+  races, both genders and the ten slots on the left, the hero on a stage you turn by dragging in
+  the middle, and character creation's appearance options and the pieces you own for the slot
+  picked on the right.
 - **A twelve-zone campaign**, from Elwynn Forest's Defias Uprising to Naxxramas: Duskwood, Warsong
   Gulch, Un'Goro Crater, Arathi Basin, Feralas, Gurubashi Arena, Scarlet Monastery, Alterac
   Valley, Blackrock Mountain and the Gates of Ahn'Qiraj between. Each zone fights with its own
@@ -44,15 +51,14 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   zones won are kept in a saved profile (`benilla-config/survivors-profile.toml`, or the
   browser's storage).
 - **Your hero is a player character**: the race's own body with character creation's skin, face,
-  hair, hair colour and facial hair, dressed piece by piece in the class's starting outfit and its
-  weapons, which the Equipment panel lists.
+  hair, hair colour and facial hair (set in the Armory), dressed piece by piece in the class's
+  starting outfit and its weapons, which the Equipment panel lists.
 - **Loot that lasts**: each of the 60 bosses drops its own piece of gear (uncommon to legendary),
   and the horde now and then one of its zone's. Whatever you catch is kept, won or lost; wear it
-  from the Equipment panel (a click on a slot cycles what you own), and it shows on your hero and
-  adds to your numbers.
+  from the Armory (a click on a slot opens it there), and it shows on your hero and adds to your
+  numbers.
 - **A collection of all 60 pieces** (the **Collection** tab, and its bar under the equipment):
   every piece found adds a quarter of its first bonus to every run from then on, worn or not.
-  The **Armory** lists every piece you own, slot by slot, to wear one with a click.
 - **Gold and talents**: every run earns gold (kills, bosses reached, the win). Gold trains talent
   points, up to vanilla's 51, shared by every class; the **Talents** tab lays out the class's
   three real trees from the client's `Talent.dbc` (names, icons, tiers, prerequisites), each
@@ -76,6 +82,9 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
 - **A third-person 3D view:** the camera hangs behind the hero, the mouse looks around and WASD
   runs where you look. **C** switches to the classic top-down views, locked or free.
+- **WoW's movement:** no inertia on the ground, backpedalling at the stock 4.5 against 7 yards a
+  second, strafing at full speed, and a running jump that keeps its momentum to the landing (a
+  standing one may be steered once, at walk speed).
 - A light sharpen-and-colour pass over the picture (**G** toggles it).
 
 ## Play it
@@ -106,6 +115,9 @@ five-character code. The host sets the zone, the seats, the difficulty (presets,
 damage and crowd size one by one), the run's length, how often bosses come, shared experience,
 revives, and whether the lobby is listed publicly.
 
+Each hero brings its own profile into the run: the gear it wears, its collection, its class's
+talents and its race's racials.
+
 `make start` already serves a lobby beside the game: players on your network open your page,
 click **Co-op**, and create or join. To host lobbies on the internet without exposing game
 files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
@@ -115,6 +127,20 @@ files, run the standalone server with `make lobby`. See [docs/MULTIPLAYER.md](do
 See [CONTROLS.md](CONTROLS.md). The short version: the **mouse** to look, **WASD** to move,
 **Space** to jump, **F** for your class's movement spell, the **mouse wheel** to zoom, hold **Alt**
 to free the pointer, **C** to change the view, **Esc** to pause, **1/2/3** to pick a level-up card.
+
+## Options
+
+Add these to the page's address (`http://127.0.0.1:8090/?unlock_all=1`), or set the `WOW_…`
+variable for the native build:
+
+| browser | native | what |
+| --- | --- | --- |
+| `?unlock_all=1` | `WOW_UNLOCK_ALL=1` | open every zone |
+| `?new_menu=0` | `WOW_NEW_MENU=0` | the older glue-art pick screen |
+| `?grade=0` | `WOW_GRADE=0` | start with the picture polish off |
+| `?mouse_sens=1.5` | `WOW_MOUSE_SENS=1.5` | mouse speed in the third-person view, 0.1 to 10 |
+| `?name=…` | `WOW_NAME=…` | your name in a lobby |
+| `?lobby=…` | `WOW_LOBBY=…` | the lobby server to use |
 
 ## The game data (not in this repo)
 
@@ -146,6 +172,11 @@ The survivors mode is `crates/benilla-app/src/survivors/`, running on two upstre
 - [benilla](https://github.com/samwhosung/benilla) — a from-scratch WoW 1.12.1 client.
 - [wenilla](https://github.com/Arnesen/wenilla) — benilla compiled to WebAssembly, with a local
   host and realm service.
+
+To work on it, start with [AGENTS.md](AGENTS.md): where everything lives, file by file, the
+commands and tests (most need no game data), the rules every change keeps, and the known
+pitfalls. Multiplayer is [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md), syncing upstream
+[docs/UPSTREAM.md](docs/UPSTREAM.md).
 
 ## Legal
 

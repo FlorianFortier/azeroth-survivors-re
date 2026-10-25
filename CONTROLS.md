@@ -5,14 +5,18 @@ where you look. **C** switches to the classic top-down views.
 
 | When | Key / Input | Action |
 |---|---|---|
-| Menu | Click a class, a race, a sex and a zone | make your pick; **Random** rolls a name in the race's sound. A locked zone says which final boss opens it |
+| Menu | Click a class and a zone | make your pick; **Random** rolls a name in the race's sound. A locked zone says which final boss opens it |
+| Menu | Click the hero's portrait, **Armory** or an equipment slot | open the Armory: race, sex, look and the gear worn |
+| Armory | drag the hero, or the arrows under it | turn the hero |
+| Armory | the arrows beside an option, or **Randomize** | change the skin, face, hair, hair colour or facial hair |
+| Armory | a slot on the left, then a piece on the right | wear it (**None** takes it off); **Done** goes back |
 | Menu | **mouse wheel** over the zones | scroll the zone list |
 | Menu | **Enter** (or **Enter <zone>**) | start the run; the world travels to the zone picked |
 | Menu | **Co-op** (bottom right) | create or join a lobby — see [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |
 | Playing | **mouse** | look around; the hero turns with the view |
-| Playing | **W / S / A / D** or **arrow keys** | run where the camera looks, backpedal, strafe |
+| Playing | **W / S / A / D** or **arrow keys** | run where the camera looks, backpedal (slower, as in WoW), strafe |
 | Playing | **both mouse buttons** held | run forward, as in WoW (toward the cursor in the top-down view) |
-| Playing | **Space** | jump |
+| Playing | **Space** | jump; a running jump keeps its momentum, a standing one may be steered once |
 | Playing | **F** (from level 5) | your class's movement spell: Blink, Charge… aimed at the crosshair |
 | Playing | **mouse wheel** | zoom the camera in and out |
 | Playing | hold **Alt** | free the mouse pointer (minimap buttons, tooltips) |
@@ -38,5 +42,6 @@ where you look. **C** switches to the classic top-down views.
   world-relative.
 - **Top-down unlocked**: a mouse drag swings and tilts the camera around the hero.
 
-In the menu the camera slowly orbits the preview hero. Your race, gender, class and zone are
+In the menu the camera frames the hero in its portrait and slowly turns around it; in the
+Armory, a drag turns it. Your race, gender, class and zone are
 remembered across reloads.
