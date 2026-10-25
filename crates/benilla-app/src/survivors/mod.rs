@@ -536,6 +536,13 @@ impl Vitals {
         )
     }
 
+    /// What the hero's run items do beyond their stats, each at its stacks.
+    pub fn item_effects(&self) -> impl Iterator<Item = data::ItemEffect> + '_ {
+        self.run_items
+            .iter()
+            .filter_map(|&(i, n)| i.effect.map(|e| e.at(n)))
+    }
+
     /// The hero with what it brings into the run, at full health on it.
     pub fn with_meta(mut self, meta: Vec<Bonus>, procs: &[&'static data::ProcDef]) -> Self {
         self.meta = meta;

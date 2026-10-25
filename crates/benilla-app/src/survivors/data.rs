@@ -2615,6 +2615,78 @@ pub(crate) struct RunItemDef {
     pub spell: u32,
     /// What each stack gives.
     pub bonus: Bonus,
+    /// How rare it is: the rarer, the less often it is drawn ([`CardRarity::item_odds`]).
+    pub rarity: CardRarity,
+    /// What it does beyond its stat, the simulation's to fire.
+    pub effect: Option<ItemEffect>,
+}
+
+/// What a run item does beyond a stat, each number per stack. Only solo and the host fire them
+/// (`abilities::apply_hits`, `enemies::move_enemies`), and their visuals go through `units::Fx`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ItemEffect {
+    /// Every hit heals the hero this share of its damage.
+    Lifesteal(f32),
+    /// Every hit may arc to `jumps` more foes nearby for `damage` (times might), at `chance`;
+    /// `spell` names the arc's visual.
+    Chain {
+        chance: f32,
+        damage: f32,
+        jumps: u8,
+        spell: u32,
+    },
+    /// A blow taken returns this much damage (times might) to whoever struck.
+    Thorns(f32),
+    /// A kill may burst for `damage` (times might) on everything within `radius`, at `chance`;
+    /// `spell` names the burst's visual.
+    Burst {
+        chance: f32,
+        damage: f32,
+        radius: f32,
+        spell: u32,
+    },
+    /// A kill heals the hero this much.
+    KillHeal(f32),
+}
+
+/// The most likely an item's chance grows to, however many stacks.
+pub(crate) const MAX_PROC_CHANCE: f32 = 0.6;
+/// How far an item's arc looks for its next foe.
+pub(crate) const ITEM_CHAIN_REACH: f32 = 9.0;
+
+impl ItemEffect {
+    /// The effect at `stacks`: amounts grow with each stack, a chance up to [`MAX_PROC_CHANCE`].
+    pub fn at(self, stacks: u8) -> ItemEffect {
+        let k = f32::from(stacks.max(1));
+        let chance = |c: f32| (c * k).min(MAX_PROC_CHANCE);
+        match self {
+            ItemEffect::Lifesteal(f) => ItemEffect::Lifesteal(f * k),
+            ItemEffect::Chain {
+                chance: c,
+                damage,
+                jumps,
+                spell,
+            } => ItemEffect::Chain {
+                chance: chance(c),
+                damage: damage * k,
+                jumps,
+                spell,
+            },
+            ItemEffect::Thorns(d) => ItemEffect::Thorns(d * k),
+            ItemEffect::Burst {
+                chance: c,
+                damage,
+                radius,
+                spell,
+            } => ItemEffect::Burst {
+                chance: chance(c),
+                damage: damage * k,
+                radius,
+                spell,
+            },
+            ItemEffect::KillHeal(h) => ItemEffect::KillHeal(h * k),
+        }
+    }
 }
 
 /// The most of one run item a hero carries.
@@ -2626,78 +2698,186 @@ pub(crate) static RUN_ITEMS: &[RunItemDef] = &[
         name: "Battle Standard",
         spell: 23880,
         bonus: Bonus::flat(Stat::Might, 0.06),
+        rarity: CardRarity::Uncommon,
+        effect: None,
     },
     RunItemDef {
         key: "hourglass",
         name: "Bronze Hourglass",
         spell: 25771,
         bonus: Bonus::flat(Stat::Haste, 0.04),
+        rarity: CardRarity::Uncommon,
+        effect: None,
     },
     RunItemDef {
         key: "eagle_eye",
         name: "Eagle Eye Lens",
         spell: 6197,
         bonus: Bonus::flat(Stat::Crit, 0.03),
+        rarity: CardRarity::Rare,
+        effect: None,
     },
     RunItemDef {
         key: "thick_hide",
         name: "Thick Hide",
         spell: 9116,
         bonus: Bonus::flat(Stat::Armor, 2.0),
+        rarity: CardRarity::Common,
+        effect: None,
     },
     RunItemDef {
         key: "troll_blood",
         name: "Troll's Blood",
         spell: 20555,
         bonus: Bonus::flat(Stat::Regen, 1.0),
+        rarity: CardRarity::Common,
+        effect: None,
     },
     RunItemDef {
         key: "swift_feather",
         name: "Swift Feather",
         spell: 2479,
         bonus: Bonus::pct(Stat::Speed, 0.06),
+        rarity: CardRarity::Common,
+        effect: None,
     },
     RunItemDef {
         key: "lodestone",
         name: "Lodestone",
         spell: 1906,
         bonus: Bonus::pct(Stat::Magnet, 0.15),
+        rarity: CardRarity::Common,
+        effect: None,
     },
     RunItemDef {
         key: "tome_of_lore",
         name: "Tome of Lore",
         spell: 1459,
         bonus: Bonus::flat(Stat::Growth, 0.08),
+        rarity: CardRarity::Common,
+        effect: None,
     },
     RunItemDef {
         key: "giants_belt",
         name: "Giant's Belt",
         spell: 2458,
         bonus: Bonus::pct(Stat::MaxHp, 0.08),
+        rarity: CardRarity::Uncommon,
+        effect: None,
     },
     RunItemDef {
         key: "arcane_prism",
         name: "Arcane Prism",
         spell: 1449,
         bonus: Bonus::flat(Stat::Area, 0.06),
+        rarity: CardRarity::Rare,
+        effect: None,
     },
     RunItemDef {
         key: "lucky_coin",
         name: "Lucky Coin",
         spell: 1784,
         bonus: Bonus::pct(Stat::Gold, 0.15),
+        rarity: CardRarity::Uncommon,
+        effect: None,
     },
     RunItemDef {
         key: "stoneskin",
         name: "Stoneskin Charm",
         spell: 20594,
         bonus: Bonus::flat(Stat::DamageReduction, 0.02),
+        rarity: CardRarity::Rare,
+        effect: None,
+    },
+    RunItemDef {
+        key: "thornmail",
+        name: "Thornmail Bracers",
+        spell: 467,
+        bonus: Bonus::flat(Stat::Armor, 1.0),
+        rarity: CardRarity::Uncommon,
+        effect: Some(ItemEffect::Thorns(6.0)),
+    },
+    RunItemDef {
+        key: "vampiric_fang",
+        name: "Vampiric Fang",
+        spell: 15286,
+        bonus: Bonus::flat(Stat::Might, 0.02),
+        rarity: CardRarity::Rare,
+        effect: Some(ItemEffect::Lifesteal(0.015)),
+    },
+    RunItemDef {
+        key: "soulfeast",
+        name: "Soulfeast Shard",
+        spell: 1120,
+        bonus: Bonus::flat(Stat::Regen, 0.3),
+        rarity: CardRarity::Rare,
+        effect: Some(ItemEffect::KillHeal(1.5)),
+    },
+    RunItemDef {
+        key: "storm_charm",
+        name: "Storm Charm",
+        spell: 421,
+        bonus: Bonus::flat(Stat::Haste, 0.01),
+        rarity: CardRarity::Rare,
+        effect: Some(ItemEffect::Chain {
+            chance: 0.06,
+            damage: 10.0,
+            jumps: 2,
+            spell: 421,
+        }),
+    },
+    RunItemDef {
+        key: "volatile_ember",
+        name: "Volatile Ember",
+        spell: 11113,
+        bonus: Bonus::flat(Stat::Area, 0.02),
+        rarity: CardRarity::Epic,
+        effect: Some(ItemEffect::Burst {
+            chance: 0.15,
+            damage: 18.0,
+            radius: 5.0,
+            spell: 11113,
+        }),
+    },
+    RunItemDef {
+        key: "thunderfury_shard",
+        name: "Shard of the Windlord",
+        spell: 930,
+        bonus: Bonus::flat(Stat::Might, 0.05),
+        rarity: CardRarity::Legendary,
+        effect: Some(ItemEffect::Chain {
+            chance: 0.12,
+            damage: 22.0,
+            jumps: 4,
+            spell: 930,
+        }),
     },
 ];
 
 /// A run item by key.
 pub(crate) fn run_item(key: &str) -> Option<&'static RunItemDef> {
     RUN_ITEMS.iter().find(|i| i.key == key)
+}
+
+/// A run item drawn: its rarity from `rarity_roll` by [`CardRarity::item_odds`] (among the
+/// rarities some item has), then one of that rarity from `item_roll`; both uniform in `[0, 1)`.
+pub(crate) fn draw_run_item(rarity_roll: f32, item_roll: f32) -> &'static RunItemDef {
+    let held: Vec<CardRarity> = CardRarity::ALL
+        .into_iter()
+        .filter(|r| RUN_ITEMS.iter().any(|i| i.rarity == *r))
+        .collect();
+    let total: f32 = held.iter().map(|r| r.item_odds()).sum();
+    let mut at = rarity_roll.clamp(0.0, 0.999_999) * total;
+    let mut rarity = held[held.len() - 1];
+    for r in &held {
+        if at < r.item_odds() {
+            rarity = *r;
+            break;
+        }
+        at -= r.item_odds();
+    }
+    let of: Vec<&RunItemDef> = RUN_ITEMS.iter().filter(|i| i.rarity == rarity).collect();
+    of[((item_roll.clamp(0.0, 0.999_999)) * of.len() as f32) as usize]
 }
 
 /// What a chest, or an elite's drop, gives.
@@ -2820,7 +3000,8 @@ pub(crate) const MAX_CARD_TOKENS: u8 = 9;
 /// Cards on offer at a level-up.
 pub(crate) const CARDS_DEALT: usize = 3;
 
-/// A card's rarity, drawn when it is dealt: the rarer, the more its rank is worth.
+/// A rarity of the run's draws: a level-up card's, the rarer the more its rank is worth, and a
+/// run item's, the rarer the less often drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
 pub(crate) enum CardRarity {
     Common,
@@ -2847,6 +3028,17 @@ impl CardRarity {
             CardRarity::Rare => 13.0,
             CardRarity::Epic => 5.5,
             CardRarity::Legendary => 1.5,
+        }
+    }
+
+    /// How likely a run item of this rarity is drawn, in parts of 100.
+    pub const fn item_odds(self) -> f32 {
+        match self {
+            CardRarity::Common => 45.0,
+            CardRarity::Uncommon => 30.0,
+            CardRarity::Rare => 16.0,
+            CardRarity::Epic => 7.0,
+            CardRarity::Legendary => 2.0,
         }
     }
 
@@ -3424,6 +3616,65 @@ mod tests {
                     "{}: totem without display or spell",
                     a.key
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn run_items_draw_by_their_rarity_and_every_rarity_has_one() {
+        for r in CardRarity::ALL {
+            assert!(RUN_ITEMS.iter().any(|i| i.rarity == r), "{r:?}");
+        }
+        let mut keys: Vec<_> = RUN_ITEMS.iter().map(|i| i.key).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), RUN_ITEMS.len(), "keys are unique");
+        let mut seen = [0u32; 5];
+        let n = 20_000;
+        for i in 0..n {
+            let item = draw_run_item(i as f32 / n as f32, (i * 7 % 13) as f32 / 13.0);
+            seen[item.rarity as usize] += 1;
+        }
+        for (r, got) in CardRarity::ALL.iter().zip(seen) {
+            let want = r.item_odds() / 100.0 * n as f32;
+            assert!(
+                (got as f32 - want).abs() <= n as f32 * 0.002,
+                "{r:?}: {got} for {want}"
+            );
+        }
+        // Every item of a rarity can come up.
+        for item in RUN_ITEMS {
+            let of: Vec<_> = RUN_ITEMS
+                .iter()
+                .filter(|i| i.rarity == item.rarity)
+                .collect();
+            let k = of.iter().position(|i| i.key == item.key).unwrap();
+            let roll = (k as f32 + 0.5) / of.len() as f32;
+            let r = CardRarity::ALL
+                .iter()
+                .position(|r| *r == item.rarity)
+                .unwrap();
+            let below: f32 = CardRarity::ALL[..r].iter().map(|r| r.item_odds()).sum();
+            let at = (below + item.rarity.item_odds() / 2.0) / 100.0;
+            assert_eq!(draw_run_item(at, roll).key, item.key);
+        }
+    }
+
+    #[test]
+    fn item_effects_grow_with_stacks_and_their_chances_cap() {
+        let fang = ItemEffect::Lifesteal(0.015);
+        assert_eq!(fang.at(2), ItemEffect::Lifesteal(0.03));
+        let charm = run_item("thunderfury_shard").unwrap().effect.unwrap();
+        match charm.at(MAX_RUN_ITEM_STACKS) {
+            ItemEffect::Chain { chance, damage, .. } => {
+                assert_eq!(chance, MAX_PROC_CHANCE);
+                assert!(damage > 22.0 * 8.0);
+            }
+            e => panic!("{e:?}"),
+        }
+        for i in RUN_ITEMS {
+            if let Some(e) = i.effect {
+                assert_ne!(e.at(1), e.at(3), "{} grows", i.key);
             }
         }
     }

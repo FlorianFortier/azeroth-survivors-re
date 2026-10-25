@@ -485,6 +485,21 @@ pub(super) fn move_enemies(
                     false,
                 ));
             }
+            // A run item's thorns return a share of every blow, ability or not.
+            let thorns: f32 = hero
+                .item_effects()
+                .map(|e| match e {
+                    data::ItemEffect::Thorns(d) => d,
+                    _ => 0.0,
+                })
+                .sum();
+            if thorns > 0.0 && taken > 0.0 {
+                hits.write(Hit {
+                    proc: true,
+                    color: super::units::COLOR_SPELL,
+                    ..Hit::direct(hero_e, ent, thorns * hero.stats().might, false)
+                });
+            }
         }
     }
 }

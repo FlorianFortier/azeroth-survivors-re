@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 
-use super::data::{AbilityDef, Effect, Kind};
+use super::data::{self, AbilityDef, Effect, ItemEffect, Kind};
 use super::enemies::{self, Enemy, Loot};
 use super::hero::{self, Hero};
 use super::units::{self, flat, Fx, Marks, UnitSpec, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL};
@@ -26,6 +26,8 @@ pub(super) struct Hit {
     pub splash: f32,
     pub crit: bool,
     pub color: u32,
+    /// A run item's arc or burst: it fires no item effect of its own, so procs never chain.
+    pub proc: bool,
 }
 
 impl Hit {
@@ -42,6 +44,7 @@ impl Hit {
             splash: 0.0,
             crit,
             color: COLOR_MELEE,
+            proc: false,
         }
     }
 }
@@ -135,6 +138,7 @@ fn hit_for(
         } else {
             COLOR_SPELL
         },
+        proc: false,
     }
 }
 
@@ -668,6 +672,7 @@ pub(super) fn tick_areas(
                     splash: 0.0,
                     crit,
                     color: COLOR_SPELL,
+                    proc: false,
                 });
             }
         }
@@ -755,9 +760,12 @@ pub(super) fn apply_hits(
     mut fx: Fx,
     mut loot: MessageWriter<Loot>,
     mut fields: MessageWriter<FieldChanged>,
+    mut rng: ResMut<Rng>,
 ) {
     let dt = time.delta_secs();
     let now = run.elapsed;
+    // The run items' arcs and bursts this frame, aimed once every hit has landed.
+    let mut procs: Vec<ItemProc> = Vec::new();
     let mut due: Vec<Hit> = incoming.read().cloned().collect();
     pending.0.retain(|(t, h)| {
         if *t <= now {
@@ -826,6 +834,11 @@ pub(super) fn apply_hits(
             continue;
         }
         let mut owner = heroes.get_mut(h.owner).ok();
+        // A proc's own hit fires nothing more.
+        let effects: Vec<ItemEffect> = match (&owner, h.proc) {
+            (Some(o), false) => o.item_effects().collect(),
+            _ => Vec::new(),
+        };
         let mut dmg = h.damage;
         if let Effect::Execute(threshold) = h.effect {
             if !en.boss && en.hp / en.max_hp <= threshold {
@@ -843,6 +856,16 @@ pub(super) fn apply_hits(
                         o.hp = (o.hp + dmg * frac).min(max);
                     }
                 }
+                on_hit(
+                    o,
+                    h.owner,
+                    &effects,
+                    dmg,
+                    h.target,
+                    tf.translation,
+                    &mut rng,
+                    &mut procs,
+                );
             }
         }
         if h.dot > 0.0 && h.dot_dur > 0.0 {
@@ -884,6 +907,9 @@ pub(super) fn apply_hits(
                 tf.translation,
                 &mut en,
             );
+            if let Some(o) = owner.as_deref_mut() {
+                on_kill(o, h.owner, &effects, tf.translation, &mut rng, &mut procs);
+            }
             units::kill_unit(&mut store);
             marks.clear();
         }
@@ -916,20 +942,176 @@ pub(super) fn apply_hits(
             fx.number(e, total, false, COLOR_SPELL);
             if en.hp <= 0.0 {
                 let killer = dealt.last().map(|d| d.0);
-                let owner = killer.and_then(|k| heroes.get_mut(k).ok());
+                let mut owner = killer.and_then(|k| heroes.get_mut(k).ok());
                 kill(
                     &mut commands,
                     &mut run,
-                    owner.map(|o| o.into_inner()),
+                    owner.as_deref_mut(),
                     e,
                     tf.translation,
                     &mut en,
                 );
+                if let (Some(o), Some(k)) = (owner.as_deref_mut(), killer) {
+                    let effects: Vec<ItemEffect> = o.item_effects().collect();
+                    on_kill(o, k, &effects, tf.translation, &mut rng, &mut procs);
+                }
                 units::kill_unit(&mut store);
                 marks.clear();
                 marks.flush(e, guid.0, &mut store, &mut fields);
             }
         }
+    }
+
+    // The arcs and bursts: their foes picked now every hit has landed, struck a beat later.
+    if procs.is_empty() {
+        return;
+    }
+    let live: Vec<(Entity, Vec3)> = enemies
+        .iter()
+        .filter(|(.., en, _, _)| !en.dead)
+        .map(|(e, _, tf, ..)| (e, tf.translation))
+        .collect();
+    for p in procs {
+        let aimed = aim_proc(&p, &live);
+        for &(delay, target) in &aimed {
+            pending.0.push((
+                now + delay,
+                Hit {
+                    color: COLOR_SPELL,
+                    proc: true,
+                    ..Hit::direct(p.owner, target, p.damage, false)
+                },
+            ));
+        }
+        let struck: Vec<Entity> = aimed.into_iter().map(|(_, e)| e).collect();
+        if struck.is_empty() {
+            continue;
+        }
+        match p.kind {
+            ProcKind::Arc { .. } => fx.cast(p.owner, p.spell, &struck, None),
+            ProcKind::Burst { .. } => {
+                for &t in struck.iter().take(12) {
+                    fx.impact(t, p.spell);
+                }
+            }
+        }
+    }
+}
+
+/// A run item's arc or burst, set off by a hit or a kill, to aim once the frame's hits land.
+#[derive(Clone, Debug, PartialEq)]
+struct ItemProc {
+    owner: Entity,
+    at: Vec3,
+    damage: f32,
+    spell: u32,
+    kind: ProcKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ProcKind {
+    /// From the foe struck (`from`, not struck again) to up to `jumps` more, each the nearest to
+    /// the last within [`data::ITEM_CHAIN_REACH`].
+    Arc { from: Entity, jumps: u8 },
+    /// Everything within `radius` of where the foe fell.
+    Burst { radius: f32 },
+}
+
+/// What a hit sets off of the striker's items (`owner` is the hero's entity): the lifesteal at
+/// once, an arc on its chance.
+#[allow(clippy::too_many_arguments)]
+fn on_hit(
+    o: &mut HeroState,
+    owner: Entity,
+    effects: &[ItemEffect],
+    dmg: f32,
+    target: Entity,
+    at: Vec3,
+    rng: &mut Rng,
+    procs: &mut Vec<ItemProc>,
+) {
+    for e in effects {
+        match *e {
+            ItemEffect::Lifesteal(share) if o.alive() => {
+                let max = o.stats().max_hp;
+                o.hp = (o.hp + dmg * share).min(max);
+            }
+            ItemEffect::Chain {
+                chance,
+                damage,
+                jumps,
+                spell,
+            } if rng.f32() < chance => procs.push(ItemProc {
+                owner,
+                at,
+                damage: damage * o.stats().might,
+                spell,
+                kind: ProcKind::Arc {
+                    from: target,
+                    jumps,
+                },
+            }),
+            _ => {}
+        }
+    }
+}
+
+/// What a kill sets off of the killer's items: the heal at once, a burst on its chance.
+fn on_kill(
+    o: &mut HeroState,
+    owner: Entity,
+    effects: &[ItemEffect],
+    at: Vec3,
+    rng: &mut Rng,
+    procs: &mut Vec<ItemProc>,
+) {
+    for e in effects {
+        match *e {
+            ItemEffect::KillHeal(hp) if o.alive() => {
+                let max = o.stats().max_hp;
+                o.hp = (o.hp + hp).min(max);
+            }
+            ItemEffect::Burst {
+                chance,
+                damage,
+                radius,
+                spell,
+            } if rng.f32() < chance => procs.push(ItemProc {
+                owner,
+                at,
+                damage: damage * o.stats().might,
+                spell,
+                kind: ProcKind::Burst { radius },
+            }),
+            _ => {}
+        }
+    }
+}
+
+/// Whom an arc or a burst strikes among the living foes, and how long after the frame each.
+fn aim_proc(p: &ItemProc, live: &[(Entity, Vec3)]) -> Vec<(f32, Entity)> {
+    match p.kind {
+        ProcKind::Arc { from, jumps } => {
+            let mut out: Vec<(f32, Entity)> = Vec::new();
+            let mut last = p.at;
+            for k in 0..jumps {
+                let next = live
+                    .iter()
+                    .filter(|(e, _)| *e != from && !out.iter().any(|(_, o)| o == e))
+                    .map(|&(e, pos)| (e, pos, flat(pos - last).length()))
+                    .filter(|(.., d)| *d <= data::ITEM_CHAIN_REACH)
+                    .min_by(|a, b| a.2.total_cmp(&b.2));
+                let Some((e, pos, _)) = next else { break };
+                out.push((0.08 * f32::from(k + 1), e));
+                last = pos;
+            }
+            out
+        }
+        ProcKind::Burst { radius } => live
+            .iter()
+            .filter(|(_, pos)| flat(*pos - p.at).length() <= radius)
+            .map(|&(e, _)| (0.05, e))
+            .collect(),
     }
 }
 
@@ -945,6 +1127,105 @@ mod tests {
             dist,
             radius: 0.5,
         }
+    }
+
+    fn hero_with(item: &str, stacks: u8) -> HeroState {
+        let mut v = Vitals::new(&data::CLASSES[0], 1);
+        v.run_items.push((data::run_item(item).unwrap(), stacks));
+        HeroState { slot: 0, v }
+    }
+
+    fn e(n: u32) -> Entity {
+        Entity::from_raw_u32(n).unwrap()
+    }
+
+    #[test]
+    fn an_arc_leaps_foe_to_foe_within_reach_and_skips_the_first() {
+        let reach = data::ITEM_CHAIN_REACH;
+        let live = [
+            (e(1), Vec3::ZERO),
+            (e(2), Vec3::X * (reach - 1.0)),
+            (e(3), Vec3::X * (2.0 * reach - 2.0)),
+            (e(4), Vec3::X * 100.0),
+        ];
+        let arc = ItemProc {
+            owner: e(9),
+            at: Vec3::ZERO,
+            damage: 10.0,
+            spell: 421,
+            kind: ProcKind::Arc {
+                from: e(1),
+                jumps: 4,
+            },
+        };
+        let hit: Vec<Entity> = aim_proc(&arc, &live).into_iter().map(|(_, t)| t).collect();
+        assert_eq!(hit, [e(2), e(3)], "the far one is out of reach");
+        let burst = ItemProc {
+            kind: ProcKind::Burst { radius: 5.0 },
+            ..arc
+        };
+        let hit: Vec<Entity> = aim_proc(&burst, &live)
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect();
+        assert_eq!(hit, [e(1)]);
+    }
+
+    #[test]
+    fn items_fire_on_hits_and_kills() {
+        let mut rng = Rng::seeded(1);
+        // Lifesteal heals off the damage dealt.
+        let mut h = hero_with("vampiric_fang", 4);
+        h.hp = 10.0;
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        let mut procs = Vec::new();
+        on_hit(
+            &mut h,
+            e(9),
+            &fx,
+            100.0,
+            e(1),
+            Vec3::ZERO,
+            &mut rng,
+            &mut procs,
+        );
+        assert!((h.hp - 16.0).abs() < 1e-3, "{}", h.hp);
+        assert!(procs.is_empty());
+        // A kill heals with the soul shard.
+        let mut h = hero_with("soulfeast", 2);
+        h.hp = 10.0;
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        on_kill(&mut h, e(9), &fx, Vec3::ZERO, &mut rng, &mut procs);
+        assert!((h.hp - 13.0).abs() < 1e-3);
+        // The arc and the burst fire about as often as their chance says.
+        let mut h = hero_with("storm_charm", 5);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        for _ in 0..1000 {
+            on_hit(
+                &mut h,
+                e(9),
+                &fx,
+                1.0,
+                e(1),
+                Vec3::ZERO,
+                &mut rng,
+                &mut procs,
+            );
+        }
+        let arcs = procs.len();
+        assert!((220..=380).contains(&arcs), "{arcs} arcs at 30%");
+        assert!(procs.iter().all(|p| p.owner == e(9)));
+        procs.clear();
+        let mut h = hero_with("volatile_ember", 1);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        for _ in 0..1000 {
+            on_kill(&mut h, e(9), &fx, Vec3::ZERO, &mut rng, &mut procs);
+        }
+        assert!(
+            (100..=200).contains(&procs.len()),
+            "{} bursts at 15%",
+            procs.len()
+        );
     }
 
     #[test]

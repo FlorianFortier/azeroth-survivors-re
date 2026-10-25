@@ -67,6 +67,9 @@ pub(super) struct BannerText;
 pub(super) struct AbilityRow;
 #[derive(Component)]
 pub(super) struct PassiveRow;
+/// The run's items, each with its stacks, under the passives.
+#[derive(Component)]
+pub(super) struct ItemRow;
 #[derive(Component)]
 pub(super) struct OfferRow;
 /// The line under LEVEL UP: which level this is.
@@ -151,6 +154,8 @@ pub(super) struct ArtDone;
 pub(super) enum TipFor {
     Ability(usize),
     Passive(usize),
+    /// An index into the run's items.
+    RunItem(usize),
     Mobility,
 }
 
@@ -613,6 +618,15 @@ pub(super) fn setup_hud(
                         PassiveRow,
                         Node {
                             column_gap: Val::Px(4.0),
+                            ..default()
+                        },
+                    ));
+                    col.spawn((
+                        ItemRow,
+                        Node {
+                            column_gap: Val::Px(3.0),
+                            row_gap: Val::Px(3.0),
+                            flex_wrap: FlexWrap::Wrap,
                             ..default()
                         },
                     ));
@@ -1352,7 +1366,10 @@ pub(super) fn refresh_hud(
         Query<&mut Text, With<XpText>>,
     )>,
     mut xp_fill: Query<&mut Node, With<XpFill>>,
-    rows: Query<(Entity, Has<AbilityRow>), Or<(With<AbilityRow>, With<PassiveRow>)>>,
+    rows: Query<
+        (Entity, Has<AbilityRow>, Has<ItemRow>),
+        Or<(With<AbilityRow>, With<PassiveRow>, With<ItemRow>)>,
+    >,
     mut sweeps: ResMut<Assets<SweepUiMaterial>>,
     mut last_version: Local<Option<u32>>,
 ) {
@@ -1439,23 +1456,33 @@ pub(super) fn refresh_hud(
     }
     *last_version = Some(run.version);
     let f = &font.0;
-    for (row, is_abilities) in &rows {
+    for (row, is_abilities, is_items) in &rows {
         commands.entity(row).despawn_related::<Children>();
         commands.entity(row).with_children(|row| {
-            let entries: Vec<(u32, u8, f32, TipFor)> = if is_abilities {
+            let entries: Vec<(u32, u8, f32, TipFor, Color)> = if is_abilities {
                 run.abilities
                     .iter()
                     .enumerate()
-                    .map(|(i, o)| (o.def.spell, o.level, 40.0, TipFor::Ability(i)))
+                    .map(|(i, o)| (o.def.spell, o.level, 40.0, TipFor::Ability(i), EDGE))
+                    .collect()
+            } else if is_items {
+                // Each item edged in its rarity's colour, its stacks in the corner.
+                run.run_items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (item, n))| {
+                        let edge = super::cards::rarity_color(item.rarity);
+                        (item.spell, *n, 26.0, TipFor::RunItem(i), edge)
+                    })
                     .collect()
             } else {
                 run.passives
                     .iter()
                     .enumerate()
-                    .map(|(i, (p, l, _))| (p.spell, *l, 30.0, TipFor::Passive(i)))
+                    .map(|(i, (p, l, _))| (p.spell, *l, 30.0, TipFor::Passive(i), EDGE))
                     .collect()
             };
-            for (spell, level, size, tip) in entries {
+            for (spell, level, size, tip, edge) in entries {
                 let ability = match &tip {
                     TipFor::Ability(i) => Some(*i),
                     _ => None,
@@ -1467,7 +1494,7 @@ pub(super) fn refresh_hud(
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BorderColor::all(EDGE),
+                    BorderColor::all(edge),
                     Interaction::default(),
                     tip,
                 ))
@@ -2168,6 +2195,64 @@ fn passive_tip(p: &PassiveDef, level: u8, power: f32, stats: &Stats) -> Vec<TipL
     lines
 }
 
+/// A run item's tooltip: its name in its rarity's colour and its stacks, what its stacks give
+/// and do now, and how many more it can take.
+fn item_tip(item: &data::RunItemDef, stacks: u8, stats: &Stats) -> Vec<TipLine> {
+    use super::lang::tr;
+    let color = super::cards::rarity_color(item.rarity);
+    let b = super::stats::scaled(item.bonus, f32::from(stacks));
+    let v = match b.amount {
+        data::Amount::Flat(v) | data::Amount::Percent(v) => v,
+    };
+    let mut lines = vec![
+        TipLine::new(item.name, color)
+            .header()
+            .right(format!("×{stacks}"), Color::WHITE),
+        TipLine::new(super::cards::rarity_label(item.rarity), color),
+        TipLine::new(passive_text(b.stat, v), GOLD),
+    ];
+    if let Some(e) = item.effect {
+        lines.push(TipLine::new(item_effect_text(e.at(stacks)), GOLD));
+    }
+    lines.push(TipLine::new(stat_total(b.stat, stats), Color::WHITE));
+    if stacks >= data::MAX_RUN_ITEM_STACKS {
+        lines.push(TipLine::new(tr("Most stacks"), DIM));
+    }
+    lines
+}
+
+/// What an item's effect does, at the numbers it has now.
+pub(super) fn item_effect_text(e: data::ItemEffect) -> String {
+    use super::lang::trf;
+    match e {
+        data::ItemEffect::Lifesteal(share) => {
+            trf("Heals you for {} of the damage you deal.", &[&pct(share)])
+        }
+        data::ItemEffect::Chain {
+            chance,
+            damage,
+            jumps,
+            ..
+        } => trf(
+            "{} chance on a hit to arc to {} more foes for {} damage.",
+            &[&pct(chance), &jumps.to_string(), &num(damage)],
+        ),
+        data::ItemEffect::Thorns(d) => {
+            trf("Returns {} damage to whatever strikes you.", &[&num(d)])
+        }
+        data::ItemEffect::Burst {
+            chance,
+            damage,
+            radius,
+            ..
+        } => trf(
+            "{} chance on a kill to burst for {} damage within {} yd.",
+            &[&pct(chance), &num(damage), &num(radius)],
+        ),
+        data::ItemEffect::KillHeal(hp) => trf("Each kill heals you for {}.", &[&num(hp)]),
+    }
+}
+
 /// The `GameTooltip` frame: `UI-Tooltip-Background` tiled under `UI-Tooltip-Border`, 16-unit edges
 /// and 5-unit insets, its lines 10 units in. Returns the frame and its line column.
 pub(super) fn spawn_tooltip(
@@ -2299,6 +2384,10 @@ pub(super) fn icon_tooltip(
             .passives
             .get(i)
             .map(|&(p, level, power)| passive_tip(p, level, power, &stats)),
+        TipFor::RunItem(i) => run
+            .run_items
+            .get(i)
+            .map(|&(item, n)| item_tip(item, n, &stats)),
         TipFor::Mobility => run.mobility().map(|m| {
             vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),

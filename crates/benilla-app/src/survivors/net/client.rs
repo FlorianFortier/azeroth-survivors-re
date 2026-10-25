@@ -153,11 +153,16 @@ fn apply_me(run: &mut Run, v: WireVitals) {
     run.damage_done = v.damage_done;
     run.kills = v.kills;
     run.gold = v.gold;
-    run.run_items = v
+    let items: Vec<_> = v
         .run_items
         .iter()
         .filter_map(|(k, n)| data::run_item(k).map(|i| (i, *n)))
         .collect();
+    if items != run.run_items {
+        // The items row and its tooltips rebuild on the version.
+        run.run_items = items;
+        run.version += 1;
+    }
     if run.loot.len() != v.loot.len() {
         run.loot = v.loot.iter().filter_map(|n| data::item(n)).collect();
     }

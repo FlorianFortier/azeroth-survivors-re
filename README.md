@@ -38,7 +38,10 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
   and open for a hero who stands at one with the gold (20, then 40% dearer each time) for a run
   item, a spell's rank or a roll for gear. Four elites hold fixed posts, each over a reward of its
   own (gear, a spell's rank, a run item, a purse), and come back a while after they fall. Run
-  items stack for the run; half the gold left unspent goes to your profile. A ring on the ground
+  items stack for the run, Common to Legendary (the rarer, the less often drawn), shown with
+  their stacks under your talents; besides a stat, some do more: a vampiric fang heals off your
+  damage, a storm charm arcs lightning, thornmail strikes back, a volatile ember bursts on kills,
+  a soul shard heals on them. Half the gold left unspent goes to your profile. A ring on the ground
   and a label over each chest give its price, each elite shows what it guards, and a fallen
   elite's post counts down to its return; the minimap marks them all, the far elites at its
   edge. Co-op guests see the same.
