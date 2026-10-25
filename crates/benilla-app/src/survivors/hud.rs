@@ -1282,7 +1282,7 @@ pub(super) fn keys(
             if keys.just_pressed(KeyCode::KeyC) {
                 if let Some(mut sheet) = sheet {
                     sheet.0 = true;
-                    next.set(Phase::Paused);
+                    next.set(Phase::Playing);
                 }
                 return;
             }
@@ -1290,16 +1290,15 @@ pub(super) fn keys(
                 // As in WoW, Escape lets the target go first, and pauses on the next press.
                 match target {
                     Some(mut t) if t.0.is_some() => t.0 = None,
-                    _ => next.set(Phase::Paused),
+                    _ => next.set(Phase::Playing),
                 }
+            }
+            if keys.just_pressed(KeyCode::KeyP) {
+                next.set(Phase::Paused);
             }
         }
         Phase::Paused => {
-            let open = sheet.as_ref().is_some_and(|s| s.0);
-            if keys.just_pressed(KeyCode::Escape) || (open && keys.just_pressed(KeyCode::KeyC)) {
-                if let Some(mut sheet) = sheet {
-                    sheet.0 = false;
-                }
+            if keys.just_pressed(KeyCode::KeyP) {
                 next.set(Phase::Playing);
             }
         }
