@@ -643,6 +643,45 @@ pub(super) fn turn_camera(
     }
 }
 
+/// Where the menu shows the hero: the frame on screen the camera puts it in, in physical pixels
+/// (centre and size), and whether it turns slowly on its own. Written by the main screen each
+/// frame; with no frame, the menu's camera orbits the hero at the middle of the screen.
+#[derive(Resource, Default)]
+pub(super) struct MenuStage {
+    pub frame: Option<(Vec2, Vec2)>,
+    pub turning: bool,
+}
+
+/// The share of a stage's height the hero stands in, and the height that share is taken of (yd).
+const STAGE_FILL: f32 = 0.8;
+const STAGE_HERO_HEIGHT: f32 = 2.1;
+/// The menu camera's elevation over the hero's middle (radians).
+const STAGE_PITCH: f32 = 0.12;
+
+/// The menu camera framing the hero into `frame` (centre and size, physical pixels) of a
+/// `window`-sized view: far enough back that the hero fills [`STAGE_FILL`] of the frame's height,
+/// then slid in the view's plane so the hero lands on the frame's centre rather than the screen's.
+/// Returns the eye and the point it looks at.
+fn stage_eye(focus: Vec3, orbit: f32, frame: (Vec2, Vec2), window: Vec2) -> (Vec3, Vec3) {
+    let (center, size) = frame;
+    let half_tan = (benilla_world::view::CAM_FOVY * 0.5).tan();
+    // Pixels per yard at the hero's distance.
+    let ppy = (size.y * STAGE_FILL / STAGE_HERO_HEIGHT).max(1.0);
+    let dist = window.y / (2.0 * half_tan * ppy);
+    let look = focus + Vec3::Y * (STAGE_HERO_HEIGHT * 0.5);
+    let (so, co) = orbit.sin_cos();
+    let (sp, cp) = STAGE_PITCH.sin_cos();
+    let back = Vec3::new(so * cp, sp, co * cp);
+    let eye = look + back * dist;
+    let forward = -back;
+    let right = forward.cross(Vec3::Y).normalize();
+    let up = right.cross(forward);
+    // Sliding the camera right moves the hero left on screen; screen y runs down.
+    let slide =
+        right * (-(center.x - window.x * 0.5) / ppy) + up * ((center.y - window.y * 0.5) / ppy);
+    (eye + slide, look + slide)
+}
+
 /// A slow orbit at the menu; in play, the view `C` picked, on the hero where it now stands.
 pub(super) fn place_camera(
     time: Res<Time<Real>>,
@@ -650,12 +689,32 @@ pub(super) fn place_camera(
     mut rig: ResMut<CamRig>,
     player: Res<crate::player::Player>,
     world: WorldPoint,
+    stage: Res<MenuStage>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     hero: Query<&Transform, (With<LocalHero>, Without<WorldCamera>)>,
     mut cams: Query<&mut Transform, With<WorldCamera>>,
 ) {
     // With no hero yet, the focus `drive_hero` grounded.
     let focus = hero.single().map_or(player.pos, |t| t.translation);
-    let (eye, look) = if matches!(phase.get(), Phase::Menu | Phase::Lobby) {
+    let window = windows
+        .single()
+        .ok()
+        .map(|w| Vec2::new(w.physical_width() as f32, w.physical_height() as f32))
+        .filter(|w| w.x > 0.0 && w.y > 0.0);
+    let staged = match (*phase.get(), stage.frame, window) {
+        (Phase::Menu, Some(frame), Some(window)) => Some((frame, window)),
+        _ => None,
+    };
+    let (eye, look) = if let Some((frame, window)) = staged {
+        if stage.turning {
+            rig.orbit += time.delta_secs() * 0.2;
+        }
+        let (mut eye, look) = stage_eye(focus, rig.orbit, frame, window);
+        if let Some(h) = world.terrain_height_under(eye) {
+            eye.y = eye.y.max(h + 0.5);
+        }
+        (eye, look)
+    } else if matches!(phase.get(), Phase::Menu | Phase::Lobby) {
         rig.orbit += time.delta_secs() * 0.2;
         let d = 7.0;
         (
@@ -952,6 +1011,45 @@ mod tests {
         assert_eq!(pace(Some(look), (back + right).normalize()), RUN_BACK_RATIO);
         // Facing where it runs, the hero never backpedals.
         assert_eq!(pace(None, back), 1.0);
+    }
+
+    #[test]
+    fn the_stage_frames_the_hero_where_the_screen_asks() {
+        let window = Vec2::new(1920.0, 1080.0);
+        let focus = Vec3::new(10.0, 5.0, -3.0);
+        let mid = focus + Vec3::Y * (STAGE_HERO_HEIGHT * 0.5);
+        // Projects `p` through a camera at `eye` looking at `look`, to pixels.
+        let project = |eye: Vec3, look: Vec3, p: Vec3| {
+            let fwd = (look - eye).normalize();
+            let right = fwd.cross(Vec3::Y).normalize();
+            let up = right.cross(fwd);
+            let v = p - eye;
+            let depth = v.dot(fwd);
+            let half_tan = (benilla_world::view::CAM_FOVY * 0.5).tan();
+            let ndc = Vec2::new(
+                v.dot(right) / (depth * half_tan * window.x / window.y),
+                v.dot(up) / (depth * half_tan),
+            );
+            Vec2::new(
+                (ndc.x + 1.0) * 0.5 * window.x,
+                (1.0 - ndc.y) * 0.5 * window.y,
+            )
+        };
+        for frame in [
+            (Vec2::new(960.0, 540.0), Vec2::new(800.0, 900.0)),
+            (Vec2::new(500.0, 300.0), Vec2::new(150.0, 210.0)),
+        ] {
+            let (eye, look) = stage_eye(focus, 0.7, frame, window);
+            let at = project(eye, look, mid);
+            assert!(at.distance(frame.0) < 1.0, "{at} for {frame:?}");
+            // The hero's height fills the frame's share.
+            let head = project(eye, look, mid + Vec3::Y * (STAGE_HERO_HEIGHT * 0.5));
+            let tall = (at.y - head.y) * 2.0;
+            assert!(
+                (tall - frame.1.y * STAGE_FILL).abs() < frame.1.y * 0.05,
+                "{tall}"
+            );
+        }
     }
 
     #[test]

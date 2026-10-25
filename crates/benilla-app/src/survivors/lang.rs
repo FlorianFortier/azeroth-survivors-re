@@ -216,6 +216,17 @@ fn french(s: &str) -> Option<&'static str> {
         "Horde: {}" => "Horde : {}",
         "1 in {}" => "1 sur {}",
         "never" => "jamais",
+        "Race, look, gear and drop tables" => "Race, apparence, équipement et butins",
+        "{} of {} points" => "{} sur {} points",
+        "{} owned for this slot." => "{} possédés pour cet emplacement.",
+        "The only one you own for this slot." => "Le seul que vous possédez pour cet emplacement.",
+        "Nothing worn adds anything yet: bosses drop the class's gear." => {
+            "Rien de porté n'ajoute encore quoi que ce soit : les boss lâchent l'équipement de la classe."
+        }
+        "No gear worn yet. Bosses drop it for your class, for good." => {
+            "Aucun équipement porté. Les boss le lâchent pour votre classe, pour de bon."
+        }
+        "Done" => "Terminé",
         // Options.
         "Master volume" => "Volume général",
         "Music" => "Musique",

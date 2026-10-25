@@ -417,28 +417,6 @@ impl Profile {
         self.equipped.remove(slot.name());
     }
 
-    /// Wear the next item owned for `slot`, after the one worn now; past the last, wear nothing.
-    pub fn equip_next(&mut self, slot: data::GearSlot) {
-        let owned = self.owned_for(slot);
-        let now = self
-            .equipped
-            .get(slot.name())
-            .and_then(|n| owned.iter().position(|i| i.name == *n));
-        let next = match now {
-            None => owned.first(),
-            Some(k) => owned.get(k + 1),
-        };
-        match next {
-            Some(i) => {
-                self.equipped
-                    .insert(slot.name().to_string(), i.name.clone());
-            }
-            None => {
-                self.equipped.remove(slot.name());
-            }
-        }
-    }
-
     /// What the profile brings into a run for a hero of `race` (the hero actually spawned, which
     /// a lobby may have changed): the bonuses that hold all run and the effects that fire on
     /// their own: the race's three racials, the gear worn, the collection, and the class's
@@ -927,22 +905,26 @@ mod tests {
         assert_eq!(p.collection_bonuses().len(), 2);
         let bare = p.run_bonuses(1, warrior(), None).0.len();
         assert_eq!(bare, data::racial_bonuses(1).0.len() + 2);
-        // Cycling the slot: the first owned, the next, then nothing.
-        p.equip_next(data::GearSlot::Head);
+        // Wearing one owned piece, then the other, then nothing.
+        p.equip(helm);
         assert_eq!(p.gear(), [helm]);
         assert_eq!(
             p.run_bonuses(1, warrior(), None).0.len(),
             bare + helm.bonuses.len()
         );
-        p.equip_next(data::GearSlot::Head);
+        p.equip(other);
         assert_eq!(p.gear(), [other]);
-        p.equip_next(data::GearSlot::Head);
+        p.unequip(data::GearSlot::Head);
         assert!(p.gear().is_empty());
-        // A slot with nothing owned stays empty.
-        p.equip_next(data::GearSlot::Feet);
+        // A piece not owned is not worn.
+        let unowned = data::ITEMS
+            .iter()
+            .find(|i| i.slot == data::GearSlot::Feet)
+            .unwrap();
+        p.equip(unowned);
         assert!(p.equipped.get("Feet").is_none());
         // It survives the file.
-        p.equip_next(data::GearSlot::Head);
+        p.equip(helm);
         assert_eq!(Profile::parse(&p.to_text()).unwrap(), p);
         // Wearing by name, and taking off.
         p.equip(other);
