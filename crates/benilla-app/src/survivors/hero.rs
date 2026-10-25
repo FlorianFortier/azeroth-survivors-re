@@ -328,9 +328,7 @@ pub(super) fn spawn_hero(
         }
         outfit::Body::Trainer { .. } => units::spawn_unit(commands, &spec, pos, 0.0),
     };
-    commands
-        .entity(e)
-        .insert((Hero::default(), Marks::buffs()));
+    commands.entity(e).insert((Hero::default(), Marks::buffs()));
     e
 }
 
