@@ -138,6 +138,12 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
         picks: v.picks,
         revive_t: v.revive_t,
         loot: v.loot.iter().map(|i| i.name.clone()).collect(),
+        gold: v.gold,
+        run_items: v
+            .run_items
+            .iter()
+            .map(|(i, n)| (i.key.to_string(), *n))
+            .collect(),
     }
 }
 
@@ -467,6 +473,7 @@ pub(super) fn stream(
             bosses: run.bosses,
             waiting: run.waiting,
             banner: run.banner.clone(),
+            chest_cost: run.chest_cost,
         });
         let entries: Vec<PartyEntry> = heroes
             .iter()

@@ -34,6 +34,11 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 
 ### In this build
 
+- **A Megabonk-style field**: kills drop the run's gold; six chests stand around the battleground
+  and open for a hero who stands at one with the gold (20, then 40% dearer each time) for a run
+  item, a spell's rank or a roll for gear. Four elites hold fixed posts, each over a reward of its
+  own (gear, a spell's rank, a run item, a purse), and come back a while after they fall. Run
+  items stack for the run; half the gold left unspent goes to your profile.
 - **A main screen in tabs** (Character, Collection, Drop Tables, Codex, Talents, Achievements,
   Rewards). The Character tab shows the class on the left (its health, starting spell and spell
   pool), your hero in the middle (portrait, name, race, equipment, collection, racials) and the

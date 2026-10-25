@@ -20,6 +20,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 | `crates/benilla-app/src/survivors/outfit.rs` | the hero as a player character: the race's body, the five appearance dials, and the pieces it wears, dressed from item entries the mode answers itself (`outfit::template`); `WOW_HERO_BODY=trainer` brings back the class trainer's look | ours |
 | `crates/benilla-app/src/survivors/talents.rs` | talents: the class's three trees from `Talent.dbc`/`TalentTab.dbc` under vanilla's rules, each talent a stat of its tree's theme per rank; points trained with gold (`point_cost`), 51 at most | ours |
 | `crates/benilla-app/src/survivors/lang.rs` | the mode's languages: text is written in English and looked up for French (`lang::tr`, `trf` for `{}` templates); the profile's `options.language` picks it, and a change rebuilds the main screen | ours |
+| `crates/benilla-app/src/survivors/treasure.rs` | the run's field: chests opened with the run's gold, elites at fixed posts that come back, their rewards (gear roll, spell rank, run item, gold) | ours |
 | `crates/benilla-app/src/survivors/names.rs` | hero names: a random one in each race's sound, and what a typed one may hold | ours |
 | `crates/benilla-app/src/survivors/kit.rs` | the menu's UI kit: panels, headings, tabs, icon and call-to-action buttons, stat tiles, progress bars, chips, tooltips; clicks read through `KitClicks`. `WOW_UI_KIT=1` (`?ui_kit=1`) shows a gallery over the menu | ours |
 | `crates/benilla-app/src/survivors/profile.rs` | the saved profile (`benilla-config/survivors-profile.toml`, `localStorage` on the web): pick, run records, and the meta-progression as it lands | ours |
@@ -180,6 +181,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   a display picked from `ItemDisplayInfo` by the icon's slot (`outfit::gear_worn`).
   Every item ever found is in the collection (`Profile::collected`), which adds
   `data::collection_bonus` (a `COLLECTION_SHARE` of its first bonus) to every run.
+- **The run's field is `survivors/treasure.rs`, in `SimSet`.** Gold is the run's (`Vitals::gold`,
+  coins from kills, a pile from bosses, a purse from elites); a chest opens for a hero who stands
+  at it with `data::chest_cost` gold. Elites hold fixed posts (`data::ELITES`, `Enemy::home`),
+  drop their kind's `data::Reward` and come back on its timer; run items (`data::RUN_ITEMS`) stack
+  on `Vitals::run_items` and count in `Vitals::stats`. Half the unspent gold goes to the profile.
 - **Shown text goes through `lang::tr`.** A new label on the main screen or the HUD is written
   in English inside `tr(…)`, and its French added to `lang.rs`'s table; a name the profile stores
   (zones, items, classes) stays English in data and is translated only where it is shown.

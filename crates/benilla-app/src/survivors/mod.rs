@@ -29,6 +29,7 @@ mod profile;
 mod stats;
 mod sync;
 mod talents;
+mod treasure;
 mod units;
 
 use benilla_world::schedule::WorldStage;
@@ -63,6 +64,7 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<hero::AimPoint>()
             .init_resource::<abilities::PendingHits>()
             .init_resource::<enemies::Spawner>()
+            .init_resource::<treasure::Field>()
             .init_resource::<hud::Offer>()
             .init_resource::<cards::PendingPick>()
             .init_resource::<Session>()
@@ -76,7 +78,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(kit::plugin)
             .add_plugins(character::plugin)
             .add_systems(Startup, (hud::setup_hud, hero::setup_crosshair))
-            .add_systems(Update, hero::daylight)
+            .add_systems(Update, (hero::daylight, treasure::find_looks))
             .add_systems(
                 Update,
                 (
@@ -109,6 +111,7 @@ impl Plugin for SurvivorsPlugin {
                     enemies::tick_marks,
                     enemies::drop_loot,
                     enemies::collect_gems,
+                    treasure::tend_field,
                     hero::hero_vitals,
                 )
                     .chain()
@@ -405,6 +408,10 @@ pub(super) struct Vitals {
     pub timed: Vec<stats::Timed>,
     /// The items this hero has found this run, kept on the profile when it ends.
     pub loot: Vec<&'static data::ItemDef>,
+    /// The run's gold in hand, picked up from kills and spent on chests.
+    pub gold: f32,
+    /// The run's items and how many of each.
+    pub run_items: Vec<(&'static data::RunItemDef, u8)>,
 }
 
 impl Default for Vitals {
@@ -437,6 +444,8 @@ impl Default for Vitals {
             procs: Vec::new(),
             timed: Vec::new(),
             loot: Vec::new(),
+            gold: 0.0,
+            run_items: Vec::new(),
         }
     }
 }
@@ -463,10 +472,16 @@ impl Vitals {
     /// brought in, and the effects running on it.
     pub fn stats(&self) -> Stats {
         let passives: Vec<Bonus> = self.passives.iter().map(|&(p, l)| p.bonus(l)).collect();
+        let items: Vec<Bonus> = self
+            .run_items
+            .iter()
+            .map(|&(i, n)| stats::scaled(i.bonus, f32::from(n)))
+            .collect();
         Stats::from_bonuses(
             data::class_bonuses(self.class.id)
                 .iter()
                 .chain(&passives)
+                .chain(&items)
                 .chain(&self.meta)
                 .chain(self.timed.iter().flat_map(|t| t.bonuses)),
         )
@@ -541,6 +556,10 @@ pub(super) struct Run {
     pub waiting: bool,
     /// Rerolls of the level-up cards left this run.
     pub rerolls: u32,
+    /// Counts the runs started, so what belongs to one run knows when the next begins.
+    pub run_id: u32,
+    /// What the next chest costs (the host's, for a guest).
+    pub chest_cost: u32,
     /// The [`data::DIFFICULTIES`] index the run is played at; Normal in a lobby, whose own rules
     /// set its difficulty.
     pub difficulty: usize,
@@ -561,6 +580,8 @@ impl Default for Run {
             begun: false,
             waiting: false,
             rerolls: data::REROLLS_PER_RUN,
+            run_id: 0,
+            chest_cost: data::chest_cost(0),
             difficulty: 0,
         }
     }

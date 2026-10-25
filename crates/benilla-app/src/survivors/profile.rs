@@ -742,7 +742,7 @@ fn record_run(
             run.won,
             run.stats().gold
                 * data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward,
-        ),
+        ) + (run.gold.max(0.0) * data::UNSPENT_GOLD_KEPT) as u32,
         difficulty: run.difficulty as u8,
         met_horde: data::met_horde(zone, run.elapsed, &session.rules)
             .into_iter()

@@ -92,6 +92,10 @@ pub struct Vitals {
     pub revive_t: f32,
     /// The items this hero has found this run, by name.
     pub loot: Vec<String>,
+    /// The run's gold in hand.
+    pub gold: f32,
+    /// The run's items, by key, and their stacks.
+    pub run_items: Vec<(String, u8)>,
 }
 
 /// A hero in the party frames.
@@ -188,6 +192,8 @@ pub enum Game {
         /// Still waiting for every player to load the zone.
         waiting: bool,
         banner: Option<(String, f32)>,
+        /// What the next chest costs.
+        chest_cost: u32,
     },
     /// Your hero's numbers.
     Me(Vitals),
@@ -382,6 +388,10 @@ impl Wire for Vitals {
         for name in &self.loot {
             w.str(name);
         }
+        w.f32(self.gold).len(self.run_items.len());
+        for (k, n) in &self.run_items {
+            w.str(k).u8(*n);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
@@ -425,6 +435,15 @@ impl Wire for Vitals {
                     loot.push(r.str()?);
                 }
                 loot
+            },
+            gold: r.f32()?,
+            run_items: {
+                let n = r.len(3)?;
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push((r.str()?, r.u8()?));
+                }
+                out
             },
         })
     }
@@ -540,6 +559,7 @@ impl Wire for Game {
                 bosses,
                 waiting,
                 banner,
+                chest_cost,
             } => {
                 w.u8(8).f32(*elapsed).u32(*bosses).bool(*waiting).opt(
                     banner.as_ref(),
@@ -547,6 +567,7 @@ impl Wire for Game {
                         w.str(s).f32(*t);
                     },
                 );
+                w.u32(*chest_cost);
             }
             Game::Me(v) => {
                 w.u8(9);
@@ -650,6 +671,7 @@ impl Wire for Game {
                 bosses: r.u32()?,
                 waiting: r.bool()?,
                 banner: r.opt(|r| Ok((r.str()?, r.f32()?)))?,
+                chest_cost: r.u32()?,
             },
             9 => Game::Me(Vitals::get(r)?),
             10 => {
@@ -774,6 +796,7 @@ mod tests {
                 bosses: 1,
                 waiting: false,
                 banner: Some(("Echeyakee approaches!".into(), 4.0)),
+                chest_cost: 30,
             },
             Game::Me(Vitals {
                 level: 9,
@@ -791,6 +814,8 @@ mod tests {
                 kills: 50,
                 picks: 4,
                 loot: vec!["Hogger's Helm".into()],
+                gold: 42.5,
+                run_items: vec![("lodestone".into(), 3)],
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {
