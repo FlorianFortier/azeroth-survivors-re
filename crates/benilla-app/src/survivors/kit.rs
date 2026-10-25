@@ -518,7 +518,7 @@ pub(super) fn tab_bar<A: Component + Clone>(
                 ),
             ));
             tab.with_children(|b| {
-                b.spawn(text(&fonts.body, *label, 14.0, theme::GOLD));
+                b.spawn(text(&fonts.body, *label, 17.0, theme::GOLD));
             });
             ids.push(tab.id());
         }
