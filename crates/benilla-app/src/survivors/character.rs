@@ -450,17 +450,28 @@ fn build_screen(
                         flex_grow: 0.85,
                         flex_basis: Val::Px(0.0),
                         min_width: Val::Px(0.0),
+                        min_height: Val::Px(0.0),
                         ..default()
                     },
                     |p| {
-                        p.spawn((
-                            ClassColumn,
+                        kit::scroll_area(
+                            p,
                             Node {
-                                flex_direction: FlexDirection::Column,
-                                row_gap: Val::Px(8.0),
+                                flex_grow: 1.0,
+                                flex_basis: Val::Px(0.0),
                                 ..default()
                             },
-                        ));
+                            |list| {
+                                list.spawn((
+                                    ClassColumn,
+                                    Node {
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(8.0),
+                                        ..default()
+                                    },
+                                ));
+                            },
+                        );
                     },
                 );
                 hero_column(cols, f);
@@ -1132,41 +1143,54 @@ fn hero_column(cols: &mut ChildSpawnerCommands, f: &KitFonts) {
                 ColorStop::percent(theme::PANEL_BOTTOM, 100.0),
             ])),
         ))
-        .with_children(|p| {
-            kit::heading(p, f, tr("Equipment"));
-            p.spawn((
-                EquipmentRow,
+        .with_children(|fill| {
+            // Scrolled, not clipped or spilled: on a short screen the racials would otherwise run
+            // under the bottom bar.
+            kit::scroll_area(
+                fill,
                 Node {
-                    column_gap: Val::Px(6.0),
-                    row_gap: Val::Px(6.0),
-                    justify_content: JustifyContent::Center,
-                    flex_wrap: FlexWrap::Wrap,
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    row_gap: Val::Px(10.0),
                     ..default()
                 },
-            ));
-            p.spawn((
-                CollectionBar,
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(6.0),
-                    ..default()
+                |p| {
+                    kit::heading(p, f, tr("Equipment"));
+                    p.spawn((
+                        EquipmentRow,
+                        Node {
+                            column_gap: Val::Px(6.0),
+                            row_gap: Val::Px(6.0),
+                            justify_content: JustifyContent::Center,
+                            flex_wrap: FlexWrap::Wrap,
+                            ..default()
+                        },
+                    ));
+                    p.spawn((
+                        CollectionBar,
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            row_gap: Val::Px(6.0),
+                            ..default()
+                        },
+                    ));
+                    p.spawn((
+                        HeroButtons,
+                        Node {
+                            column_gap: Val::Px(12.0),
+                            ..default()
+                        },
+                    ));
+                    p.spawn((
+                        HeroPart::Race,
+                        Node {
+                            column_gap: Val::Px(14.0),
+                            margin: UiRect::top(Val::Px(8.0)),
+                            ..default()
+                        },
+                    ));
                 },
-            ));
-            p.spawn((
-                HeroButtons,
-                Node {
-                    column_gap: Val::Px(12.0),
-                    ..default()
-                },
-            ));
-            p.spawn((
-                HeroPart::Race,
-                Node {
-                    column_gap: Val::Px(14.0),
-                    margin: UiRect::top(Val::Px(8.0)),
-                    ..default()
-                },
-            ));
+            );
         });
     });
 }
