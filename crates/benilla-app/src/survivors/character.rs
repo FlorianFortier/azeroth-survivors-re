@@ -523,10 +523,8 @@ fn build_screen(
                 Chrome::Bar,
                 kit::text(
                     &f.body,
-                    tr(
-                        "WASD or both mouse buttons to run · 1 2 3 picks a card · R rerolls · \
-                     Enter to play",
-                    ),
+                    tr("WASD or both mouse buttons to run · 1 2 3 picks a card · \
+                         R reroll · B banish · X skip · Enter to play"),
                     13.0,
                     theme::TEXT,
                 ),
@@ -945,11 +943,7 @@ fn spell_tip(
     stats: &super::Stats,
     spells: Option<&crate::ui_action::Spells>,
 ) -> Vec<TipLine> {
-    let owned = Owned {
-        def,
-        level: 1,
-        cd: 0.0,
-    };
+    let owned = Owned::learned(def, 1.0, 0.0);
     hud::ability_tip(&owned, stats, spells)
 }
 

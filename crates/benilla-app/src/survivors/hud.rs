@@ -14,6 +14,7 @@ use bevy::window::PrimaryWindow;
 use super::data::{self, AbilityDef, Effect, Kind, PassiveDef, Stat};
 use super::hero::{self, Hero};
 use super::minimap::{self, MiniMap};
+use super::offer::Dealt;
 use super::{Owned, Phase, Rng, Run, Selection, Stats, Vitals};
 
 const GOLD: Color = Color::srgb(1.0, 0.82, 0.0);
@@ -179,51 +180,141 @@ pub(super) enum Choice {
     Heal,
 }
 
-/// The line under the cards, with the rerolls left.
+/// The line under the cards: how to pick, or how to banish.
 #[derive(Component)]
 pub(super) struct RerollHint;
 
-/// The line under the cards says how many rerolls are left.
-pub(super) fn reroll_hint(run: Res<Run>, mut hints: Query<&mut Text, With<RerollHint>>) {
-    let want = if run.rerolls > 0 {
-        super::lang::trf(
-            "Click a card, or press 1, 2 or 3  ·  R rerolls the cards ({} left)",
-            &[&run.rerolls.to_string()],
-        )
+/// The line under the cards says how to pick, or that the next card chosen is banished.
+pub(super) fn reroll_hint(offer: Res<Offer>, mut hints: Query<&mut Text, With<RerollHint>>) {
+    use super::lang::tr;
+    let want = if offer.banishing {
+        tr("Banish: click a card, or press 1, 2 or 3  ·  B again to cancel")
     } else {
-        super::lang::tr("Click a card, or press 1, 2 or 3  ·  no rerolls left").to_string()
+        tr("Click a card, or press 1, 2 or 3")
     };
     for mut t in &mut hints {
-        if **t != want {
-            **t = want.clone();
+        if **t != *want {
+            **t = want.to_string();
         }
     }
 }
 
-/// Deal the cards again, spending a reroll; false when none is left.
-pub(super) fn reroll(run: &mut Run, rng: &mut Rng, offer: &mut Offer) -> bool {
-    if run.rerolls == 0 || offer.choices.is_empty() {
-        return false;
-    }
-    run.rerolls -= 1;
-    offer.choices = choices_for(run, rng);
-    true
-}
-
-/// The level-up cards on offer.
+/// The level-up cards on show: the local hero's offer as the view has it, each as the HUD names
+/// it. The simulation deals the offer (`offer.rs`); this only follows it.
 #[derive(Resource, Default)]
 pub(super) struct Offer {
-    choices: Vec<Choice>,
+    cards: Vec<(Dealt, Choice)>,
+    /// What the cards were last built from: the offer and the moves made.
+    shown: Option<(Vec<Dealt>, u32)>,
+    /// The next card chosen is banished, not picked.
+    pub(super) banishing: bool,
 }
 
 impl Offer {
     pub(super) fn len(&self) -> usize {
-        self.choices.len()
+        self.cards.len()
     }
 
-    pub(super) fn choices(&self) -> &[Choice] {
-        &self.choices
+    pub(super) fn cards(&self) -> &[(Dealt, Choice)] {
+        &self.cards
     }
+}
+
+/// A dealt card as the HUD names it, by index into the hero's abilities and passives.
+pub(super) fn view_choice(d: &Dealt, v: &super::Vitals) -> Option<Choice> {
+    use survivors_net::game::Choice as W;
+    Some(match &d.choice {
+        W::NewAbility(k) => Choice::NewAbility(data::ABILITIES.iter().find(|a| a.key == k)?),
+        W::Upgrade(k) => Choice::Upgrade(v.abilities.iter().position(|o| o.def.key == k)?),
+        W::NewPassive(k) => Choice::NewPassive(data::PASSIVES.iter().find(|p| p.key == k)?),
+        W::UpPassive(k) => Choice::UpPassive(v.passives.iter().position(|(p, ..)| p.key == k)?),
+        W::Heal => Choice::Heal,
+    })
+}
+
+/// The cards follow the local hero's offer: rebuilt when it, or the moves made, change.
+pub(super) fn follow_offer(phase: Res<State<Phase>>, run: Res<Run>, mut offer: ResMut<Offer>) {
+    if *phase.get() != Phase::LevelUp {
+        if offer.shown.is_some() || offer.banishing || !offer.cards.is_empty() {
+            *offer = Offer::default();
+        }
+        return;
+    }
+    let key = (run.offer.clone(), run.picks);
+    if offer.shown.as_ref() == Some(&key) {
+        return;
+    }
+    offer.cards = run
+        .offer
+        .iter()
+        .filter_map(|d| view_choice(d, &run).map(|c| (d.clone(), c)))
+        .collect();
+    offer.shown = Some(key);
+}
+
+/// A move at the cards, from the HUD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Move {
+    Pick(usize),
+    Banish(usize),
+    Reroll,
+    Skip,
+}
+
+/// Make a move at the cards: sent to the run (solo, host) or the host (guest), and shown at once.
+/// False when the hero has nothing to make it with.
+pub(super) fn make_move(
+    m: Move,
+    run: &mut Run,
+    offer: &mut Offer,
+    next: &mut NextState<Phase>,
+    picks: &mut super::sync::LocalPicks,
+) -> bool {
+    use survivors_net::game::CardAction;
+    let card = |i: usize| offer.cards.get(i).map(|(d, _)| d.to_wire());
+    let action = match m {
+        Move::Pick(i) | Move::Banish(i) => {
+            let Some(c) = card(i) else { return false };
+            if m == Move::Pick(i) {
+                CardAction::Pick(c)
+            } else {
+                CardAction::Banish(c)
+            }
+        }
+        Move::Reroll => CardAction::Reroll,
+        Move::Skip => CardAction::Skip,
+    };
+    // The view takes it now. A pick or a skip lands as the run will land it; a reroll or a
+    // banish waits for the deal it brings, from the run this frame or the host a round trip on.
+    let ok = match &action {
+        CardAction::Pick(_) | CardAction::Skip => {
+            super::offer::apply_action(&mut run.me, &action, &mut Rng::seeded(0))
+        }
+        CardAction::Reroll | CardAction::Banish(_) => {
+            let held = if matches!(action, CardAction::Reroll) {
+                &mut run.me.rerolls
+            } else {
+                &mut run.me.banishes
+            };
+            if *held == 0 || run.me.offer.is_empty() {
+                false
+            } else {
+                *held -= 1;
+                run.me.offer.clear();
+                run.me.picks += 1;
+                true
+            }
+        }
+    };
+    if !ok {
+        return false;
+    }
+    offer.banishing = false;
+    picks.0.push(action);
+    if run.pending_levels == 0 {
+        next.set(Phase::Playing);
+    }
+    true
 }
 
 #[derive(Resource)]
@@ -749,9 +840,15 @@ pub(super) fn setup_hud(
                     ..default()
                 },
             ));
+            super::cards::spawn_tools(root, f);
             root.spawn((
                 RerollHint,
-                centered(f, "Click a card, or press 1, 2 or 3", 14.0, DIM),
+                centered(
+                    f,
+                    super::lang::tr("Click a card, or press 1, 2 or 3"),
+                    14.0,
+                    DIM,
+                ),
             ));
         });
 
@@ -998,91 +1095,6 @@ pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
     true
 }
 
-fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
-    let mut pool: Vec<(Choice, f32)> = Vec::new();
-    for (i, o) in run.abilities.iter().enumerate() {
-        if o.level < data::MAX_ABILITY_LEVEL {
-            pool.push((Choice::Upgrade(i), 1.2));
-        }
-    }
-    if run.abilities.len() < data::MAX_ABILITIES {
-        for key in run.class.pool {
-            if !run.abilities.iter().any(|o| o.def.key == *key) {
-                pool.push((Choice::NewAbility(data::ability(key)), 1.0));
-            }
-        }
-    }
-    for (i, (_, level)) in run.passives.iter().enumerate() {
-        if *level < data::MAX_PASSIVE_LEVEL {
-            pool.push((Choice::UpPassive(i), 0.8));
-        }
-    }
-    if run.passives.len() < data::MAX_PASSIVES {
-        for p in data::PASSIVES {
-            if !run.passives.iter().any(|(q, _)| q.key == p.key) {
-                pool.push((Choice::NewPassive(p), 0.5));
-            }
-        }
-    }
-    let mut out = Vec::with_capacity(3);
-    while out.len() < 3 && !pool.is_empty() {
-        let total: f32 = pool.iter().map(|(_, w)| w).sum();
-        let mut pick = rng.f32() * total;
-        let mut idx = pool.len() - 1;
-        for (i, (_, w)) in pool.iter().enumerate() {
-            if pick < *w {
-                idx = i;
-                break;
-            }
-            pick -= w;
-        }
-        out.push(pool.swap_remove(idx).0);
-    }
-    if out.is_empty() {
-        out.push(Choice::Heal);
-    }
-    out
-}
-
-pub(super) fn roll_offer(run: Res<Run>, mut rng: ResMut<Rng>, mut offer: ResMut<Offer>) {
-    offer.choices = choices_for(&run, &mut rng);
-}
-
-pub(super) fn pick(
-    i: usize,
-    run: &mut Run,
-    offer: &mut Offer,
-    rng: &mut Rng,
-    next: &mut NextState<Phase>,
-    picks: &mut super::sync::LocalPicks,
-) {
-    let Some(&choice) = offer.choices.get(i) else {
-        return;
-    };
-    // The run applies it to the hero itself; the view shows it now.
-    picks.0.push(super::sync::to_wire(choice, run));
-    run.picks += 1;
-    match choice {
-        Choice::NewAbility(def) => run.abilities.push(Owned {
-            def,
-            level: 1,
-            cd: 0.3,
-        }),
-        Choice::Upgrade(k) => run.abilities[k].level += 1,
-        Choice::NewPassive(p) => run.passives.push((p, 1)),
-        Choice::UpPassive(k) => run.passives[k].1 += 1,
-        Choice::Heal => run.hp = run.stats().max_hp,
-    }
-    run.version += 1;
-    run.pending_levels = run.pending_levels.saturating_sub(1);
-    if run.pending_levels > 0 {
-        offer.choices = choices_for(run, rng);
-    } else {
-        offer.choices.clear();
-        next.set(Phase::Playing);
-    }
-}
-
 pub(super) fn looks_for(
     class: &data::ClassDef,
     creatures: &crate::entities::Creatures,
@@ -1218,16 +1230,19 @@ pub(super) struct CardText {
     pub ranks: Option<(u8, u8)>,
 }
 
+/// A card as it shows, its numbers at the rank it would give at `rarity`'s worth.
 pub(super) fn describe_card(
     choice: Choice,
+    rarity: data::CardRarity,
     run: &Run,
     spells: Option<&crate::ui_action::Spells>,
 ) -> CardText {
     let new = Color::srgb(0.3, 1.0, 0.3);
+    let w = rarity.weight();
     match choice {
         Choice::NewAbility(def) => {
             let stats = run.stats();
-            let c = cast_at(def, 1, &stats);
+            let c = cast_at(def, 1, w, &stats);
             CardText {
                 spell: def.spell,
                 name: spell_name(spells, def.spell, def.key),
@@ -1242,8 +1257,8 @@ pub(super) fn describe_card(
             let next = o.level + 1;
             let stats = run.stats();
             let (a, b) = (
-                cast_at(o.def, o.level, &stats),
-                cast_at(o.def, next, &stats),
+                cast_at(o.def, o.level, o.power, &stats),
+                cast_at(o.def, next, o.power + w, &stats),
             );
             // What actually changes, as before → after.
             let mut lines = Vec::new();
@@ -1285,11 +1300,11 @@ pub(super) fn describe_card(
             name: p.name.into(),
             tag: "New talent".into(),
             tag_color: new,
-            desc: passive_text(p.stat, p.per_level),
+            desc: passive_text(p.stat, p.per_level * w),
             ranks: Some((0, data::MAX_PASSIVE_LEVEL)),
         },
         Choice::UpPassive(k) => {
-            let (p, level) = run.passives[k];
+            let (p, level, power) = run.passives[k];
             let fmt = |v: f32| match p.stat {
                 Stat::Regen | Stat::Armor => num(v),
                 _ => pct(v),
@@ -1302,8 +1317,8 @@ pub(super) fn describe_card(
                 desc: format!(
                     "{}\n{} » {}",
                     stat_label(p.stat),
-                    fmt(p.per_level * f32::from(level)),
-                    fmt(p.per_level * f32::from(level + 1)),
+                    fmt(p.per_level * power),
+                    fmt(p.per_level * (power + w)),
                 ),
                 ranks: Some((level, data::MAX_PASSIVE_LEVEL)),
             }
@@ -1437,7 +1452,7 @@ pub(super) fn refresh_hud(
                 run.passives
                     .iter()
                     .enumerate()
-                    .map(|(i, (p, l))| (p.spell, *l, 30.0, TipFor::Passive(i)))
+                    .map(|(i, (p, l, _))| (p.spell, *l, 30.0, TipFor::Passive(i)))
                     .collect()
             };
             for (spell, level, size, tip) in entries {
@@ -1857,11 +1872,13 @@ struct Cast {
     cooldown: f32,
 }
 
-fn cast_at(def: &'static AbilityDef, level: u8, stats: &Stats) -> Cast {
+/// What `def` casts at `level`, its ranks worth `power` (see [`Owned::power`]).
+fn cast_at(def: &'static AbilityDef, level: u8, power: f32, stats: &Stats) -> Cast {
     let o = Owned {
         def,
         level,
         cd: 0.0,
+        power,
     };
     let mult = o.damage_mult() * stats.might;
     Cast {
@@ -2029,7 +2046,7 @@ pub(super) fn ability_tip(
     spells: Option<&crate::ui_action::Spells>,
 ) -> Vec<TipLine> {
     let def = o.def;
-    let now = cast_at(def, o.level, stats);
+    let now = cast_at(def, o.level, o.power, stats);
     let mut lines = vec![
         TipLine::new(spell_name(spells, def.spell, def.key), Color::WHITE)
             .header()
@@ -2065,7 +2082,7 @@ pub(super) fn ability_tip(
         ));
     }
     if o.level < data::MAX_ABILITY_LEVEL {
-        let next = cast_at(def, o.level + 1, stats);
+        let next = cast_at(def, o.level + 1, o.power + 1.0, stats);
         lines.push(TipLine::new("Next rank:", Color::WHITE));
         lines.push(TipLine::new(next_rank(def, &now, &next), GOLD));
     } else {
@@ -2131,18 +2148,18 @@ fn stat_total(stat: Stat, s: &Stats) -> String {
     }
 }
 
-fn passive_tip(p: &PassiveDef, level: u8, stats: &Stats) -> Vec<TipLine> {
+fn passive_tip(p: &PassiveDef, level: u8, power: f32, stats: &Stats) -> Vec<TipLine> {
     let mut lines = vec![
         TipLine::new(p.name, Color::WHITE)
             .header()
             .right(format!("Rank {level}"), TIP_GREY),
-        TipLine::new(passive_text(p.stat, p.per_level * f32::from(level)), GOLD),
+        TipLine::new(passive_text(p.stat, p.per_level * power), GOLD),
         TipLine::new(stat_total(p.stat, stats), Color::WHITE),
     ];
     if level < data::MAX_PASSIVE_LEVEL {
         lines.push(TipLine::new("Next rank:", Color::WHITE));
         lines.push(TipLine::new(
-            passive_text(p.stat, p.per_level * f32::from(level + 1)),
+            passive_text(p.stat, p.per_level * (power + 1.0)),
             GOLD,
         ));
     } else {
@@ -2281,7 +2298,7 @@ pub(super) fn icon_tooltip(
         TipFor::Passive(i) => run
             .passives
             .get(i)
-            .map(|&(p, level)| passive_tip(p, level, &stats)),
+            .map(|&(p, level, power)| passive_tip(p, level, power, &stats)),
         TipFor::Mobility => run.mobility().map(|m| {
             vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),

@@ -758,7 +758,7 @@ fn record_run(
             .abilities
             .iter()
             .map(|o| o.def.key.to_string())
-            .chain(run.passives.iter().map(|(p, _)| p.key.to_string()))
+            .chain(run.passives.iter().map(|(p, ..)| p.key.to_string()))
             .collect(),
     };
     store.edit(|p| p.record(&result));

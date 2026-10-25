@@ -18,6 +18,7 @@ use crate::creature_anim::MovementState;
 use crate::net::{FieldChanged, Guid, NetEntity, ObjectStore, ScriptedFacing};
 use crate::survivors::hero::Hero;
 use crate::survivors::mobility::{self, MobilityQueue};
+use crate::survivors::offer::Dealt as PostDealt;
 use crate::survivors::sync::{self, LocalPicks};
 use crate::survivors::treasure::{FieldMark, PostView};
 use crate::survivors::units::Fx;
@@ -179,13 +180,19 @@ fn apply_me(run: &mut Run, v: WireVitals) {
                         def,
                         level: a.level,
                         cd: a.cd,
+                        power: a.power,
                     })
             })
             .collect();
         let passives: Vec<_> = v
             .passives
             .iter()
-            .filter_map(|(k, l)| data::PASSIVES.iter().find(|p| p.key == k).map(|p| (p, *l)))
+            .filter_map(|(k, l, power)| {
+                data::PASSIVES
+                    .iter()
+                    .find(|p| p.key == k)
+                    .map(|p| (p, *l, *power))
+            })
             .collect();
         let same = abilities.len() == run.abilities.len()
             && abilities
@@ -201,6 +208,11 @@ fn apply_me(run: &mut Run, v: WireVitals) {
         run.passives = passives;
         run.pending_levels = v.pending_levels;
         run.picks = v.picks;
+        // The cards the host dealt, and what is left to play them with.
+        run.offer = v.offer.iter().filter_map(PostDealt::from_wire).collect();
+        run.rerolls = v.rerolls;
+        run.banishes = v.banishes;
+        run.skips = v.skips;
         if !same {
             run.version += 1;
         }
@@ -392,7 +404,7 @@ pub(super) fn receive(
                 }
             }
             // Guest-to-host messages are never relayed here.
-            Game::Loaded | Game::Input { .. } | Game::Pick(_) | Game::Mobility { .. } => {}
+            Game::Loaded | Game::Input { .. } | Game::Card(_) | Game::Mobility { .. } => {}
         }
     }
 }
@@ -437,7 +449,7 @@ fn send(
         reps.loaded_sent = true;
         out.push(Game::Loaded);
     }
-    out.extend(picks.0.drain(..).map(Game::Pick));
+    out.extend(picks.0.drain(..).map(Game::Card));
     out.extend(
         queue
             .0
@@ -496,6 +508,7 @@ mod tests {
                     key: key.clone(),
                     level: 3,
                     cd: 0.7,
+                    power: 1.0,
                 }],
                 ..WireVitals::default()
             },
@@ -526,6 +539,7 @@ mod tests {
                     key,
                     level: 1,
                     cd: 0.2,
+                    power: 1.0,
                 }],
                 ..WireVitals::default()
             },
@@ -548,8 +562,9 @@ mod tests {
                     key: "no_such_spell".into(),
                     level: 1,
                     cd: 0.0,
+                    power: 1.0,
                 }],
-                passives: vec![("nope".into(), 1)],
+                passives: vec![("nope".into(), 1, 1.0)],
                 ..WireVitals::default()
             },
         );

@@ -1,14 +1,16 @@
 //! The level-up picker, as a survivors game deals it: three tall cards that flip up out of the
 //! deck one after another, tilt toward the cursor, lift under it and burst on the pick. Each card
-//! wears its rarity in WoW's item-quality colours, so what is better reads at a glance: a fresh
-//! spell is Rare, a rank up Uncommon, a rank that adds a target or reaches the top Epic.
+//! wears the rarity it was drawn at (`offer.rs` deals it) in WoW's item-quality colours, and its
+//! numbers are the rank's at that rarity's worth. Under the row, Reroll (R), Banish (B, then a
+//! card) and Skip (X), each with what is left of it.
 
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
-use super::data::{self, Kind};
-use super::hud::{self, Choice, HudFont, Offer, SpellIcon};
-use super::{Phase, Rng, Run};
+use super::data::CardRarity;
+use super::hud::{self, HudFont, Move, Offer, SpellIcon};
+use super::lang::tr;
+use super::{Phase, Run};
 
 /// WoW's item-quality colours (`ITEM_QUALITY_COLORS`).
 pub(super) const COMMON: Color = Color::srgb(1.0, 1.0, 1.0);
@@ -23,117 +25,29 @@ const CARD_H: f32 = 330.0;
 const DEAL_STAGGER: f32 = 0.09;
 const DEAL_SECS: f32 = 0.38;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Rarity {
-    Common,
-    Uncommon,
-    Rare,
-    Epic,
-    Legendary,
-}
-
-impl Rarity {
-    pub(super) fn color(self) -> Color {
-        match self {
-            Self::Common => COMMON,
-            Self::Uncommon => UNCOMMON,
-            Self::Rare => RARE,
-            Self::Epic => EPIC,
-            Self::Legendary => LEGENDARY,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Common => "Common",
-            Self::Uncommon => "Uncommon",
-            Self::Rare => "Rare",
-            Self::Epic => "Epic",
-            Self::Legendary => "Legendary",
-        }
+/// A card's colour, WoW's item-quality colour for its drawn rarity.
+pub(super) fn rarity_color(r: CardRarity) -> Color {
+    match r {
+        CardRarity::Common => COMMON,
+        CardRarity::Uncommon => UNCOMMON,
+        CardRarity::Rare => RARE,
+        CardRarity::Epic => EPIC,
+        CardRarity::Legendary => LEGENDARY,
     }
 }
 
-/// A spell's rough damage per second at rank 1 against a crowd: per-cast damage times the
-/// enemies it can reach, over its cooldown. Only for ranking a class's own spells against each
-/// other; the defensive kinds have none and sit in the middle.
-fn power(def: &data::AbilityDef) -> Option<f32> {
-    let area = |r: f32| 1.0 + r * 0.6;
-    let reach = match def.kind {
-        Kind::Bolt | Kind::Strike => def.count as f32 + def.radius * 0.4,
-        Kind::Melee | Kind::Orbit => def.count as f32,
-        Kind::Nova | Kind::Cone | Kind::Ground | Kind::GroundSelf | Kind::Aura => area(def.radius),
-        Kind::Chain => def.count as f32 + 1.0,
-        Kind::Dot => def.count as f32,
-        _ => return None,
-    };
-    let per = if def.damage > 0.0 {
-        def.damage
-    } else {
-        def.dot * def.duration.max(1.0)
-    };
-    let ticks = if matches!(def.kind, Kind::Ground | Kind::GroundSelf) && def.duration > 0.0 {
-        def.duration
-    } else {
-        1.0
-    };
-    Some(per * ticks * reach / def.cooldown.max(0.2))
+fn rarity_label(r: CardRarity) -> &'static str {
+    tr(match r {
+        CardRarity::Common => "Common",
+        CardRarity::Uncommon => "Uncommon",
+        CardRarity::Rare => "Rare",
+        CardRarity::Epic => "Epic",
+        CardRarity::Legendary => "Legendary",
+    })
 }
 
-/// Where a new spell stands among its class's: the strongest third Epic, the weakest third
-/// Uncommon, the rest (and the defensive spells) Rare.
-fn spell_tier(def: &data::AbilityDef, run: &Run) -> Rarity {
-    let Some(mine) = power(def) else {
-        return Rarity::Rare;
-    };
-    let mut all: Vec<f32> = run
-        .class
-        .pool
-        .iter()
-        .filter_map(|k| power(data::ability(k)))
-        .collect();
-    all.sort_by(f32::total_cmp);
-    let rank = all.iter().filter(|&&p| p < mine).count() as f32 / all.len().max(1) as f32;
-    if rank >= 0.66 {
-        Rarity::Epic
-    } else if rank < 0.33 {
-        Rarity::Uncommon
-    } else {
-        Rarity::Rare
-    }
-}
-
-/// What a choice is worth, by what it brings: a top rank is Legendary, a rank that adds a target
-/// Epic, a new spell by its power among the class's ([`spell_tier`]), a plain rank Uncommon.
-pub(super) fn rarity(choice: Choice, run: &Run) -> Rarity {
-    match choice {
-        Choice::NewAbility(def) => spell_tier(def, run),
-        Choice::Upgrade(k) => {
-            let o = &run.abilities[k];
-            let next = o.level + 1;
-            let targets = [3, 5, 7].contains(&next)
-                && matches!(
-                    o.def.kind,
-                    Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
-                );
-            if next == data::MAX_ABILITY_LEVEL {
-                Rarity::Legendary
-            } else if targets {
-                Rarity::Epic
-            } else {
-                Rarity::Uncommon
-            }
-        }
-        Choice::NewPassive(_) => Rarity::Uncommon,
-        Choice::UpPassive(k) => match run.passives[k].1 + 1 {
-            n if n == data::MAX_PASSIVE_LEVEL => Rarity::Epic,
-            n if n + 1 == data::MAX_PASSIVE_LEVEL => Rarity::Rare,
-            2 => Rarity::Common,
-            _ => Rarity::Uncommon,
-        },
-        Choice::Heal => Rarity::Common,
-    }
-}
+/// The banish colour: a card about to be banished wears it.
+const BANISH: Color = Color::srgb(0.9, 0.18, 0.12);
 
 /// One card's motion: dealt in, tilted to the cursor, lifted under it, burst on the pick.
 #[derive(Component)]
@@ -144,7 +58,7 @@ pub(super) struct Card {
     hover: f32,
     tilt: Vec2,
     picked: Option<f32>,
-    rarity: Rarity,
+    rarity: CardRarity,
 }
 
 /// The rarity glow behind the card, which swells under the cursor.
@@ -161,7 +75,7 @@ pub(super) struct Rays;
 
 /// The pending pick: the card bursts, then the choice applies.
 #[derive(Resource, Default)]
-pub(super) struct PendingPick(Option<(usize, f32)>);
+pub(super) struct PendingPick(Option<(Move, f32)>);
 
 const PICK_SECS: f32 = 0.28;
 
@@ -181,10 +95,10 @@ pub(super) fn deal_cards(
     commands.entity(row).despawn_related::<Children>();
     let f = &font.0;
     commands.entity(row).with_children(|row| {
-        for (i, &choice) in offer.choices().iter().enumerate() {
-            let card = hud::describe_card(choice, &run, spells.as_deref());
-            let rarity = rarity(choice, &run);
-            let rc = rarity.color();
+        for (i, (dealt, choice)) in offer.cards().iter().enumerate() {
+            let rarity = dealt.rarity;
+            let card = hud::describe_card(*choice, rarity, &run, spells.as_deref());
+            let rc = rarity_color(rarity);
             row.spawn((
                 Card {
                     index: i,
@@ -268,7 +182,7 @@ pub(super) fn deal_cards(
                         15.0,
                         hud::DIM_GREY,
                     ));
-                    top.spawn(hud::text_bundle(f, rarity.label(), 13.0, rc));
+                    top.spawn(hud::text_bundle(f, rarity_label(rarity), 13.0, rc));
                 });
                 // The icon in a gold-rimmed socket.
                 c.spawn((
@@ -399,6 +313,7 @@ pub(super) fn animate_cards(
         &RelativeCursorPosition,
         &mut UiTransform,
         &mut BoxShadow,
+        &mut BorderColor,
         &mut Visibility,
     )>,
     mut shines: Query<(&CardShine, &mut Node)>,
@@ -407,7 +322,6 @@ pub(super) fn animate_cards(
     mut picks: ResMut<super::sync::LocalPicks>,
     mut run: ResMut<Run>,
     mut offer: ResMut<Offer>,
-    mut rng: ResMut<Rng>,
     mut next: ResMut<NextState<Phase>>,
 ) {
     if *phase.get() != Phase::LevelUp {
@@ -420,9 +334,13 @@ pub(super) fn animate_cards(
         r.rotation = Rot2::radians(now * 0.12);
         r.scale = Vec2::splat(1.0 + 0.03 * (now * 1.7).sin());
     }
-    let chosen = pending.0.map(|(i, _)| i);
+    let chosen = pending.0.map(|(m, _)| match m {
+        Move::Pick(i) | Move::Banish(i) => i,
+        Move::Reroll | Move::Skip => usize::MAX,
+    });
+    let banishing = offer.banishing || matches!(pending.0, Some((Move::Banish(_), _)));
     let mut shine_at = [None::<f32>; 4];
-    for (mut card, interaction, cursor, mut tf, mut shadow, mut vis) in &mut cards {
+    for (mut card, interaction, cursor, mut tf, mut shadow, mut border, mut vis) in &mut cards {
         let card = &mut *card;
         card.t += dt;
         if card.t < 0.0 {
@@ -474,7 +392,19 @@ pub(super) fn animate_cards(
         let s = (0.6 + 0.4 * e) * (1.0 + 0.06 * h) * pick_scale;
         tf.scale = Vec2::new(s * squash, s * (1.0 + card.tilt.y.abs() * 0.02));
         tf.rotation = Rot2::degrees((1.0 - e) * -14.0 + lean);
-        let rc = card.rarity.color();
+        let rc = if banishing {
+            BANISH
+        } else {
+            rarity_color(card.rarity)
+        };
+        let edge = if banishing && h > 0.5 {
+            BANISH
+        } else {
+            rarity_color(card.rarity)
+        };
+        if border.top != edge {
+            *border = BorderColor::all(edge);
+        }
         if let Some(sh) = shadow.0.first_mut() {
             sh.color = rc.with_alpha((0.25 + 0.6 * h) * (1.0 - pick_fade));
             sh.blur_radius = Val::Px(18.0 + 22.0 * h);
@@ -495,32 +425,210 @@ pub(super) fn animate_cards(
         let u = ((t - DEAL_SECS * 0.6) / 0.5).clamp(0.0, 1.0);
         node.left = Val::Px(-120.0 + u * (CARD_W + 200.0));
     }
-    if let Some((i, t)) = pending.0.as_mut() {
+    if let Some((m, t)) = pending.0.as_mut() {
         *t += dt;
         if *t >= PICK_SECS {
-            let i = *i;
+            let m = *m;
             pending.0 = None;
-            hud::pick(i, &mut run, &mut offer, &mut rng, &mut next, &mut picks);
+            hud::make_move(m, &mut run, &mut offer, &mut next, &mut picks);
         }
     }
 }
 
-/// R deals the cards again, while a reroll is left and no card is being picked.
-pub(super) fn reroll_cards(
+/// R rerolls, B arms (or disarms) a banish, X skips: while no card is on its way out.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn card_keys(
     phase: Res<State<Phase>>,
     keys: Res<ButtonInput<KeyCode>>,
     pending: Res<PendingPick>,
     mut run: ResMut<Run>,
-    mut rng: ResMut<Rng>,
     mut offer: ResMut<Offer>,
+    mut next: ResMut<NextState<Phase>>,
+    mut picks: ResMut<super::sync::LocalPicks>,
 ) {
-    if *phase.get() != Phase::LevelUp || pending.0.is_some() || !keys.just_pressed(KeyCode::KeyR) {
+    if *phase.get() != Phase::LevelUp || pending.0.is_some() {
         return;
     }
-    hud::reroll(&mut run, &mut rng, &mut offer);
+    let tool = if keys.just_pressed(KeyCode::KeyR) {
+        Some(Tool::Reroll)
+    } else if keys.just_pressed(KeyCode::KeyB) {
+        Some(Tool::Banish)
+    } else if keys.just_pressed(KeyCode::KeyX) {
+        Some(Tool::Skip)
+    } else if keys.just_pressed(KeyCode::Escape) && offer.banishing {
+        offer.banishing = false;
+        None
+    } else {
+        None
+    };
+    if let Some(tool) = tool {
+        use_tool(tool, &mut run, &mut offer, &mut next, &mut picks);
+    }
 }
 
-/// A click on a card, or 1/2/3: start its burst; the choice applies when it finishes.
+/// Reroll and Skip move at once; Banish arms itself, for the next card chosen.
+fn use_tool(
+    tool: Tool,
+    run: &mut Run,
+    offer: &mut Offer,
+    next: &mut NextState<Phase>,
+    picks: &mut super::sync::LocalPicks,
+) {
+    match tool {
+        Tool::Reroll => {
+            hud::make_move(Move::Reroll, run, offer, next, picks);
+        }
+        Tool::Skip => {
+            hud::make_move(Move::Skip, run, offer, next, picks);
+        }
+        Tool::Banish => offer.banishing = !offer.banishing && run.banishes > 0,
+    }
+}
+
+/// What the buttons under the cards do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Tool {
+    Reroll,
+    Banish,
+    Skip,
+}
+
+impl Tool {
+    const ALL: [Tool; 3] = [Tool::Reroll, Tool::Banish, Tool::Skip];
+
+    fn label(self) -> &'static str {
+        tr(match self {
+            Tool::Reroll => "Reroll",
+            Tool::Banish => "Banish",
+            Tool::Skip => "Skip",
+        })
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Tool::Reroll => "R",
+            Tool::Banish => "B",
+            Tool::Skip => "X",
+        }
+    }
+
+    fn held(self, run: &Run) -> u8 {
+        match self {
+            Tool::Reroll => run.rerolls,
+            Tool::Banish => run.banishes,
+            Tool::Skip => run.skips,
+        }
+    }
+}
+
+#[derive(Component)]
+pub(super) struct ToolButton(Tool);
+
+#[derive(Component)]
+pub(super) struct ToolLabel(Tool);
+
+const TOOL_BG: Color = Color::srgba(0.08, 0.06, 0.04, 0.92);
+const TOOL_HOT: Color = Color::srgba(0.22, 0.16, 0.08, 0.95);
+
+/// The row of Reroll, Banish and Skip under the cards.
+pub(super) fn spawn_tools(root: &mut ChildSpawnerCommands, font: &Handle<Font>) {
+    root.spawn(Node {
+        column_gap: Val::Px(14.0),
+        margin: UiRect::bottom(Val::Px(10.0)),
+        ..default()
+    })
+    .with_children(|row| {
+        for tool in Tool::ALL {
+            row.spawn((
+                ToolButton(tool),
+                Button,
+                Interaction::default(),
+                Node {
+                    min_width: Val::Px(150.0),
+                    padding: UiRect::axes(Val::Px(14.0), Val::Px(7.0)),
+                    justify_content: JustifyContent::Center,
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(6.0)),
+                    ..default()
+                },
+                BackgroundColor(TOOL_BG),
+                BorderColor::all(hud::GOLD_TONE.with_alpha(0.6)),
+            ))
+            .with_children(|b| {
+                b.spawn((
+                    ToolLabel(tool),
+                    hud::text_bundle(font, tool.label(), 15.0, Color::WHITE),
+                ));
+            });
+        }
+    });
+}
+
+/// The buttons under the cards: what is left of each on its label, greyed when none is, lit
+/// under the cursor and while a banish is armed; a click uses it.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub(super) fn card_buttons(
+    phase: Res<State<Phase>>,
+    pending: Res<PendingPick>,
+    mut run: ResMut<Run>,
+    mut offer: ResMut<Offer>,
+    mut next: ResMut<NextState<Phase>>,
+    mut picks: ResMut<super::sync::LocalPicks>,
+    mut buttons: Query<(
+        &ToolButton,
+        &Interaction,
+        &mut BackgroundColor,
+        &mut BorderColor,
+    )>,
+    mut labels: Query<(&ToolLabel, &mut Text, &mut TextColor)>,
+) {
+    if *phase.get() != Phase::LevelUp {
+        return;
+    }
+    let mut clicked = None;
+    for (b, interaction, mut bg, mut border) in &mut buttons {
+        let armed = b.0 == Tool::Banish && offer.banishing;
+        let has = b.0.held(&run) > 0;
+        let want = if armed || (has && *interaction != Interaction::None) {
+            TOOL_HOT
+        } else {
+            TOOL_BG
+        };
+        if bg.0 != want {
+            bg.0 = want;
+        }
+        let edge = if armed {
+            BANISH
+        } else if has {
+            hud::GOLD_TONE.with_alpha(0.6)
+        } else {
+            Color::srgba(1.0, 1.0, 1.0, 0.12)
+        };
+        if border.top != edge {
+            *border = BorderColor::all(edge);
+        }
+        if *interaction == Interaction::Pressed && has {
+            clicked = Some(b.0);
+        }
+    }
+    for (l, mut text, mut color) in &mut labels {
+        let n = l.0.held(&run);
+        let want = format!("{} ({})  ·  {}", l.0.label(), l.0.key(), n);
+        if text.0 != want {
+            text.0 = want;
+        }
+        let c = if n > 0 { Color::WHITE } else { hud::DIM_GREY };
+        if color.0 != c {
+            color.0 = c;
+        }
+    }
+    if let Some(tool) = clicked.filter(|_| pending.0.is_none()) {
+        use_tool(tool, &mut run, &mut offer, &mut next, &mut picks);
+    }
+}
+
+/// A click on a card, or 1/2/3: start its burst; the pick (or the banish, when armed) is made
+/// when it finishes.
 pub(super) fn choose_card(
     phase: Res<State<Phase>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -544,6 +652,11 @@ pub(super) fn choose_card(
         }
     }
     if let Some(i) = pick.filter(|&i| i < offer.len()) {
-        pending.0 = Some((i, 0.0));
+        let m = if offer.banishing {
+            Move::Banish(i)
+        } else {
+            Move::Pick(i)
+        };
+        pending.0 = Some((m, 0.0));
     }
 }

@@ -121,12 +121,13 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
                 key: o.def.key.to_string(),
                 level: o.level,
                 cd: o.cd,
+                power: o.power,
             })
             .collect(),
         passives: v
             .passives
             .iter()
-            .map(|(p, l)| (p.key.to_string(), *l))
+            .map(|(p, l, power)| (p.key.to_string(), *l, *power))
             .collect(),
         shield: v.shield,
         shield_t: v.shield_t,
@@ -146,12 +147,16 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
             .iter()
             .map(|(i, n)| (i.key.to_string(), *n))
             .collect(),
+        offer: v.offer.iter().map(|d| d.to_wire()).collect(),
+        rerolls: v.rerolls,
+        banishes: v.banishes,
+        skips: v.skips,
     }
 }
 
 /// Guests' messages: their heroes' motion, cards and mobility; who has loaded; who has gone.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn receive(
+pub(super) fn receive(
     mut commands: Commands,
     mut net: ResMut<Net>,
     mut rep: ResMut<Replicator>,
@@ -165,6 +170,7 @@ fn receive(
         (With<Hero>, Without<LocalHero>),
     >,
     mut queue: ResMut<MobilityQueue>,
+    mut rng: ResMut<crate::survivors::Rng>,
 ) {
     let inbox = std::mem::take(&mut net.inbox);
     let map = selection.stage_def();
@@ -210,9 +216,10 @@ fn receive(
                     h.mobile.vanish_t = vanish_t.clamp(0.0, 8.0);
                 }
             }
-            Game::Pick(choice) => {
+            Game::Card(action) => {
+                // Checked against the offer this host dealt that hero, as a local move is.
                 if let Some((.., mut h)) = heroes.iter_mut().find(|(.., h)| h.slot == from) {
-                    sync::apply_choice(&mut h.v, &choice);
+                    crate::survivors::offer::apply_action(&mut h.v, &action, &mut rng);
                 }
             }
             Game::Mobility { spell, effect } => {

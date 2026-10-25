@@ -32,7 +32,9 @@ top-down views.
 | Playing | — | abilities cast themselves (no aim) |
 | Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
-| Level up | **R** | deal the cards again: three rerolls a run |
+| Level up | **R** (or **Reroll**) | deal the cards again: three rerolls to start a run |
+| Level up | **B** (or **Banish**), then a card | take that card out of your deals for the rest of the run: one to start |
+| Level up | **X** (or **Skip**) | let the level go by without a card: one to start |
 | Menu | **Run Options** (bottom left) | the difficulty: Heroic opens once a zone is won on Normal, Mythic once won on Heroic |
 | Paused | **Esc** | resume |
 | Game over | **Enter** (or **Play again**) | back to the menu (or the lobby, in multiplayer) |

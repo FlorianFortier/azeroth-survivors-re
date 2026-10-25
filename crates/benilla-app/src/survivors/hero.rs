@@ -1015,7 +1015,7 @@ pub(super) fn hero_vitals(
                 shown.push(owned.def.spell);
             }
         }
-        if h.passives.iter().any(|(p, _)| p.key == "renew") {
+        if h.passives.iter().any(|(p, ..)| p.key == "renew") {
             shown.push(139);
         }
         for t in &h.timed {

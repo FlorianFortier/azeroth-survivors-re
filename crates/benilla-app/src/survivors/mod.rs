@@ -25,6 +25,7 @@ mod minimap;
 mod mobility;
 mod names;
 mod net;
+mod offer;
 mod outfit;
 mod profile;
 mod stats;
@@ -143,11 +144,16 @@ impl Plugin for SurvivorsPlugin {
                     menu::build_menu,
                     menu::menu_clicks,
                     menu::refresh_menu_ui.before(crate::glue::GlueVisuals),
-                    cards::deal_cards,
-                    cards::choose_card,
-                    cards::reroll_cards,
-                    hud::reroll_hint,
-                    cards::animate_cards,
+                    (
+                        hud::follow_offer,
+                        cards::deal_cards,
+                        cards::choose_card,
+                        cards::card_keys,
+                        cards::card_buttons,
+                        hud::reroll_hint,
+                        cards::animate_cards,
+                    )
+                        .chain(),
                     hud::refresh_hud,
                     hud::refresh_results,
                     hud::fill_icons,
@@ -180,6 +186,7 @@ impl Plugin for SurvivorsPlugin {
                 PostUpdate,
                 (
                     sync::apply_local_picks,
+                    offer::deal_offers,
                     sync::sync_view,
                     hero::level_up_gate,
                     hero::run_outcome,
@@ -187,7 +194,7 @@ impl Plugin for SurvivorsPlugin {
                     .chain(),
             )
             .add_systems(OnEnter(Phase::Playing), unpause)
-            .add_systems(OnEnter(Phase::LevelUp), (pause, hud::roll_offer))
+            .add_systems(OnEnter(Phase::LevelUp), pause)
             .add_systems(OnEnter(Phase::Paused), pause)
             .add_systems(OnEnter(Phase::GameOver), unpause)
             .add_systems(OnEnter(Phase::Menu), (unpause, reset_run))
@@ -350,11 +357,30 @@ pub(super) struct Owned {
     pub def: &'static AbilityDef,
     pub level: u8,
     pub cd: f32,
+    /// The ranks' worth its damage grows by: each rank's card's [`data::CardRarity::weight`], summed.
+    /// A rank of plain worth adds 1, so `power == level` when every card was Common.
+    pub power: f32,
 }
 
 impl Owned {
+    /// A newly learned ability, its first rank worth `power`.
+    pub fn learned(def: &'static AbilityDef, power: f32, cd: f32) -> Self {
+        Self {
+            def,
+            level: 1,
+            cd,
+            power,
+        }
+    }
+
+    /// One rank more, worth `weight`.
+    pub fn rank_up(&mut self, weight: f32) {
+        self.level += 1;
+        self.power += weight;
+    }
+
     pub fn damage_mult(&self) -> f32 {
-        1.0 + 0.3 * f32::from(self.level - 1)
+        1.0 + 0.3 * (self.power - 1.0)
     }
     pub fn cooldown(&self, stats: &Stats) -> f32 {
         let base = self.def.cooldown * 0.93f32.powi(i32::from(self.level) - 1);
@@ -385,7 +411,8 @@ pub(super) struct Vitals {
     pub xp: f32,
     pub hp: f32,
     pub abilities: Vec<Owned>,
-    pub passives: Vec<(&'static PassiveDef, u8)>,
+    /// Each passive, its rank, and its ranks' worth (as [`Owned::power`]).
+    pub passives: Vec<(&'static PassiveDef, u8, f32)>,
     pub shield: f32,
     pub shield_t: f32,
     pub immune_t: f32,
@@ -420,6 +447,14 @@ pub(super) struct Vitals {
     pub gold: f32,
     /// The run's items and how many of each.
     pub run_items: Vec<(&'static data::RunItemDef, u8)>,
+    /// The level-up cards dealt this hero, by the simulation: only these may be picked.
+    pub offer: Vec<offer::Dealt>,
+    /// What this hero banished: never dealt it again this run. The simulation's alone.
+    pub banned: Vec<offer::Ban>,
+    /// Rerolls, banishes and skips in hand.
+    pub rerolls: u8,
+    pub banishes: u8,
+    pub skips: u8,
 }
 
 impl Default for Vitals {
@@ -454,6 +489,11 @@ impl Default for Vitals {
             loot: Vec::new(),
             gold: 0.0,
             run_items: Vec::new(),
+            offer: Vec::new(),
+            banned: Vec::new(),
+            rerolls: data::REROLLS_PER_RUN,
+            banishes: data::BANISHES_PER_RUN,
+            skips: data::SKIPS_PER_RUN,
         }
     }
 }
@@ -466,11 +506,8 @@ impl Vitals {
             race,
             ..Self::default()
         };
-        v.abilities.push(Owned {
-            def: data::ability(class.start),
-            level: 1,
-            cd: 0.5,
-        });
+        v.abilities
+            .push(Owned::learned(data::ability(class.start), 1.0, 0.5));
         v.hp = v.stats().max_hp;
         v.version += 1;
         v
@@ -479,7 +516,11 @@ impl Vitals {
     /// The hero's numbers now: the class's head start, the run's passives, what the hero
     /// brought in, and the effects running on it.
     pub fn stats(&self) -> Stats {
-        let passives: Vec<Bonus> = self.passives.iter().map(|&(p, l)| p.bonus(l)).collect();
+        let passives: Vec<Bonus> = self
+            .passives
+            .iter()
+            .map(|&(p, _, power)| p.bonus_at(power))
+            .collect();
         let items: Vec<Bonus> = self
             .run_items
             .iter()
@@ -562,8 +603,6 @@ pub(super) struct Run {
     pub begun: bool,
     /// Multiplayer: still waiting for every player to load the zone. The clock holds.
     pub waiting: bool,
-    /// Rerolls of the level-up cards left this run.
-    pub rerolls: u32,
     /// Counts the runs started, so what belongs to one run knows when the next begins.
     pub run_id: u32,
     /// What the next chest costs (the host's, for a guest).
@@ -589,7 +628,6 @@ impl Default for Run {
             banner: None,
             begun: false,
             waiting: false,
-            rerolls: data::REROLLS_PER_RUN,
             run_id: 0,
             chest_cost: data::chest_cost(0),
             posts: Vec::new(),
