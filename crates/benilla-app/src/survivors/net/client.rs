@@ -109,10 +109,10 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
     let copy = Replica { pos, yaw: s.yaw };
     match s.role {
         Role::Hero(slot) if slot == me => {
-            ec.insert((Hero { vy: 0.0, air: 0.0 }, LocalHero));
+            ec.insert((Hero::default(), LocalHero));
         }
         Role::Hero(_) => {
-            ec.insert((Hero { vy: 0.0, air: 0.0 }, copy));
+            ec.insert((Hero::default(), copy));
         }
         Role::Enemy => {
             ec.insert((Hostile, copy));
