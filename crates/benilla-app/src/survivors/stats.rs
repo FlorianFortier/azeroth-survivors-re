@@ -80,6 +80,17 @@ impl Stats {
     }
 }
 
+/// A bonus `k` times over: a run item's stacks, a talent's ranks.
+pub(crate) fn scaled(b: Bonus, k: f32) -> Bonus {
+    Bonus {
+        stat: b.stat,
+        amount: match b.amount {
+            Amount::Flat(v) => Amount::Flat(v * k),
+            Amount::Percent(v) => Amount::Percent(v * k),
+        },
+    }
+}
+
 fn index(stat: Stat) -> usize {
     Stat::ALL
         .iter()

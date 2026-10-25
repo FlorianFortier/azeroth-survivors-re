@@ -789,6 +789,7 @@ pub(super) fn apply_hits(
             xp: en.xp,
             boss: en.boss,
             boss_slot: en.boss_slot,
+            elite: en.elite,
         });
         if let Some(owner) = owner {
             owner.kills += 1;

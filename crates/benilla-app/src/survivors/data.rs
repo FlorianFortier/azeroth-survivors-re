@@ -2578,6 +2578,211 @@ pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock
     out
 });
 
+// ── The run's own economy: gold, chests, the field's elites and the run's items ──────────────
+
+/// One in this many horde kills drops a coin; a boss drops a pile, an elite a purse.
+pub(crate) const COIN_ODDS: u32 = 3;
+/// A boss's pile of gold and an elite's purse, before the gold stat.
+pub(crate) const BOSS_GOLD: u32 = 25;
+pub(crate) const ELITE_GOLD: u32 = 10;
+
+/// What the next chest costs, `opened` chests into the run: 20 gold, each one dearer by 40%.
+pub(crate) fn chest_cost(opened: u32) -> u32 {
+    ((20.0 * 1.4f32.powi(opened.min(40) as i32)) / 5.0).round() as u32 * 5
+}
+
+/// Chests on the field at once, and the seconds an opened one takes to come back elsewhere.
+pub(crate) const CHESTS: usize = 6;
+pub(crate) const CHEST_RESPAWN_SECS: f32 = 40.0;
+/// Seconds a hero stands at a chest to open it, and how near.
+pub(crate) const CHEST_OPEN_SECS: f32 = 1.0;
+pub(crate) const CHEST_REACH: f32 = 3.0;
+
+/// The half of the gold left unspent at the end that the profile keeps.
+pub(crate) const UNSPENT_GOLD_KEPT: f32 = 0.5;
+
+/// A run item: picked up in the run, gone at its end, stacking.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RunItemDef {
+    pub key: &'static str,
+    pub name: &'static str,
+    /// Icon, a `Spell.dbc` row.
+    pub spell: u32,
+    /// What each stack gives.
+    pub bonus: Bonus,
+}
+
+/// The most of one run item a hero carries.
+pub(crate) const MAX_RUN_ITEM_STACKS: u8 = 9;
+
+pub(crate) static RUN_ITEMS: &[RunItemDef] = &[
+    RunItemDef {
+        key: "battle_standard",
+        name: "Battle Standard",
+        spell: 23880,
+        bonus: Bonus::flat(Stat::Might, 0.06),
+    },
+    RunItemDef {
+        key: "hourglass",
+        name: "Bronze Hourglass",
+        spell: 25771,
+        bonus: Bonus::flat(Stat::Haste, 0.04),
+    },
+    RunItemDef {
+        key: "eagle_eye",
+        name: "Eagle Eye Lens",
+        spell: 6197,
+        bonus: Bonus::flat(Stat::Crit, 0.03),
+    },
+    RunItemDef {
+        key: "thick_hide",
+        name: "Thick Hide",
+        spell: 9116,
+        bonus: Bonus::flat(Stat::Armor, 2.0),
+    },
+    RunItemDef {
+        key: "troll_blood",
+        name: "Troll's Blood",
+        spell: 20555,
+        bonus: Bonus::flat(Stat::Regen, 1.0),
+    },
+    RunItemDef {
+        key: "swift_feather",
+        name: "Swift Feather",
+        spell: 2479,
+        bonus: Bonus::pct(Stat::Speed, 0.06),
+    },
+    RunItemDef {
+        key: "lodestone",
+        name: "Lodestone",
+        spell: 1906,
+        bonus: Bonus::pct(Stat::Magnet, 0.15),
+    },
+    RunItemDef {
+        key: "tome_of_lore",
+        name: "Tome of Lore",
+        spell: 1459,
+        bonus: Bonus::flat(Stat::Growth, 0.08),
+    },
+    RunItemDef {
+        key: "giants_belt",
+        name: "Giant's Belt",
+        spell: 2458,
+        bonus: Bonus::pct(Stat::MaxHp, 0.08),
+    },
+    RunItemDef {
+        key: "arcane_prism",
+        name: "Arcane Prism",
+        spell: 1449,
+        bonus: Bonus::flat(Stat::Area, 0.06),
+    },
+    RunItemDef {
+        key: "lucky_coin",
+        name: "Lucky Coin",
+        spell: 1784,
+        bonus: Bonus::pct(Stat::Gold, 0.15),
+    },
+    RunItemDef {
+        key: "stoneskin",
+        name: "Stoneskin Charm",
+        spell: 20594,
+        bonus: Bonus::flat(Stat::DamageReduction, 0.02),
+    },
+];
+
+/// A run item by key.
+pub(crate) fn run_item(key: &str) -> Option<&'static RunItemDef> {
+    RUN_ITEMS.iter().find(|i| i.key == key)
+}
+
+/// What a chest, or an elite's drop, gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Reward {
+    /// A random run item.
+    RunItem,
+    /// A rank on one of the hero's spells.
+    SpellRank,
+    /// A roll for one of the zone's pieces of gear, `percent` likely; gold otherwise.
+    Gear { percent: u8 },
+    /// Gold.
+    Gold(u32),
+}
+
+/// What a chest gives, from `roll` (uniform in `[0, 1)`): a run item more often than not, else a
+/// spell's rank, else a fair roll for gear.
+pub(crate) fn chest_reward(roll: f32) -> Reward {
+    if roll < 0.55 {
+        Reward::RunItem
+    } else if roll < 0.85 {
+        Reward::SpellRank
+    } else {
+        Reward::Gear { percent: 60 }
+    }
+}
+
+/// The field's elites: where each stands, what it guards, how long it takes to come back.
+pub(crate) struct EliteKind {
+    pub title: &'static str,
+    pub reward: Reward,
+    pub respawn: f32,
+}
+
+pub(crate) const ELITES: [EliteKind; 4] = [
+    EliteKind {
+        title: "Armory Guardian",
+        reward: Reward::Gear { percent: 35 },
+        respawn: 90.0,
+    },
+    EliteKind {
+        title: "Arcane Sentinel",
+        reward: Reward::SpellRank,
+        respawn: 75.0,
+    },
+    EliteKind {
+        title: "Relic Keeper",
+        reward: Reward::RunItem,
+        respawn: 75.0,
+    },
+    EliteKind {
+        title: "Hoard Warden",
+        reward: Reward::Gold(40),
+        respawn: 60.0,
+    },
+];
+
+/// An elite of a zone: the strongest of its horde, grown and toughened, named for what it guards.
+pub(crate) fn elite(zone: usize, kind: usize) -> &'static EnemyDef {
+    static ELITE_DEFS: std::sync::LazyLock<Vec<Vec<EnemyDef>>> = std::sync::LazyLock::new(|| {
+        (0..MAPS.len())
+            .map(|z| {
+                let r = roster(z);
+                let top = r.enemies.last().expect("a zone has a horde");
+                ELITES
+                    .iter()
+                    .enumerate()
+                    .map(|(k, e)| {
+                        // Each elite wears another of the zone's stronger creatures.
+                        let n = r.enemies.len();
+                        let look = &r.enemies[n.saturating_sub(1 + k).max(n / 2)];
+                        EnemyDef {
+                            name: Box::leak(format!("{} {}", look.name, e.title).into_boxed_str()),
+                            display: look.display,
+                            hp: (top.hp * 8.0).round(),
+                            speed: look.speed * 0.9,
+                            damage: (top.damage * 1.5).round(),
+                            scale: look.scale * 1.6,
+                            xp: top.xp * 6,
+                            level: look.level + 2,
+                            big: look.big,
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    });
+    &ELITE_DEFS[zone.min(MAPS.len() - 1)][kind.min(ELITES.len() - 1)]
+}
+
 /// Rerolls of the level-up cards a run starts with (R at the cards).
 pub(crate) const REROLLS_PER_RUN: u32 = 3;
 
@@ -3702,5 +3907,37 @@ mod tests {
         assert!(bonus_from_wire((99, 0, 1)).is_none());
         let huge = bonus_from_wire((0, 0, i32::MAX)).unwrap();
         assert_eq!(huge.amount, Amount::Flat(WIRE_BONUS_CAP));
+    }
+
+    #[test]
+    fn chests_cost_more_each_time() {
+        assert_eq!(chest_cost(0), 20);
+        assert_eq!(chest_cost(1), 30);
+        for n in 0..20 {
+            assert!(chest_cost(n + 1) >= chest_cost(n));
+            assert_eq!(chest_cost(n) % 5, 0);
+        }
+        assert_eq!(chest_reward(0.0), Reward::RunItem);
+        assert_eq!(chest_reward(0.7), Reward::SpellRank);
+        assert!(matches!(chest_reward(0.99), Reward::Gear { .. }));
+    }
+
+    #[test]
+    fn run_items_and_elites_hold_together() {
+        let keys: HashSet<&str> = RUN_ITEMS.iter().map(|i| i.key).collect();
+        assert_eq!(keys.len(), RUN_ITEMS.len());
+        assert!(RUN_ITEMS.iter().all(|i| run_item(i.key) == Some(i)));
+        for z in 0..MAPS.len() {
+            let top = roster(z).enemies.last().unwrap().hp;
+            for k in 0..ELITES.len() {
+                let e = elite(z, k);
+                assert!(e.hp > top * 4.0, "{}", e.name);
+                assert!(e.name.ends_with(ELITES[k].title));
+            }
+        }
+        // Every kind of reward is on the field.
+        let kinds: Vec<Reward> = ELITES.iter().map(|e| e.reward).collect();
+        assert!(kinds.contains(&Reward::RunItem) && kinds.contains(&Reward::SpellRank));
+        assert!(kinds.iter().any(|r| matches!(r, Reward::Gear { .. })));
     }
 }

@@ -24,6 +24,7 @@ where you look. **C** switches to the classic top-down views.
 | Any | **G** | toggle the picture polish (`?grade=0` starts it off) |
 | Playing | **Esc** | pause (frees the pointer) |
 | Playing | — | abilities cast themselves (no aim) |
+| Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
 | Level up | **R** | deal the cards again: three rerolls a run |
 | Menu | **Run Options** (bottom left) | the difficulty: Heroic opens once a zone is won on Normal, Mythic once won on Heroic |

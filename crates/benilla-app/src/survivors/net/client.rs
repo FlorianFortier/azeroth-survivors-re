@@ -144,6 +144,12 @@ fn apply_me(run: &mut Run, v: WireVitals) {
     run.revive_t = v.revive_t;
     run.damage_done = v.damage_done;
     run.kills = v.kills;
+    run.gold = v.gold;
+    run.run_items = v
+        .run_items
+        .iter()
+        .filter_map(|(k, n)| data::run_item(k).map(|i| (i, *n)))
+        .collect();
     if run.loot.len() != v.loot.len() {
         run.loot = v.loot.iter().filter_map(|n| data::item(n)).collect();
     }
@@ -324,7 +330,9 @@ pub(super) fn receive(
                 bosses,
                 waiting,
                 banner,
+                chest_cost,
             } => {
+                run.chest_cost = chest_cost;
                 run.elapsed = elapsed;
                 run.bosses = bosses;
                 run.waiting = waiting;

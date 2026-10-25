@@ -988,9 +988,11 @@ pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
     // The world goes to the battleground picked; until now it stood in the last one.
     selection.stage = selection.map;
     let next_guid = run.next_guid;
+    let run_id = run.run_id.wrapping_add(1);
     *run = Run {
         me: Vitals::new(class, race),
         next_guid,
+        run_id,
         ..Run::default()
     };
     true
@@ -1353,7 +1355,17 @@ pub(super) fn refresh_hud(
     }
     let kills = run.kills;
     if let Ok(mut t) = texts.p2().single_mut() {
-        **t = format!("Kills {kills}");
+        let want = super::lang::trf(
+            "Kills {}  ·  Gold {}  ·  Chest {}",
+            &[
+                &kills.to_string(),
+                &(run.gold.floor() as u32).to_string(),
+                &run.chest_cost.to_string(),
+            ],
+        );
+        if **t != want {
+            **t = want;
+        }
     }
     let banner = match run.banner.as_mut() {
         Some((msg, t)) => {
@@ -1764,10 +1776,20 @@ pub(super) fn refresh_results(
     }
     .to_string();
     let reward = data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward;
-    let gold = data::run_gold(run.kills, run.bosses, run.won, run.stats().gold * reward);
+    let gold = data::run_gold(run.kills, run.bosses, run.won, run.stats().gold * reward)
+        + (run.gold.max(0.0) * data::UNSPENT_GOLD_KEPT) as u32;
     if gold > 0 {
         stats_line.push('\n');
         stats_line.push_str(&super::lang::trf("Gold earned: {}", &[&gold.to_string()]));
+    }
+    if !run.run_items.is_empty() {
+        let items: Vec<String> = run
+            .run_items
+            .iter()
+            .map(|(i, n)| format!("{} ×{n}", i.name))
+            .collect();
+        stats_line.push('\n');
+        stats_line.push_str(&super::lang::trf("Run items: {}", &[&items.join(", ")]));
     }
     // What was found comes home either way.
     if !run.loot.is_empty() {

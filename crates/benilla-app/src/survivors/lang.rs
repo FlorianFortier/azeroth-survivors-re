@@ -227,6 +227,8 @@ fn french(s: &str) -> Option<&'static str> {
             "Aucun équipement porté. Les boss le lâchent pour votre classe, pour de bon."
         }
         "Done" => "Terminé",
+        "Kills {}  ·  Gold {}  ·  Chest {}" => "Victimes {}  ·  Or {}  ·  Coffre {}",
+        "Run items: {}" => "Objets de la partie : {}",
         // Options.
         "Master volume" => "Volume général",
         "Music" => "Musique",

@@ -29,6 +29,11 @@ pub(super) struct Enemy {
     pub boss_slot: Option<u8>,
     /// The zone's final boss: its fall wins the run.
     pub final_boss: bool,
+    /// One of the field's elites ([`data::ELITES`] index): its reward drops when it falls.
+    pub elite: Option<u8>,
+    /// Where an elite stands guard: it chases only heroes who come within [`GUARD_RADIUS`] of
+    /// it, then walks back.
+    pub home: Option<Vec3>,
     pub attack_cd: f32,
     pub slow: f32,
     pub slow_t: f32,
@@ -66,6 +71,8 @@ pub(super) struct Loot {
     pub boss: bool,
     /// A boss's slot in the zone, for the item it drops.
     pub boss_slot: Option<u8>,
+    /// An elite's kind, for its reward.
+    pub elite: Option<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -74,6 +81,10 @@ pub(super) enum GemKind {
     Heal(f32),
     /// A piece of gear: whoever catches it keeps it.
     Item(&'static data::ItemDef),
+    /// The run's gold.
+    Gold(u32),
+    /// A chest's or an elite's reward, for whoever catches it.
+    Reward(data::Reward),
 }
 
 #[derive(Component)]
@@ -91,6 +102,10 @@ fn look_for(kind: GemKind) -> (u32, f32) {
         // A wisp twice the size, purple for the epic and legendary, green below.
         GemKind::Item(i) if i.rarity >= data::Rarity::Epic => (1307, 2.6),
         GemKind::Item(_) => (1267, 2.2),
+        GemKind::Gold(_) | GemKind::Reward(data::Reward::Gold(_)) => super::treasure::coin_look(),
+        // The rewards a wisp of their own: purple for a spell's rank, green for a run item.
+        GemKind::Reward(data::Reward::SpellRank) => (1307, 1.8),
+        GemKind::Reward(_) => (1267, 1.8),
         // `TurkeyLeg.mdx`.
         GemKind::Heal(_) => (114, 2.5),
         // `BFD_WispSmallPurple.mdx`.
@@ -108,7 +123,8 @@ fn radius_for(def: &EnemyDef) -> f32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn spawn_enemy(
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_enemy(
     commands: &mut Commands,
     run: &mut Run,
     rules: &Rules,
@@ -117,7 +133,7 @@ fn spawn_enemy(
     hero: Vec3,
     boss_slot: Option<u8>,
     final_boss: bool,
-) {
+) -> Entity {
     let scale = rules.hp_scale(run.elapsed);
     let serial = run.guid();
     let e = units::spawn_unit(
@@ -148,6 +164,8 @@ fn spawn_enemy(
             boss: boss_slot.is_some(),
             boss_slot,
             final_boss,
+            elite: None,
+            home: None,
             attack_cd: 0.5,
             slow: 1.0,
             slow_t: 0.0,
@@ -162,6 +180,7 @@ fn spawn_enemy(
         Marks::debuffs(),
         Hostile,
     ));
+    e
 }
 
 fn ground(world: &WorldPoint, mut p: Vec3, fallback: f32) -> Vec3 {
@@ -374,14 +393,20 @@ pub(super) fn move_enemies(
         let near = |q: &&Quarry| flat(q.pos - pos).length();
         // The nearest standing hero at all, and the nearest this enemy can see.
         let nearest = quarry.iter().min_by(|a, b| near(a).total_cmp(&near(b)));
-        let seen = quarry
+        let mut seen = quarry
             .iter()
             .filter(|q| e.boss || !q.vanished)
             .min_by(|a, b| near(a).total_cmp(&near(b)));
+        // A guard minds only who comes near its post.
+        if let Some(home) = e.home {
+            if seen.is_some_and(|q| flat(q.pos - home).length() > GUARD_RADIUS) {
+                seen = None;
+            }
+        }
 
         // Strays far from every hero are brought back in front of the nearest, as the reference
         // genre does.
-        if let Some(n) = nearest {
+        if let Some(n) = nearest.filter(|_| e.home.is_none()) {
             let to = flat(n.pos - pos);
             if to.length() > 75.0 {
                 let back = n.pos + to.normalize_or_zero() * 38.0;
@@ -398,6 +423,18 @@ pub(super) fn move_enemies(
                 (to, to.length() <= HERO_RADIUS + e.radius + 0.35)
             }
             None => (Vec3::ZERO, false),
+        };
+        // A guard left alone walks back to its post.
+        let (held, to_hero, contact) = match e.home {
+            Some(home) if seen.is_none() && e.stun_t <= 0.0 && e.root_t <= 0.0 => {
+                let back = flat(home - pos);
+                if back.length() > 1.0 {
+                    (false, back, false)
+                } else {
+                    (true, Vec3::ZERO, false)
+                }
+            }
+            _ => (held, to_hero, contact),
         };
         let mut step = Vec3::ZERO;
         let mut speed = 0.0;
@@ -486,6 +523,9 @@ pub(super) fn mark_dying(commands: &mut Commands, e: Entity) {
     commands.entity(e).insert(Dying(0.0));
 }
 
+/// How far from its post an elite goes after a hero.
+pub(super) const GUARD_RADIUS: f32 = 18.0;
+
 /// Most gems on the ground at once; past it, a kill's worth joins an existing gem.
 const MAX_GEMS: usize = 350;
 
@@ -513,6 +553,54 @@ pub(super) fn drop_loot(
             );
             run.banner = Some((format!("{} dropped!", item.name), 4.0));
         }
+        // The run's gold: a coin now and then from the horde, a pile from a boss, a purse from an
+        // elite with what it guards.
+        let gold = if d.boss {
+            data::BOSS_GOLD
+        } else if d.elite.is_some() {
+            data::ELITE_GOLD
+        } else if rng.index(data::COIN_ODDS as usize) == 0 {
+            1
+        } else {
+            0
+        };
+        if gold > 0 {
+            spawn_gem(
+                &mut commands,
+                run.guid(),
+                d.pos + Vec3::Z * 0.8,
+                GemKind::Gold(gold),
+            );
+        }
+        if let Some(k) = d.elite {
+            let kind = &data::ELITES[usize::from(k).min(data::ELITES.len() - 1)];
+            let at = d.pos - Vec3::Z * 0.8;
+            match kind.reward {
+                data::Reward::Gear { percent } => {
+                    let gear = (rng.index(100) < usize::from(percent))
+                        .then(|| {
+                            data::horde_item(
+                                selection.map,
+                                rng.f32() / data::HORDE_ITEM_ODDS as f32,
+                            )
+                        })
+                        .flatten();
+                    match gear {
+                        Some(item) => {
+                            spawn_gem(&mut commands, run.guid(), at, GemKind::Item(item));
+                            run.banner = Some((format!("{} dropped!", item.name), 4.0));
+                        }
+                        None => spawn_gem(
+                            &mut commands,
+                            run.guid(),
+                            at,
+                            GemKind::Gold(data::ELITE_GOLD * 3),
+                        ),
+                    }
+                }
+                reward => spawn_gem(&mut commands, run.guid(), at, GemKind::Reward(reward)),
+            }
+        }
         if d.boss || rng.f32() < 0.015 {
             let heal = GemKind::Heal(if d.boss { 1000.0 } else { 30.0 });
             spawn_gem(&mut commands, run.guid(), d.pos + Vec3::X * 0.8, heal);
@@ -530,7 +618,7 @@ pub(super) fn drop_loot(
     }
 }
 
-fn spawn_gem(commands: &mut Commands, serial: u64, pos: Vec3, kind: GemKind) {
+pub(super) fn spawn_gem(commands: &mut Commands, serial: u64, pos: Vec3, kind: GemKind) {
     let (display, scale) = look_for(kind);
     let e = units::spawn_object(commands, serial, display, scale, pos + Vec3::Y * 0.5);
     commands.entity(e).insert((
@@ -546,10 +634,12 @@ fn spawn_gem(commands: &mut Commands, serial: u64, pos: Vec3, kind: GemKind) {
 /// Gems in a standing hero's magnet fly to that hero; experience is shared or kept by the rules,
 /// and levels bank as it lands.
 #[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_gems(
     mut commands: Commands,
     time: Res<Time>,
     mut run: ResMut<Run>,
+    mut rng: ResMut<Rng>,
     session: Res<Session>,
     mut heroes: Query<(Entity, &Transform, &mut HeroState), (With<Hero>, Without<Gem>)>,
     mut gems: Query<(Entity, &mut Transform, &mut Gem)>,
@@ -609,6 +699,18 @@ pub(super) fn collect_gems(
                 if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
                     let max = h.stats().max_hp;
                     h.hp = (h.hp + hp).min(max);
+                }
+            }
+            GemKind::Gold(n) => {
+                if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
+                    let mult = h.stats().gold;
+                    h.gold += n as f32 * mult;
+                }
+            }
+            GemKind::Reward(reward) => {
+                if let Ok((_, _, mut h)) = heroes.get_mut(catcher) {
+                    let text = super::treasure::grant(&mut h, reward, &mut rng);
+                    run.banner = Some((text, 4.0));
                 }
             }
             GemKind::Item(item) => {
