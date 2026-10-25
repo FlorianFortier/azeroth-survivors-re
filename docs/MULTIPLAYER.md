@@ -130,3 +130,11 @@ among friends, not an anti-cheat: a guest's hero position is trusted within the 
 - Bandwidth: the host uploads roughly 100–200 KB/s per guest late in a run (a full horde moving
   twenty times a second). Fine on a LAN or decent broadband.
 - The desktop build cannot reach a `wss://` lobby.
+
+### What each hero brings
+
+A player's loadout carries what their own profile brings into a run beyond their race: the gear
+they wear (by name), and the bonuses of that gear, of their collection and of their class's
+talents. The host, who plays every hero, seats each guest's hero with its race's racials and
+those bonuses, dressed in that gear. Each value is held to a cap on the way in; it is a game
+among friends, not an anti-cheat.

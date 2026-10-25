@@ -110,6 +110,7 @@ pub(super) fn begin_run(
     store: Res<super::profile::ProfileStore>,
     catalog: Option<Res<crate::entities::CharCreate>>,
     talents: Option<Res<crate::ui_talent::Talents>>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
     world: WorldPoint,
     local: Query<Entity, (With<Hero>, With<LocalHero>)>,
 ) {
@@ -117,6 +118,16 @@ pub(super) fn begin_run(
         return;
     }
     if session.mode == Mode::Client {
+        // The host plays this hero with what the loadout carried; the view here takes the same
+        // numbers, so its bars and tooltips read as the host's.
+        let (meta, procs) = store.profile.run_bonuses(
+            run.me.race,
+            run.me.class,
+            talents.as_deref().map(|t| &t.catalog),
+        );
+        let hp = run.me.hp;
+        run.me = std::mem::take(&mut run.me).with_meta(meta, &procs);
+        run.me.hp = hp;
         run.begun = true;
         return;
     }
@@ -130,9 +141,8 @@ pub(super) fn begin_run(
         session.rules = data::Rules::solo_at(d);
         run.difficulty = d;
     }
-    // The local hero brings in what the profile has earned. A guest's hero gets its racials,
-    // which its race alone decides; the rest of a guest's profile crossing the wire is its own
-    // task.
+    // The local hero brings in what the profile has earned; a guest's, its racials and what its
+    // loadout carried (gear, collection, talents).
     let (meta, procs) = store.profile.run_bonuses(
         run.me.race,
         run.me.class,
@@ -164,10 +174,9 @@ pub(super) fn begin_run(
                 seat.sex,
                 seat.appearance,
                 seat.display,
-                // A guest's gear crossing the wire is the co-op task's.
-                &[],
+                &seat_gear(seat),
                 catalog.as_deref().map(|c| &c.0),
-                None,
+                displays.as_deref().map(|d| &d.catalog),
             );
             let e = hero::spawn_hero(
                 &mut commands,
@@ -181,13 +190,37 @@ pub(super) fn begin_run(
             commands.entity(e).insert(HeroState {
                 slot: seat.slot,
                 v: {
-                    let (meta, procs) = data::racial_bonuses(seat.race);
+                    let (meta, procs) = seat_bonuses(seat);
                     Vitals::new(class, seat.race).with_meta(meta, &procs)
                 },
             });
         }
     }
     run.begun = true;
+}
+
+/// What a guest's hero brings into the host's run: its race's racials and the bonuses its
+/// loadout carried.
+pub(super) fn seat_bonuses(seat: &super::Seat) -> (Vec<data::Bonus>, Vec<&'static data::ProcDef>) {
+    let (mut meta, procs) = data::racial_bonuses(seat.race);
+    meta.extend(
+        seat.brings
+            .bonuses
+            .iter()
+            .filter_map(|&b| data::bonus_from_wire(b)),
+    );
+    (meta, procs)
+}
+
+/// The gear a guest's loadout names, one piece a slot, names the tables lack left off.
+pub(super) fn seat_gear(seat: &super::Seat) -> Vec<&'static data::ItemDef> {
+    let mut out: Vec<&'static data::ItemDef> = Vec::new();
+    for item in seat.brings.gear.iter().filter_map(|n| data::item(n)) {
+        if !out.iter().any(|i| i.slot == item.slot) {
+            out.push(item);
+        }
+    }
+    out
 }
 
 /// The local player's cards land on the local hero.
@@ -230,6 +263,46 @@ pub(super) fn sync_view(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_guest_brings_its_loadout_into_the_hosts_run() {
+        let helm = data::ITEMS
+            .iter()
+            .find(|i| i.slot == data::GearSlot::Head)
+            .unwrap();
+        let other_helm = data::ITEMS
+            .iter()
+            .filter(|i| i.slot == data::GearSlot::Head)
+            .nth(1)
+            .unwrap();
+        let seat = super::super::Seat {
+            slot: 1,
+            name: "Guest".into(),
+            class: 0,
+            display: 1,
+            race: 8,
+            sex: 0,
+            appearance: [0; 5],
+            brings: super::super::Brings {
+                bonuses: vec![
+                    data::bonus_to_wire(&data::Bonus::flat(data::Stat::MaxHp, 25.0)),
+                    (200, 0, 5),
+                ],
+                gear: vec![
+                    helm.name.clone(),
+                    other_helm.name.clone(),
+                    "Thunderfury".into(),
+                ],
+            },
+        };
+        let (meta, procs) = seat_bonuses(&seat);
+        // The Troll's three racials, then the one bonus the tables know.
+        assert_eq!(meta.len(), data::racial_bonuses(8).0.len() + 1);
+        assert_eq!(procs.len(), 1);
+        let v = Vitals::new(&data::CLASSES[0], 8).with_meta(meta, &procs);
+        assert!(v.stats().max_hp > Vitals::new(&data::CLASSES[0], 8).stats().max_hp);
+        assert_eq!(seat_gear(&seat), [helm]);
+    }
 
     fn mage() -> Vitals {
         let class = data::CLASSES

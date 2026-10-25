@@ -63,6 +63,9 @@ and the zone's final boss at 16:00: bring it down to win. **No server, no login,
 - **Drop Tables and a Codex**: every zone's five pieces with who drops them and the horde's odds,
   and an encyclopedia of the horde, the bosses (with their times) and the spells your runs have
   met.
+- **Achievements and Rewards**: thirty achievements written for the mode (runs, wins, kills,
+  levels, the collection, bosses met, talents, every zone, Heroic and Mythic), each paying gold
+  once claimed from the **Rewards (N)** tab.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.
