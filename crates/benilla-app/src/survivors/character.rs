@@ -3345,9 +3345,10 @@ fn mmss(secs: f32) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
-/// A zone's bosses and when each comes, under the solo rules: `(time, name)`, the final boss last.
+/// A zone's bosses and when each comes in a first stage, under the solo rules: `(time, name)`, the
+/// final boss last, at the time its portal opens.
 fn boss_timeline(zone: usize) -> Vec<(f32, &'static str)> {
-    let rules = data::Rules::SOLO;
+    let rules = super::Run::default().threat(data::Rules::SOLO);
     let roster = data::roster(zone);
     (0..roster.bosses.len())
         .map(|k| (rules.boss_time(k), roster.bosses[k].name))
@@ -3680,7 +3681,7 @@ mod tests {
             let t = boss_timeline(i);
             assert_eq!(t.len(), data::BOSS_TIMES.len(), "{}", data::MAPS[i].name);
             assert!(t.windows(2).all(|w| w[0].0 < w[1].0));
-            assert_eq!(mmss(t.last().unwrap().0), "16:00");
+            assert_eq!(mmss(t.last().unwrap().0), "9:36");
             assert!(!enemy_names(i).is_empty());
         }
         let elwynn: Vec<String> = boss_timeline(0)
@@ -3690,11 +3691,11 @@ mod tests {
         assert_eq!(
             elwynn,
             [
-                "3:00 Hogger",
-                "6:00 Mother Fang",
-                "9:00 Rhahk'Zor",
-                "12:00 Mr. Smite",
-                "16:00 Edwin VanCleef",
+                "1:48 Hogger",
+                "3:36 Mother Fang",
+                "5:24 Rhahk'Zor",
+                "7:12 Mr. Smite",
+                "9:36 Edwin VanCleef",
             ]
         );
     }

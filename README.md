@@ -18,8 +18,10 @@ from-scratch WoW 1.12.1 client engine (Rust + [Bevy](https://bevy.org)).**
 > game, running on the [benilla](#how-its-built) / [wenilla](#how-its-built) engine, for personal use.
 
 Pick a class and a battleground, then survive: WASD to move, your abilities cast themselves,
-enemies swarm in waves, you level up and pick upgrades, bosses come at 3, 6, 9 and 12 minutes,
-and the zone's final boss at 16:00: bring it down to win. **No server, no login, no account** — fully offline and self-contained.
+enemies swarm in waves, you level up and pick upgrades. A run is three stages, each a zone of the
+campaign from the one you picked on: bosses come on the stage's clock, then a boss portal opens
+for its final boss; bring it down for gold, a key and a blessing, step through the portal onward
+to the next, tougher zone, and after the third hold out against the final swarm to win. **No server, no login, no account** — fully offline and self-contained.
 
 <table>
   <tr>

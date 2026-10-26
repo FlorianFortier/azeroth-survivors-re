@@ -617,6 +617,29 @@ pub(super) fn compose(
         });
     }
 
+    // The stage's portals, held at the edge when far: a big square ring, filled once open.
+    for g in &run.gates {
+        let c = match g.kind {
+            super::legs::Gate::Boss => data::BOSS_PORTAL_COLOR,
+            super::legs::Gate::Onward => data::STAGE_PORTAL_COLOR,
+        };
+        let off = Vec2::new(g.pos.x - p.x, g.pos.z - p.z).clamp_length_max(edge);
+        let size = ELITE_PX * 1.3 * scale;
+        let open = g.open;
+        blit(buf, center + off / yd_per_px, size, |q| {
+            let d = q.x.abs().max(q.y.abs()) / (size / 2.0);
+            if d > 1.0 {
+                None
+            } else if d > 0.7 {
+                Some([0.0, 0.0, 0.0, 255.0])
+            } else if open || d > 0.45 {
+                Some([c[0] * 255.0, c[1] * 255.0, c[2] * 255.0, 255.0])
+            } else {
+                None
+            }
+        });
+    }
+
     // The other heroes: a round party-blue dot each, over the horde.
     let ally = DOT_PX * scale * 1.3;
     for tf in &allies {

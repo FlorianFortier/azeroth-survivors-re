@@ -68,14 +68,17 @@ The player name defaults to "Adventurer"; set it in the lobby screen, or with `?
 | Difficulty preset | Easy, Normal, Hard, Nightmare | Normal |
 | Enemy health, enemy damage, crowd size | 25 % – 400 %, by 10 | 100 % |
 | Grows with players | on / off: +50 % enemy health and +35 % crowd per extra hero | on |
-| Final boss at | 5:00 – 30:00, by the minute; the other four bosses' times scale with it | 16:00 |
+| Final boss at | 5:00 – 30:00, by the minute; the other four bosses' times scale with it; a stage runs 60 % of it, its boss portal opening at that time | 16:00 |
 | An ambush every | 1:00 – 5:00, by 15 s: the horde closes a ring around every hero | 2:15 |
 | Shared experience | every hero gains what any hero picks up | on |
 | Revive allies | stand over a fallen ally for 4 s to bring them back at half health | on |
 | Public | listed in **Browse public lobbies**, or joined by code only | code only |
 
-The server clamps every value it receives, and the game clamps again before it plays. The run is
-won when the zone's final boss falls, and every player's profile counts the win. The crowd never exceeds
+The server clamps every value it receives, and the game clamps again before it plays. A run is
+three stages, a zone each; when a stage's boss falls a portal onward opens, and a hero standing in
+it takes everyone over: the host waits for every guest to load the new zone, as at the start. The
+run is won when the final swarm after the third stage is held, and every player's profile counts
+the win on the zone the run began in. The crowd never exceeds
 400 enemies, whatever the density.
 
 ## In a run

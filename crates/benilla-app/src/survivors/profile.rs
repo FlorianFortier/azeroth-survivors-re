@@ -729,9 +729,10 @@ fn record_run(
     let zone = selection.stage;
     let roster = data::roster(zone);
     let result = RunResult {
-        zone: selection.stage_def().name.to_string(),
+        // The run goes on the record of the zone it began in, whichever stage it reached.
+        zone: selection.map_def().name.to_string(),
         won: run.won,
-        secs: run.elapsed,
+        secs: run.total_secs(),
         level: run.level,
         kills: run.kills,
         damage_done: run.damage_done,
@@ -744,7 +745,7 @@ fn record_run(
                 * data::DIFFICULTIES[run.difficulty.min(data::DIFFICULTIES.len() - 1)].reward,
         ) + (run.gold.max(0.0) * data::UNSPENT_GOLD_KEPT) as u32,
         difficulty: run.difficulty as u8,
-        met_horde: data::met_horde(zone, run.elapsed, &session.rules)
+        met_horde: data::met_horde(zone, run.elapsed, &run.threat(session.rules))
             .into_iter()
             .map(String::from)
             .collect(),

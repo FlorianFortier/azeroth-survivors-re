@@ -19,6 +19,7 @@ mod hero;
 mod hud;
 mod kit;
 mod lang;
+mod legs;
 mod market;
 mod marks;
 mod menu;
@@ -73,6 +74,7 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<enemies::Spawner>()
             .init_resource::<treasure::Field>()
             .init_resource::<market::Market>()
+            .init_resource::<legs::Legs>()
             .init_resource::<market::BuyQueue>()
             .init_resource::<hud::Offer>()
             .init_resource::<cards::PendingPick>()
@@ -125,6 +127,7 @@ impl Plugin for SurvivorsPlugin {
                     enemies::collect_gems,
                     treasure::tend_field,
                     market::tend_market,
+                    legs::tend_legs,
                     hero::hero_vitals,
                 )
                     .chain()
@@ -617,7 +620,7 @@ pub(super) struct Run {
     pub elapsed: f32,
     pub bosses: u32,
     pub rings: u32,
-    /// The zone's final boss has fallen: the run is won at the end of the frame.
+    /// The stage's final boss has fallen: the stage is cleared (`legs.rs`).
     pub final_slain: bool,
     pub won: bool,
     /// Every hero has fallen and stayed down.
@@ -643,6 +646,18 @@ pub(super) struct Run {
     /// The Shrines of Greed and of Curses woken this run: each makes the foes tougher.
     pub greed: u8,
     pub curse: u8,
+    /// The run's stage, from 0 ([`data::STAGES`] of them, each a zone): `elapsed` is its clock,
+    /// and `past_secs` the stages before it.
+    pub leg: u8,
+    pub past_secs: f32,
+    /// The stage's boss falls and its rewards are given: its portal onward (or the swarm) opens.
+    pub leg_done: bool,
+    /// The portals on the field (the host's, for a guest).
+    pub gates: Vec<legs::GateView>,
+    /// The final swarm's seconds left, while it runs.
+    pub swarm: Option<f32>,
+    /// The final swarm held out: the run is won at the end of the frame.
+    pub cleared: bool,
     /// The [`data::DIFFICULTIES`] index the run is played at; Normal in a lobby, whose own rules
     /// set its difficulty.
     pub difficulty: usize,
@@ -669,19 +684,38 @@ impl Default for Run {
             shop: Vec::new(),
             greed: 0,
             curse: 0,
+            leg: 0,
+            past_secs: 0.0,
+            leg_done: false,
+            gates: Vec::new(),
+            swarm: None,
+            cleared: false,
             difficulty: 0,
         }
     }
 }
 
 impl Run {
-    /// The run's rules with the foes made tougher by every Shrine of Greed and of Curses woken.
+    /// The run's rules for the stage in play: its clock [`data::STAGE_LENGTH`] of the run's, the
+    /// foes tougher with each stage past the first, with every Shrine of Greed and of Curses
+    /// woken, and thicker while the final swarm runs.
     pub fn threat(&self, mut rules: data::Rules) -> data::Rules {
         let (g, c) = (i32::from(self.greed), i32::from(self.curse));
-        rules.health *= data::GREED_HEALTH.powi(g) * data::CURSE_HEALTH.powi(c);
-        rules.damage *= data::GREED_DAMAGE.powi(g);
-        rules.density *= data::CURSE_DENSITY.powi(c);
+        let l = i32::from(self.leg);
+        rules.duration *= data::STAGE_LENGTH;
+        rules.health *=
+            data::GREED_HEALTH.powi(g) * data::CURSE_HEALTH.powi(c) * data::STAGE_HEALTH.powi(l);
+        rules.damage *= data::GREED_DAMAGE.powi(g) * data::STAGE_DAMAGE.powi(l);
+        rules.density *= data::CURSE_DENSITY.powi(c) * data::STAGE_DENSITY.powi(l);
+        if self.swarm.is_some() {
+            rules.density *= data::SWARM_DENSITY;
+        }
         rules
+    }
+
+    /// The run's whole time: the stages behind it and the one in play.
+    pub fn total_secs(&self) -> f32 {
+        self.past_secs + self.elapsed
     }
 }
 

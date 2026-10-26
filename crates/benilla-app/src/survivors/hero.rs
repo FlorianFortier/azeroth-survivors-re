@@ -1085,7 +1085,8 @@ pub(super) fn hero_vitals(
     if run.won || run.lost || heroes.is_empty() {
         return;
     }
-    if run.final_slain {
+    // Won once the final swarm is held out (`legs.rs`), the last stage's boss fallen before it.
+    if run.cleared {
         run.won = true;
         // A last flourish before the results.
         for (entity, .., hero) in &heroes {

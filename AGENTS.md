@@ -68,6 +68,7 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
+| `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls, the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |
 | `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |
 | `marks.rs` | the field's marks over the world: rings on the ground under chests and elites, a fallen elite's post filling as it comes back, a chest's price and an elite's reward over them; all read off `treasure::FieldMark` and `Run::posts`, so guests see them too |
 | `minimap.rs` | the minimap cluster and the day clock; the field's chests, elites and empty posts on it |
@@ -172,9 +173,14 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   profile keeps loading; renaming or changing a field's meaning bumps `PROFILE_VERSION`. Classes,
   zones and items are stored by name, never by table index.
 - **The campaign is `data::MAPS`, in order.** Each zone has exactly five bosses, one per
-  `data::BOSS_TIMES` slot, the last its final boss: the run is won when that one falls
-  (`Run::final_slain`), never on the clock. A zone opens when the one before it has a win on the
-  profile (`Profile::zone_open`). A zone renamed keeps its records through
+  `data::BOSS_TIMES` slot, the last its final boss. A run is `data::STAGES` stages, each a zone
+  from the one picked on (`data::stage_zone`, `Selection::stage` the one stood in), its clock
+  `STAGE_LENGTH` of the run's and its foes tougher each stage (all in `Run::threat`). The
+  final boss is never the clock's: its time opens the boss portal, a hero standing in it calls
+  the boss, and its fall (`Run::final_slain`) clears the stage (`legs.rs`): rewards, then the
+  portal onward, or after the last stage the final swarm; the run is won when that is held
+  (`Run::cleared`). The run goes on the record of the zone it began in (`Selection::map`). A
+  zone opens when the one before it has a win on the profile (`Profile::zone_open`). A zone renamed keeps its records through
   `profile::RENAMED_ZONES`.
 - **A hero is a player, dressed from its fields.** Its worn pieces are `PLAYER_VISIBLE_ITEM_*`
   entries with the top bit set (`outfit::entry`); every machine answers their templates from the
