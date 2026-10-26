@@ -259,7 +259,10 @@ pub(super) fn deal_offers(
     }
     for mut h in &mut heroes {
         if h.pending_levels > 0 && h.offer.is_empty() && h.alive() {
-            let offer = deal(&h.v, &mut rng, data::CARDS_DEALT, &[]);
+            // The Opening Hand perk's cards go on the first deal.
+            let n = data::CARDS_DEALT + usize::from(h.v.opening_hand);
+            h.v.opening_hand = 0;
+            let offer = deal(&h.v, &mut rng, n, &[]);
             h.v.offer = offer;
         } else if h.pending_levels == 0 && !h.offer.is_empty() {
             h.v.offer.clear();

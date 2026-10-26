@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 12;
+pub const PROTOCOL_VERSION: u16 = 13;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -21,6 +21,7 @@ pub type Slot = u8;
 /// Most bonuses and pieces of gear a loadout carries; past it, the rest are dropped.
 pub const MAX_LOADOUT_BONUSES: usize = 128;
 pub const MAX_LOADOUT_GEAR: usize = 16;
+pub const MAX_LOADOUT_PERKS: usize = 32;
 
 /// The hero a player brings: an index into the game's classes, the look picked for it, and what
 /// its profile brings into a run (the gear worn, the collection, the talents) for the host, who
@@ -39,6 +40,8 @@ pub struct Loadout {
     pub bonuses: Vec<(u8, u8, i32)>,
     /// The gear worn, by item name, for the host to dress the hero in.
     pub gear: Vec<String>,
+    /// The perks bought, `(key, rank)`: the host holds each rank to its perk's most.
+    pub perks: Vec<(String, u8)>,
 }
 
 /// Who a relayed game message goes to.
@@ -249,6 +252,11 @@ impl Wire for Loadout {
         for name in gear {
             w.str(name);
         }
+        let perks = &self.perks[..self.perks.len().min(MAX_LOADOUT_PERKS)];
+        w.len(perks.len());
+        for (key, rank) in perks {
+            w.str(key).u8(*rank);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -270,6 +278,14 @@ impl Wire for Loadout {
                 let mut out = Vec::with_capacity(n);
                 for _ in 0..n {
                     out.push(r.str()?);
+                }
+                out
+            },
+            perks: {
+                let n = r.len(3)?.min(MAX_LOADOUT_PERKS);
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push((r.str()?, r.u8()?));
                 }
                 out
             },
@@ -559,6 +575,7 @@ mod tests {
             appearance: [1, 2, 3, 4, 5],
             bonuses: vec![(1, 1, 400), (9, 0, -50)],
             gear: vec!["Hogger's Helm".into()],
+            perks: vec![("second_thoughts".into(), 2)],
         }
     }
 

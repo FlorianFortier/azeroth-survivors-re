@@ -168,6 +168,7 @@ pub(super) fn loadout(selection: &Selection) -> Loadout {
         appearance: selection.appearance,
         bonuses: selection.brings.bonuses.clone(),
         gear: selection.brings.gear.clone(),
+        perks: selection.brings.perks.clone(),
     }
 }
 
@@ -386,6 +387,7 @@ fn start_session(
             brings: super::Brings {
                 bonuses: m.loadout.bonuses.clone(),
                 gear: m.loadout.gear.clone(),
+                perks: m.loadout.perks.clone(),
             },
         })
         .collect();

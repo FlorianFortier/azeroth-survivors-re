@@ -69,6 +69,7 @@ pub(super) fn begin_run(
         talents.as_deref().map(|t| &t.catalog),
     );
     run.me = std::mem::take(&mut run.me).with_meta(meta, &procs);
+    super::rewards::apply_perks(&mut run.me, store.profile.perk_ranks());
     commands.entity(me).insert(HeroState {
         slot: session.slot,
         v: run.me.clone(),
@@ -111,7 +112,9 @@ pub(super) fn begin_run(
                 slot: seat.slot,
                 v: {
                     let (meta, procs) = seat_bonuses(seat);
-                    Vitals::new(class, seat.race).with_meta(meta, &procs)
+                    let mut v = Vitals::new(class, seat.race).with_meta(meta, &procs);
+                    super::rewards::apply_perks(&mut v, super::rewards::seat_perks(seat));
+                    v
                 },
             });
         }
@@ -218,6 +221,7 @@ mod tests {
                     other_helm.name.clone(),
                     "Thunderfury".into(),
                 ],
+                perks: vec![("second_thoughts".into(), 9), ("no_such_perk".into(), 1)],
             },
         };
         let (meta, procs) = seat_bonuses(&seat);
@@ -227,5 +231,14 @@ mod tests {
         let v = Vitals::new(&data::CLASSES[0], 8).with_meta(meta, &procs);
         assert!(v.stats().max_hp > Vitals::new(&data::CLASSES[0], 8).stats().max_hp);
         assert_eq!(seat_gear(&seat), [helm]);
+        // Its perks: a rank past the most is held to it, an unknown perk is dropped.
+        let mut v = v;
+        let rerolls = v.rerolls;
+        crate::survivors::rewards::apply_perks(
+            &mut v,
+            crate::survivors::rewards::seat_perks(&seat),
+        );
+        let most = data::perk("second_thoughts").unwrap().max_rank;
+        assert_eq!(v.rerolls, rerolls + most);
     }
 }

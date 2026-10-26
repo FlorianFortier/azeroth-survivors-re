@@ -3397,6 +3397,140 @@ pub(crate) struct AchievementDef {
     pub gold: u64,
 }
 
+impl AchievementDef {
+    /// The reward points it earns once done, a tenth of its gold: spent on the Rewards tab's
+    /// perks, races, tabards and companions.
+    pub fn points(&self) -> u32 {
+        (self.gold / 10) as u32
+    }
+}
+
+/// A perk: an account-wide edge every hero of every class brings into a run, bought rank by
+/// rank with reward points on the Rewards tab.
+#[derive(Debug, PartialEq)]
+pub(crate) struct PerkDef {
+    /// The profile stores ranks by it.
+    pub key: &'static str,
+    pub name: &'static str,
+    /// What one rank does; `{}` is the rank's amount.
+    pub text: &'static str,
+    /// Icon, a `Spell.dbc` row.
+    pub spell: u32,
+    pub max_rank: u8,
+    /// Points per rank.
+    pub cost: u32,
+    pub effect: PerkEffect,
+}
+
+/// What a perk's rank does to a hero at the start of a run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum PerkEffect {
+    /// More rerolls, banishes or skips in hand.
+    Rerolls(u8),
+    Banishes(u8),
+    Skips(u8),
+    /// The run's first level-up deals this many more cards.
+    OpeningHand(u8),
+    /// A bonus held all run, as the profile's other bonuses.
+    Bonus(Bonus),
+    /// Gold in hand when the run begins.
+    StartGold(u32),
+}
+
+impl PerkDef {
+    /// What `rank` ranks amount to, for the description (one rank's, at none).
+    pub fn amount_at(&self, rank: u8) -> String {
+        let k = rank.max(1);
+        match self.effect {
+            PerkEffect::Rerolls(n)
+            | PerkEffect::Banishes(n)
+            | PerkEffect::Skips(n)
+            | PerkEffect::OpeningHand(n) => (u32::from(n) * u32::from(k)).to_string(),
+            PerkEffect::StartGold(n) => (n * u32::from(k)).to_string(),
+            PerkEffect::Bonus(b) => match b.amount {
+                Amount::Flat(v) | Amount::Percent(v) => {
+                    format!("{}", (v * 100.0 * f32::from(k)).round())
+                }
+            },
+        }
+    }
+}
+
+/// The perks, in the order the Rewards tab lists them.
+pub(crate) static PERKS: &[PerkDef] = &[
+    PerkDef {
+        key: "second_thoughts",
+        name: "Second Thoughts",
+        text: "Rerolls every run: +{}.",
+        spell: 25771,
+        max_rank: 3,
+        cost: 10,
+        effect: PerkEffect::Rerolls(1),
+    },
+    PerkDef {
+        key: "banish",
+        name: "Banish",
+        text: "Banishes every run: +{}. A banished card is never dealt again.",
+        spell: 710,
+        max_rank: 3,
+        cost: 10,
+        effect: PerkEffect::Banishes(1),
+    },
+    PerkDef {
+        key: "skip",
+        name: "Skip",
+        text: "Skips every run: +{}. A skip passes on a hand.",
+        spell: 1953,
+        max_rank: 2,
+        cost: 10,
+        effect: PerkEffect::Skips(1),
+    },
+    PerkDef {
+        key: "opening_hand",
+        name: "Opening Hand",
+        text: "Cards on your first level-up of every run: +{}.",
+        spell: 6197,
+        max_rank: 1,
+        cost: 25,
+        effect: PerkEffect::OpeningHand(1),
+    },
+    PerkDef {
+        key: "veterans_lessons",
+        name: "Veteran's Lessons",
+        text: "Experience: +{}%.",
+        spell: 1459,
+        max_rank: 3,
+        cost: 15,
+        effect: PerkEffect::Bonus(Bonus::pct(Stat::Growth, 0.05)),
+    },
+    PerkDef {
+        key: "keen_eye",
+        name: "Keen Eye",
+        text: "Gold: +{}%.",
+        spell: 1784,
+        max_rank: 3,
+        cost: 15,
+        effect: PerkEffect::Bonus(Bonus::pct(Stat::Gold, 0.05)),
+    },
+    PerkDef {
+        key: "war_chest",
+        name: "War Chest",
+        text: "Gold in hand when a run begins: {}.",
+        spell: 23880,
+        max_rank: 3,
+        cost: 15,
+        effect: PerkEffect::StartGold(20),
+    },
+];
+
+/// A perk by its key.
+pub(crate) fn perk(key: &str) -> Option<&'static PerkDef> {
+    PERKS.iter().find(|p| p.key == key)
+}
+
+/// How many times a save may take back every point spent on perks.
+pub(crate) const MAX_PERK_RESETS: u8 = 2;
+
 /// Every achievement, in the order the tab lists them.
 pub(crate) static ACHIEVEMENTS: std::sync::LazyLock<Vec<AchievementDef>> =
     std::sync::LazyLock::new(|| {
