@@ -198,6 +198,7 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
             .collect(),
         boons: v.boons.iter().map(data::bonus_to_wire).collect(),
         keys: v.keys,
+        damage_by: v.damage_by.iter().map(|&(s, d)| (s, d as f32)).collect(),
     }
 }
 

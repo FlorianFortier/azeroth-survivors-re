@@ -47,8 +47,9 @@ pub(super) struct Enemy {
 }
 
 pub(super) struct Dot {
-    /// The hero who laid it, credited with its ticks.
+    /// The hero who laid it, credited with its ticks, and its spell.
     pub owner: Entity,
+    pub spell: u32,
     pub dps: f32,
     pub left: f32,
     pub tick: f32,
@@ -486,12 +487,10 @@ pub(super) fn move_enemies(
                 fx.number(hero_e, taken, false, COLOR_HURT);
             }
             if hero.thorns_t > 0.0 {
-                hits.write(Hit::direct(
-                    hero_e,
-                    ent,
-                    hero.thorns * hero.stats().might,
-                    false,
-                ));
+                hits.write(Hit {
+                    spell: hero.thorns_spell,
+                    ..Hit::direct(hero_e, ent, hero.thorns * hero.stats().might, false)
+                });
             }
             // A run item's thorns return a share of every blow, ability or not.
             let thorns: f32 = hero
@@ -501,9 +500,15 @@ pub(super) fn move_enemies(
                     _ => 0.0,
                 })
                 .sum();
+            let thorns_item = hero
+                .run_items
+                .iter()
+                .find(|(i, _)| matches!(i.effect, Some(data::ItemEffect::Thorns(_))))
+                .map_or(0, |(i, _)| i.spell);
             if thorns > 0.0 && taken > 0.0 {
                 hits.write(Hit {
                     proc: true,
+                    spell: thorns_item,
                     color: super::units::COLOR_SPELL,
                     ..Hit::direct(hero_e, ent, thorns * hero.stats().might, false)
                 });

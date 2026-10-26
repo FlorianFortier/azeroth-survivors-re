@@ -176,6 +176,8 @@ pub struct Vitals {
     pub boons: Vec<WireBonus>,
     /// Keys in hand: each opens a chest for nothing.
     pub keys: u8,
+    /// The damage done this run by spell (`Spell.dbc` row, damage), for the damage meter.
+    pub damage_by: Vec<(u32, f32)>,
 }
 
 /// A hero in the party frames.
@@ -548,7 +550,10 @@ impl Wire for Vitals {
         for b in &self.boons {
             put_bonus(w, *b);
         }
-        w.u8(self.keys);
+        w.u8(self.keys).len(self.damage_by.len());
+        for (s, d) in &self.damage_by {
+            w.u32(*s).f32(*d);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
@@ -637,6 +642,14 @@ impl Wire for Vitals {
                 out
             },
             keys: r.u8()?,
+            damage_by: {
+                let n = r.len(8)?;
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push((r.u32()?, r.f32()?));
+                }
+                out
+            },
         })
     }
 }
@@ -1270,6 +1283,7 @@ mod tests {
                 }],
                 boons: vec![(11, 1, 2500), (7, 0, -1200)],
                 keys: 2,
+                damage_by: vec![(133, 1500.0), (0, 12.5)],
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {

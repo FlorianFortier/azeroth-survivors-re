@@ -28,6 +28,8 @@ pub(super) struct Hit {
     pub color: u32,
     /// A run item's arc or burst: it fires no item effect of its own, so procs never chain.
     pub proc: bool,
+    /// The spell it is credited to on the damage meter, 0 for none.
+    pub spell: u32,
 }
 
 impl Hit {
@@ -45,6 +47,7 @@ impl Hit {
             crit,
             color: COLOR_MELEE,
             proc: false,
+            spell: 0,
         }
     }
 }
@@ -68,6 +71,8 @@ pub(super) struct GroundArea {
     mark: u32,
     /// The spell whose impact plays on each enemy a tick hits, 0 for none.
     impact: u32,
+    /// The spell it is credited to.
+    spell: u32,
 }
 
 #[derive(Component)]
@@ -139,6 +144,7 @@ fn hit_for(
             COLOR_SPELL
         },
         proc: false,
+        spell: def.spell,
     }
 }
 
@@ -431,6 +437,7 @@ fn cast_for(
                             effect: def.effect,
                             mark: def.mark,
                             impact: if def.overhead { def.spell } else { 0 },
+                            spell: def.spell,
                         });
                         true
                     }
@@ -673,6 +680,7 @@ pub(super) fn tick_areas(
                     crit,
                     color: COLOR_SPELL,
                     proc: false,
+                    spell: area.spell,
                 });
             }
         }
@@ -707,6 +715,7 @@ pub(super) fn tick_areas(
                 let (dmg, crit) = roll(&mut rng, stats.crit, totem.damage);
                 hits.write(Hit {
                     color: COLOR_SPELL,
+                    spell: totem.cast,
                     ..Hit::direct(totem.owner, f.e, dmg, crit)
                 });
             }
@@ -732,6 +741,7 @@ pub(super) fn tick_areas(
                 delay,
                 Hit {
                     color: COLOR_SPELL,
+                    spell: totem.cast,
                     ..Hit::direct(totem.owner, f.e, dmg, crit)
                 },
             );
@@ -847,9 +857,11 @@ pub(super) fn apply_hits(
         }
         if dmg > 0.0 {
             en.hp -= dmg;
+            units::set_health(&mut store, en.hp / en.max_hp);
             fx.number(e, dmg, h.crit, h.color);
             if let Some(o) = owner.as_deref_mut() {
                 o.damage_done += f64::from(dmg);
+                credit(&mut o.v, h.spell, dmg);
                 if let Effect::Drain(frac) = h.effect {
                     if o.alive() {
                         let max = o.stats().max_hp;
@@ -874,6 +886,7 @@ pub(super) fn apply_hits(
             }
             en.dots.push(enemies::Dot {
                 owner: h.owner,
+                spell: h.spell,
                 dps: h.dot,
                 left: h.dot_dur,
                 tick: 1.0,
@@ -921,22 +934,24 @@ pub(super) fn apply_hits(
         if en.dead || en.dots.is_empty() {
             continue;
         }
-        let mut dealt: Vec<(Entity, f32)> = Vec::new();
+        let mut dealt: Vec<(Entity, f32, u32)> = Vec::new();
         for d in &mut en.dots {
             d.left -= dt;
             d.tick -= dt;
             if d.tick <= 0.0 {
                 d.tick += 1.0;
-                dealt.push((d.owner, d.dps));
+                dealt.push((d.owner, d.dps, d.spell));
             }
         }
         en.dots.retain(|d| d.left > 0.0);
         let total: f32 = dealt.iter().map(|d| d.1).sum();
         if total > 0.0 {
             en.hp -= total;
-            for &(owner, dps) in &dealt {
+            units::set_health(&mut store, en.hp / en.max_hp);
+            for &(owner, dps, spell) in &dealt {
                 if let Ok(mut o) = heroes.get_mut(owner) {
                     o.damage_done += f64::from(dps);
+                    credit(&mut o.v, spell, dps);
                 }
             }
             fx.number(e, total, false, COLOR_SPELL);
@@ -979,6 +994,7 @@ pub(super) fn apply_hits(
                 Hit {
                     color: COLOR_SPELL,
                     proc: true,
+                    spell: p.spell,
                     ..Hit::direct(p.owner, target, p.damage, false)
                 },
             ));
@@ -995,6 +1011,14 @@ pub(super) fn apply_hits(
                 }
             }
         }
+    }
+}
+
+/// Count `dmg` to `spell` on the hero's damage meter.
+pub(super) fn credit(v: &mut Vitals, spell: u32, dmg: f32) {
+    match v.damage_by.iter_mut().find(|(s, _)| *s == spell) {
+        Some((_, d)) => *d += f64::from(dmg),
+        None => v.damage_by.push((spell, f64::from(dmg))),
     }
 }
 
