@@ -13,6 +13,7 @@
 
 mod client;
 mod host;
+mod smooth;
 pub(crate) mod socket;
 mod ui;
 

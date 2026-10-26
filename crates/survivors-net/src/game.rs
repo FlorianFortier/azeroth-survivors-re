@@ -317,6 +317,9 @@ pub enum Game {
     Loaded,
     /// The client's own hero, which it moves itself.
     Input {
+        /// The client's clock when it sent this, for the host to draw the hero between two
+        /// positions on it.
+        t: f32,
         motion: Motion,
         /// The class mobility's running haste and vanish, which the client owns.
         haste: f32,
@@ -845,12 +848,13 @@ impl Wire for Game {
                 w.u8(12);
             }
             Game::Input {
+                t,
                 motion,
                 haste,
                 haste_t,
                 vanish_t,
             } => {
-                w.u8(13);
+                w.u8(13).f32(*t);
                 motion.put(w);
                 w.f32(*haste).f32(*haste_t).f32(*vanish_t);
             }
@@ -1015,6 +1019,7 @@ impl Wire for Game {
             }
             12 => Game::Loaded,
             13 => Game::Input {
+                t: r.f32()?,
                 motion: Motion::get(r)?,
                 haste: r.f32()?,
                 haste_t: r.f32()?,
@@ -1253,6 +1258,7 @@ mod tests {
             },
             Game::Loaded,
             Game::Input {
+                t: 12.5,
                 motion: motion(),
                 haste: 1.6,
                 haste_t: 2.0,

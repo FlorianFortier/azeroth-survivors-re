@@ -1,8 +1,9 @@
 //! A guest's half: it builds the host's units exactly as the net layer builds a server's — a
 //! [`Guid`], a [`NetEntity`] and an [`ObjectStore`] are all the attach, animation and spell-visual
 //! systems need — and plays the host's casts, impacts, swings and numbers through the same
-//! [`Fx`]. Everything glides toward the host's latest positions. The guest's own hero is the one
-//! exception: this machine moves it, and sends its motion, cards and mobility to the host.
+//! [`Fx`]. Everything is drawn a moment behind the host, between two positions it really sent
+//! ([`super::smooth`]). The guest's own hero is the one exception: this machine moves it, and
+//! sends its motion, cards and mobility to the host.
 
 use std::collections::HashMap;
 
@@ -13,6 +14,8 @@ use bevy::prelude::*;
 use survivors_net::game::{Game, Motion, ObjectKind, Role, Spawn, Vitals as WireVitals};
 use survivors_net::protocol::Target;
 
+use super::host::TICK as HOST_TICK;
+use super::smooth::{Clock, Track};
 use super::{Net, Party, PartyMember};
 use crate::creature_anim::MovementState;
 use crate::net::{FieldChanged, Guid, NetEntity, ObjectStore, ScriptedFacing};
@@ -25,11 +28,9 @@ use crate::survivors::units::Fx;
 use crate::survivors::{data, Hostile, LocalHero, Mode, Owned, Pickup, Run, RunEntity, Session};
 
 /// Seconds between the guest's own hero updates to the host.
-const SEND_EVERY: f32 = 0.05;
+pub(super) const SEND_EVERY: f32 = 0.05;
 /// Seconds the zone must stand loaded before the guest reports it.
 const LOADED_AFTER: f32 = 1.0;
-/// Past this gap a copy jumps to the host's position instead of gliding there.
-const SNAP_YD: f32 = 10.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
@@ -50,6 +51,9 @@ fn is_client(session: Res<Session>) -> bool {
 #[derive(Resource, Default)]
 pub(in crate::survivors) struct Replicas {
     by_guid: HashMap<u64, Entity>,
+    /// The host's clock against ours, from its motion ticks; and its latest tick's time.
+    clock: Clock,
+    host_t: f32,
     tick: f32,
     loaded_sent: bool,
     /// Seconds the zone has stood loaded: the loading screen can take a frame to rise.
@@ -66,11 +70,10 @@ impl Replicas {
     }
 }
 
-/// A copy of a host unit, gliding toward where the host last had it.
+/// A copy of a host unit, and the positions the host sent for it.
 #[derive(Component)]
 pub(super) struct Replica {
-    pos: Vec3,
-    yaw: f32,
+    track: Track,
 }
 
 fn object_type(kind: ObjectKind) -> ObjectType {
@@ -82,7 +85,7 @@ fn object_type(kind: ObjectKind) -> ObjectType {
     }
 }
 
-fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
+fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8, host_t: f32) -> Entity {
     let pos = Vec3::from_array(s.pos);
     let kind = match s.kind {
         ObjectKind::Unit => benilla_protocol::EntityKind::Unit,
@@ -112,7 +115,10 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8) -> Entity {
     if matches!(s.kind, ObjectKind::Unit | ObjectKind::Player) {
         ec.insert((MovementState::default(), ScriptedFacing));
     }
-    let copy = Replica { pos, yaw: s.yaw };
+    // Its first position at the host's latest tick, for its first step to start from.
+    let mut track = Track::default();
+    track.push(host_t, pos, s.yaw, HOST_TICK);
+    let copy = Replica { track };
     match s.role {
         Role::Hero(slot) if slot == me => {
             ec.insert((Hero::default(), LocalHero));
@@ -272,6 +278,7 @@ pub(super) fn receive(
     mut party: ResMut<Party>,
     mut fx: Fx,
     mut movers: Query<(&mut Replica, Option<&mut MovementState>)>,
+    time: Res<Time<Real>>,
 ) {
     if !run.begun {
         return;
@@ -288,7 +295,7 @@ pub(super) fn receive(
                 if let Some(old) = reps.by_guid.remove(&s.guid) {
                     commands.entity(old).try_despawn();
                 }
-                let e = spawn_copy(&mut commands, &s, session.slot);
+                let e = spawn_copy(&mut commands, &s, session.slot, reps.host_t);
                 reps.by_guid.insert(s.guid, e);
             }
             Game::Fields { guid, changes } => {
@@ -317,14 +324,16 @@ pub(super) fn receive(
                     }
                 });
             }
-            Game::Motions { list, .. } => {
+            Game::Motions { t, list } => {
+                reps.clock.sync(time.elapsed_secs(), t);
+                reps.host_t = t;
                 for m in list {
                     let Some(e) = get(&reps, m.guid) else {
                         continue;
                     };
                     if let Ok((mut copy, mv)) = movers.get_mut(e) {
-                        copy.pos = Vec3::from_array(m.pos);
-                        copy.yaw = m.yaw;
+                        copy.track
+                            .push(t, Vec3::from_array(m.pos), m.yaw, HOST_TICK);
                         if let Some(mut mv) = mv {
                             mv.speed = m.speed;
                             mv.flags = m.flags;
@@ -514,20 +523,26 @@ pub(super) fn arrive(
     }
 }
 
-/// Copies glide toward the host's positions; a long way off, they jump.
-fn interpolate(time: Res<Time>, mut copies: Query<(&mut Transform, &Replica)>) {
-    let dt = time.delta_secs();
-    let k = 1.0 - (-dt * 14.0).exp();
+/// Copies are drawn [`super::smooth::DELAY`] behind the host, between the two positions around
+/// then.
+fn interpolate(
+    time: Res<Time<Real>>,
+    reps: Res<Replicas>,
+    mut copies: Query<(&mut Transform, &Replica)>,
+) {
+    let Some(at) = reps.clock.draw_at(time.elapsed_secs()) else {
+        return;
+    };
     for (mut tf, copy) in &mut copies {
-        let gap = tf.translation.distance(copy.pos);
-        if gap > SNAP_YD {
-            tf.translation = copy.pos;
-        } else if gap > 1e-3 {
-            tf.translation = tf.translation.lerp(copy.pos, k);
+        let Some((pos, yaw)) = copy.track.at(at) else {
+            continue;
+        };
+        if tf.translation != pos {
+            tf.translation = pos;
         }
-        let want = Quat::from_rotation_y(copy.yaw);
-        if tf.rotation.angle_between(want) > 1e-3 {
-            tf.rotation = tf.rotation.slerp(want, k);
+        let want = Quat::from_rotation_y(yaw);
+        if tf.rotation != want {
+            tf.rotation = want;
         }
     }
 }
@@ -574,6 +589,7 @@ fn send(
         if let Ok((guid, tf, mv)) = me.single() {
             let (yaw, _, _) = tf.rotation.to_euler(EulerRot::YXZ);
             out.push(Game::Input {
+                t: time.elapsed_secs(),
                 motion: Motion {
                     guid: guid.0,
                     pos: tf.translation.to_array(),
