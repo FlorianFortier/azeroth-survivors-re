@@ -1,14 +1,16 @@
 //! The Rewards tab: reward points, earned by achievements ([`data::AchievementDef::points`]) and
-//! spent on what every hero of every class brings into a run. Today the perks
-//! ([`data::PERKS`]): more rerolls and banishes, more gold for a skipped hand, a fuller first
-//! hand, more experience and gold, gold in hand at the start. Ranks are bought on a draft and kept with Confirm (Undo drops
-//! the draft); Reset takes every perk point back, [`data::MAX_PERK_RESETS`] times a save.
+//! spent on what every hero of every class brings into a run. The perks ([`data::PERKS`]): more
+//! rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and
+//! gold, gold in hand at the start. The races: one opened ([`data::RACE_POINTS`]) can be every
+//! class, its look added to each class's ([`super::menu::open_looks`]). Both are bought on a
+//! draft and kept with Confirm (Undo drops the draft); Reset takes every perk point back,
+//! [`data::MAX_PERK_RESETS`] times a save, and leaves the races open.
 //!
 //! A perk's bonus rides the profile's other bonuses (`Profile::meta_bonuses`, so a guest's
 //! loadout carries it); the rest lands on the hero when its run begins ([`apply_perks`]), on the
 //! host for a guest from the ranks its loadout carried ([`seat_perks`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::prelude::*;
 
@@ -50,7 +52,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, (reward_clicks, refresh_rewards).chain());
 }
 
-/// The Rewards tab's sections; only the perks are built so far.
+/// The Rewards tab's sections; the perks and the races are built so far.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Section {
     #[default]
@@ -69,16 +71,31 @@ const SECTIONS: [(Section, &str); 5] = [
     (Section::Appearances, "Appearances"),
 ];
 
-/// The ranks being bought, before Confirm keeps them; `None` while it matches the profile.
+/// The ranks and races being bought, before Confirm keeps them; each `None` while it matches
+/// the profile.
 #[derive(Resource, Default)]
 struct Draft {
     perks: Option<BTreeMap<String, u8>>,
+    races: Option<BTreeSet<String>>,
     section: Section,
 }
 
 impl Draft {
     fn perks<'a>(&'a self, profile: &'a Profile) -> &'a BTreeMap<String, u8> {
         self.perks.as_ref().unwrap_or(&profile.perks)
+    }
+
+    fn races<'a>(&'a self, profile: &'a Profile) -> &'a BTreeSet<String> {
+        self.races.as_ref().unwrap_or(&profile.races)
+    }
+
+    /// What the draft costs in all.
+    fn cost(&self, profile: &Profile) -> u32 {
+        Profile::perks_cost(self.perks(profile)) + Profile::races_cost(self.races(profile))
+    }
+
+    fn dirty(&self) -> bool {
+        self.perks.is_some() || self.races.is_some()
     }
 }
 
@@ -87,6 +104,8 @@ enum RewardAction {
     Section(Section),
     Up(usize),
     Down(usize),
+    /// Open a race on the draft, or take it off again.
+    Race(u8),
     Confirm,
     Undo,
     Reset,
@@ -187,18 +206,42 @@ fn reward_clicks(
             };
             perks.insert(perk.key.to_string(), want);
             perks.retain(|_, r| *r > 0);
-            if Profile::perks_cost(&perks) <= store.profile.points_earned() {
+            let races = Profile::races_cost(draft.races(&store.profile));
+            if Profile::perks_cost(&perks) + races <= store.profile.points_earned() {
                 draft.perks = (perks != store.profile.perks).then_some(perks);
             }
         }
-        RewardAction::Confirm => {
-            if let Some(perks) = draft.perks.take() {
-                store.edit(|p| {
-                    p.set_perks(perks);
-                });
+        RewardAction::Race(race) => {
+            if store.profile.race_open(race) {
+                return;
+            }
+            let name = crate::char_select::race_name(race).to_string();
+            let mut races = draft.races(&store.profile).clone();
+            if !races.remove(&name) {
+                races.insert(name);
+            }
+            let perks = Profile::perks_cost(draft.perks(&store.profile));
+            if perks + Profile::races_cost(&races) <= store.profile.points_earned() {
+                draft.races = (races != store.profile.races).then_some(races);
             }
         }
-        RewardAction::Undo => draft.perks = None,
+        RewardAction::Confirm => {
+            // Perks first: the races already open count against them, and the new ones against
+            // the perks just kept, so a draft that fits in all goes through.
+            let (perks, races) = (draft.perks.take(), draft.races.take());
+            store.edit(|p| {
+                if let Some(perks) = perks {
+                    p.set_perks(perks);
+                }
+                if let Some(races) = races {
+                    p.open_races(races);
+                }
+            });
+        }
+        RewardAction::Undo => {
+            draft.perks = None;
+            draft.races = None;
+        }
         RewardAction::Reset => {
             draft.perks = None;
             store.edit(|p| {
@@ -216,6 +259,8 @@ struct View {
     earned: u32,
     profile_perks: BTreeMap<String, u8>,
     draft: Option<BTreeMap<String, u8>>,
+    profile_races: BTreeSet<String>,
+    draft_races: Option<BTreeSet<String>>,
     resets: u8,
     section: Section,
     lang: u32,
@@ -242,6 +287,8 @@ fn refresh_rewards(
         earned: p.points_earned(),
         profile_perks: p.perks.clone(),
         draft: draft.perks.clone(),
+        profile_races: p.races.clone(),
+        draft_races: draft.races.clone(),
         resets: p.perk_resets,
         section: draft.section,
         lang: *lang_seen,
@@ -252,10 +299,10 @@ fn refresh_rewards(
     *shown = Some(view);
     let f = &*fonts;
     let perks = draft.perks(p);
-    let spent = Profile::perks_cost(perks);
+    let spent = draft.cost(p);
     let earned = p.points_earned();
     let left = earned.saturating_sub(spent);
-    let dirty = draft.perks.is_some();
+    let dirty = draft.dirty();
 
     commands.entity(side).despawn_related::<Children>();
     commands.entity(side).with_children(|s| {
@@ -299,7 +346,7 @@ fn refresh_rewards(
                 kit::ButtonLook::PLAIN,
                 RewardAction::Section(section),
             );
-            let built = section == Section::Perks;
+            let built = matches!(section, Section::Perks | Section::Races);
             s.commands().entity(b).insert((
                 kit::Selected(section == draft.section),
                 kit::Disabled(!built),
@@ -346,28 +393,158 @@ fn refresh_rewards(
         });
         s.spawn(kit::text(
             &f.body,
-            tr("Perks are the account's: every hero of every class has them. Achievements earn more points."),
+            tr("Perks and races are the account's: every hero of every class has them. Achievements earn more points."),
             12.0,
             theme::DIM,
         ));
     });
 
     commands.entity(main).despawn_related::<Children>();
-    commands.entity(main).with_children(|m| {
-        kit::heading(m, f, tr("Perks"));
-        m.spawn(Node {
-            flex_wrap: FlexWrap::Wrap,
-            column_gap: Val::Px(10.0),
-            row_gap: Val::Px(10.0),
-            ..default()
-        })
-        .with_children(|grid| {
-            for (i, perk) in data::PERKS.iter().enumerate() {
-                let rank = perks.get(perk.key).copied().unwrap_or(0).min(perk.max_rank);
-                perk_card(grid, f, i, perk, rank, left);
-            }
-        });
+    commands.entity(main).with_children(|m| match draft.section {
+        Section::Races => {
+            kit::heading(m, f, tr("Races"));
+            m.spawn(kit::text(
+                &f.body,
+                trf(
+                    "Open a race to every class, {} points each. An opened race stays open through perk resets.",
+                    &[&data::RACE_POINTS.to_string()],
+                ),
+                13.0,
+                theme::DIM,
+            ));
+            let races = draft.races(p);
+            grid(m, |grid| {
+                for race in data::RACES {
+                    let name = crate::char_select::race_name(race);
+                    let state = if p.races.contains(name) {
+                        RaceState::Open
+                    } else if races.contains(name) {
+                        RaceState::Drafted
+                    } else {
+                        RaceState::Closed
+                    };
+                    race_card(grid, f, race, state, left);
+                }
+            });
+        }
+        _ => {
+            kit::heading(m, f, tr("Perks"));
+            grid(m, |grid| {
+                for (i, perk) in data::PERKS.iter().enumerate() {
+                    let rank = perks.get(perk.key).copied().unwrap_or(0).min(perk.max_rank);
+                    perk_card(grid, f, i, perk, rank, left);
+                }
+            });
+        }
     });
+}
+
+/// The main panel's grid of cards, two to a row.
+fn grid(m: &mut ChildSpawnerCommands, fill: impl FnOnce(&mut ChildSpawnerCommands)) {
+    m.spawn(Node {
+        flex_wrap: FlexWrap::Wrap,
+        column_gap: Val::Px(10.0),
+        row_gap: Val::Px(10.0),
+        ..default()
+    })
+    .with_children(fill);
+}
+
+/// A card's frame: lit once bought.
+fn card_node(lit: bool) -> impl Bundle {
+    (
+        Node {
+            width: Val::Percent(49.0),
+            min_width: Val::Px(320.0),
+            flex_grow: 1.0,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(12.0),
+            padding: UiRect::all(Val::Px(10.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            border_radius: BorderRadius::all(Val::Px(4.0)),
+            ..default()
+        },
+        BackgroundColor(if lit { theme::BUTTON_HOT } else { theme::INSET }),
+        BorderColor::all(theme::BRASS.with_alpha(0.7)),
+    )
+}
+
+/// Where a race stands in the Rewards tab.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RaceState {
+    Closed,
+    /// On the draft, kept with Confirm.
+    Drafted,
+    Open,
+}
+
+/// One race: its face, name, the classes it opens to, and Open.
+fn race_card(p: &mut ChildSpawnerCommands, f: &KitFonts, race: u8, state: RaceState, left: u32) {
+    let name = tr(crate::char_select::race_name(race));
+    let opens: Vec<&str> = data::race_opens(race).map(|c| tr(c.name)).collect();
+    let opens = opens.join(", ");
+    p.spawn(card_node(state != RaceState::Closed))
+        .with_children(|card| {
+            if let Some(tc) = crate::glue::art::race_tc(race, 0) {
+                kit::icon(
+                    card,
+                    IconSource::Atlas(
+                        "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races".into(),
+                        tc,
+                    ),
+                    44.0,
+                    None,
+                );
+            }
+            card.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                min_width: Val::Px(0.0),
+                row_gap: Val::Px(3.0),
+                ..default()
+            })
+            .with_children(|c| {
+                c.spawn(kit::text(&f.body, name, 18.0, Color::WHITE));
+                c.spawn(kit::text(
+                    &f.body,
+                    trf("Opens it to: {}", &[&opens]),
+                    13.0,
+                    theme::TEXT,
+                ));
+            });
+            card.spawn(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexEnd,
+                row_gap: Val::Px(4.0),
+                ..default()
+            })
+            .with_children(|c| match state {
+                RaceState::Open => {
+                    c.spawn(kit::text(&f.body, tr("Opened"), 14.0, theme::GREEN));
+                }
+                _ => {
+                    c.spawn(kit::text(
+                        &f.body,
+                        trf("{} points", &[&data::RACE_POINTS.to_string()]),
+                        12.0,
+                        theme::DIM,
+                    ));
+                    let drafted = state == RaceState::Drafted;
+                    let b = kit::button(
+                        c,
+                        f,
+                        if drafted { tr("Take back") } else { tr("Open") },
+                        None,
+                        kit::ButtonLook::PLAIN,
+                        RewardAction::Race(race),
+                    );
+                    c.commands().entity(b).insert((
+                        kit::Selected(drafted),
+                        kit::Disabled(!drafted && left < data::RACE_POINTS),
+                    ));
+                }
+            });
+        });
 }
 
 /// One perk: its icon, name and rank dots, what it does at the rank shown, its price, and − +.
@@ -380,26 +557,7 @@ fn perk_card(
     left: u32,
 ) {
     let maxed = rank >= perk.max_rank;
-    p.spawn((
-        Node {
-            width: Val::Percent(49.0),
-            min_width: Val::Px(320.0),
-            flex_grow: 1.0,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(12.0),
-            padding: UiRect::all(Val::Px(10.0)),
-            border: UiRect::all(Val::Px(1.0)),
-            border_radius: BorderRadius::all(Val::Px(4.0)),
-            ..default()
-        },
-        BackgroundColor(if rank > 0 {
-            theme::BUTTON_HOT
-        } else {
-            theme::INSET
-        }),
-        BorderColor::all(theme::BRASS.with_alpha(0.7)),
-    ))
-    .with_children(|card| {
+    p.spawn(card_node(rank > 0)).with_children(|card| {
         kit::icon(
             card,
             IconSource::Spell(perk.spell),
@@ -569,6 +727,51 @@ mod tests {
         assert!(p.set_perks(perks));
         let with = p.meta_bonuses(1, &data::CLASSES[0], None);
         assert!(with.iter().any(|b| b.stat == data::Stat::Growth));
+    }
+
+    #[test]
+    fn an_opened_race_costs_its_points_and_outlives_a_reset() {
+        let mut p = earned(2 * data::RACE_POINTS);
+        let name = |r| crate::char_select::race_name(r).to_string();
+        // Orc: no paladin in vanilla, every class once opened.
+        assert!(data::race_opens(2).any(|c| c.id == 2));
+        assert!(!data::race_opens(1).any(|c| c.id == 1));
+        let mut races = BTreeSet::new();
+        races.insert(name(2));
+        assert!(p.open_races(races.clone()));
+        assert!(p.race_open(2) && !p.race_open(1));
+        assert_eq!(p.opened_races(), [2]);
+        assert_eq!(p.points_spent(), data::RACE_POINTS);
+        // Closing one again, or naming no race: refused.
+        assert!(!p.open_races(BTreeSet::new()));
+        assert!(!p.open_races(BTreeSet::from(["Murloc".to_string(), name(2)])));
+        // Perks and races share the points.
+        let left = p.points_left();
+        let perk = data::perk("banish").unwrap();
+        let mut perks = BTreeMap::new();
+        perks.insert(perk.key.to_string(), 1);
+        assert_eq!(p.set_perks(perks.clone()), perk.cost <= left);
+        // A reset gives the perks back and leaves the race.
+        p.perks = perks;
+        assert!(p.reset_perks());
+        assert!(p.race_open(2));
+        assert_eq!(p.points_spent(), data::RACE_POINTS);
+        // Past the points earned: refused.
+        let mut poor = Profile::default();
+        assert!(!poor.open_races(races));
+    }
+
+    #[test]
+    fn an_opened_race_is_every_class() {
+        // A mage's looks without an Orc; the Orc opened adds one in each sex.
+        let mage = vec![(100, 1, 0), (101, 1, 1), (102, 5, 0)];
+        let looks = super::super::menu::open_looks(mage.clone(), &[2]);
+        assert!(looks.contains(&(100, 2, 0)) && looks.contains(&(101, 2, 1)));
+        assert_eq!(looks.len(), 5);
+        // A race the class already has keeps its own looks.
+        assert_eq!(super::super::menu::open_looks(mage.clone(), &[1]), mage);
+        // No looks at all: nothing to borrow.
+        assert!(super::super::menu::open_looks(Vec::new(), &[2]).is_empty());
     }
 
     #[test]

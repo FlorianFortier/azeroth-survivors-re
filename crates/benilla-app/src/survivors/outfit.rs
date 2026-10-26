@@ -460,7 +460,7 @@ pub(super) fn body(
         .and_then(|c| Some((c, c.body_display(race, sex)?)));
     match player {
         Some((c, display)) => {
-            let mut worn = outfit(class, c.start_outfit(race, class.id, sex));
+            let mut worn = outfit(class, start_outfit(c, race, class.id, sex));
             if let Some(displays) = displays {
                 for item in gear {
                     let Some(w) = gear_worn(item, class, displays) else {
@@ -478,6 +478,21 @@ pub(super) fn body(
         }
         None => Body::Trainer { display: trainer },
     }
+}
+
+/// The class's starting outfit for the race and sex. A pair vanilla never had (a race opened in
+/// the Rewards tab) has none in `CharStartOutfit.dbc`: it wears the class's outfit from the first
+/// race that has one.
+fn start_outfit(c: &CharCreateCatalog, race: u8, class: u8, sex: u8) -> &[StartOutfitItem] {
+    let own = c.start_outfit(race, class, sex);
+    if !own.is_empty() {
+        return own;
+    }
+    super::data::RACES
+        .into_iter()
+        .map(|r| c.start_outfit(r, class, sex))
+        .find(|o| !o.is_empty())
+        .unwrap_or(own)
 }
 
 /// Answer the templates of the mode's own entries among `entries` before anything asks for them.
