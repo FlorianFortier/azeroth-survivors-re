@@ -73,7 +73,7 @@ it holds; read it before changing the file.
 | `minimap.rs` | the minimap cluster and the day clock; the field's chests, elites and empty posts on it |
 | `grade.rs` | the picture polish pass (`G`, `?grade=0`) |
 | `auto.rs` | `WOW_SURVIVORS_AUTO`: a hands-off run for testing, with screenshots |
-| `net/` | multiplayer, game side: `socket.rs` (WebSocket, native or browser), `host.rs` (plays and streams the run), `client.rs` (a guest's copy), `ui.rs` (lobby screens, party frames, scoreboard) |
+| `net/` | multiplayer, game side: `socket.rs` (WebSocket, native or browser), `host.rs` (plays and streams the run), `client.rs` (a guest's copy), `smooth.rs` (snapshot interpolation: what another machine moves is drawn `smooth::DELAY` behind its clock, between two positions it sent), `ui.rs` (lobby screens, party frames, scoreboard) |
 
 ## Switches
 
@@ -259,6 +259,7 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
 | wasm-bindgen glue errors at load | version drift: rerun `scripts/web-setup.sh` |
 | an upstream merge broke only the wasm build | `cargo check --target wasm32…`; the `cvars.rs` struct-vs-tuple case is the pattern |
 | a guest sees nothing move, or units pile up | `net/host.rs`'s `stream` and `net/client.rs`'s `receive`; `GET /lobby/health` for the server |
+| other players move in jerks | `net/smooth.rs`: copies are drawn `DELAY` behind the sender's clock (`Game::Motions::t` from the host, `Game::Input::t` from a guest); a `DELAY` under the sender's tick, or a position written straight to a `Transform`, brings the jerks back |
 | `make build` fails at the download | the archive.org item moved: `make build WOW_DATA_URL=…`, see the README |
 | no sound in the browser | the page resumes the AudioContext on the first gesture; the per-target mixer backend is the carry in `sound/mixer.rs` |
 | short stalls in the browser on the first play of a sound | the SFX carry (`sound/kit/deferred.rs`, the glue and cinematic arms of `sound/glue.rs`/`sound/cinematic.rs`), wasm-only |
