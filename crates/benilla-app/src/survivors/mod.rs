@@ -367,46 +367,51 @@ fn sim_active(
 #[derive(Clone)]
 pub(super) struct Owned {
     pub def: &'static AbilityDef,
-    pub level: u8,
+    /// Its rank: the cards taken for it, the first that learned it. No cap.
+    pub level: u16,
     pub cd: f32,
-    /// The ranks' worth its damage grows by: each rank's card's [`data::CardRarity::weight`], summed.
-    /// A rank of plain worth adds 1, so `power == level` when every card was Common.
-    pub power: f32,
+    /// What its cards gave it, summed ([`data::Perks`]).
+    pub perks: data::Perks,
 }
 
 impl Owned {
-    /// A newly learned ability, its first rank worth `power`.
-    pub fn learned(def: &'static AbilityDef, power: f32, cd: f32) -> Self {
-        Self {
+    /// A newly learned ability, with what its card gave it.
+    pub fn learned(def: &'static AbilityDef, perks: &[data::Perk], cd: f32) -> Self {
+        let mut o = Self {
             def,
             level: 1,
             cd,
-            power,
+            perks: data::Perks::default(),
+        };
+        for &p in perks {
+            o.perks = o.perks.with(p);
+        }
+        o
+    }
+
+    /// One rank more, with what its card gives.
+    pub fn rank_up(&mut self, perks: &[data::Perk]) {
+        self.level = self.level.saturating_add(1);
+        for &p in perks {
+            self.perks = self.perks.with(p);
         }
     }
 
-    /// One rank more, worth `weight`.
-    pub fn rank_up(&mut self, weight: f32) {
-        self.level += 1;
-        self.power += weight;
-    }
-
     pub fn damage_mult(&self) -> f32 {
-        1.0 + 0.3 * (self.power - 1.0)
+        1.0 + self.perks.damage
     }
     pub fn cooldown(&self, stats: &Stats) -> f32 {
-        let base = self.def.cooldown * 0.93f32.powi(i32::from(self.level) - 1);
+        let base = self.def.cooldown * self.perks.cooldown;
         (base * (1.0 - stats.haste).max(0.35)).max(0.2)
     }
     pub fn count(&self) -> u32 {
-        let extra = [3u8, 5, 7].iter().filter(|&&l| self.level >= l).count() as u32;
-        self.def.count + extra
+        self.def.count + u32::from(self.perks.targets)
     }
     pub fn radius(&self, stats: &Stats) -> f32 {
-        self.def.radius * (1.0 + 0.08 * f32::from(self.level - 1)) * stats.area
+        self.def.radius * (1.0 + self.perks.area) * stats.area
     }
     pub fn duration(&self) -> f32 {
-        self.def.duration * (1.0 + 0.1 * f32::from(self.level - 1))
+        self.def.duration * (1.0 + self.perks.duration)
     }
 }
 
@@ -463,10 +468,9 @@ pub(super) struct Vitals {
     pub offer: Vec<offer::Dealt>,
     /// What this hero banished: never dealt it again this run. The simulation's alone.
     pub banned: Vec<offer::Ban>,
-    /// Rerolls, banishes and skips in hand.
+    /// Rerolls and banishes in hand (a skip is always there to take).
     pub rerolls: u8,
     pub banishes: u8,
-    pub skips: u8,
     /// Keys in hand: each opens a chest for nothing.
     pub keys: u8,
     /// The blessings a Shrine of Power offers this hero, by the simulation: one may be taken.
@@ -512,7 +516,6 @@ impl Default for Vitals {
             banned: Vec::new(),
             rerolls: data::REROLLS_PER_RUN,
             banishes: data::BANISHES_PER_RUN,
-            skips: data::SKIPS_PER_RUN,
             keys: 0,
             shrine_offer: Vec::new(),
             boons: Vec::new(),
@@ -529,7 +532,7 @@ impl Vitals {
             ..Self::default()
         };
         v.abilities
-            .push(Owned::learned(data::ability(class.start), 1.0, 0.5));
+            .push(Owned::learned(data::ability(class.start), &[], 0.5));
         v.hp = v.stats().max_hp;
         v.version += 1;
         v

@@ -276,19 +276,19 @@ pub(super) fn grant(hero: &mut HeroState, reward: Reward, rng: &mut Rng) -> Stri
             format!("{} ×{n}", item.name)
         }
         Reward::SpellRank => {
-            let open: Vec<usize> = hero
-                .abilities
-                .iter()
-                .enumerate()
-                .filter(|(_, o)| o.level < data::MAX_ABILITY_LEVEL)
-                .map(|(k, _)| k)
-                .collect();
-            if open.is_empty() {
+            // A rank of one of the hero's spells, as an Uncommon card would give it.
+            if hero.abilities.is_empty() {
                 return grant(hero, Reward::RunItem, rng);
             }
-            let k = open[rng.index(open.len())];
+            let k = rng.index(hero.abilities.len());
+            let perks = super::offer::draw_perks(
+                hero.abilities[k].def,
+                false,
+                data::CardRarity::Uncommon,
+                rng,
+            );
             let o: &mut Owned = &mut hero.abilities[k];
-            o.level += 1;
+            o.rank_up(&perks);
             let text = format!("{} rank {}", o.def.key.replace('_', " "), o.level);
             hero.version += 1;
             text
@@ -755,14 +755,17 @@ mod tests {
     }
 
     #[test]
-    fn a_spell_rank_lands_on_a_spell_until_none_has_room() {
+    fn a_spell_rank_lands_on_a_spell_with_its_perk() {
         let mut h = hero();
         let mut rng = Rng::seeded(3);
-        let level = h.abilities[0].level;
-        grant(&mut h, Reward::SpellRank, &mut rng);
-        assert_eq!(h.abilities[0].level, level + 1);
-        h.abilities[0].level = data::MAX_ABILITY_LEVEL;
-        // Every spell maxed: a run item instead.
+        let before = h.abilities[0].perks;
+        for _ in 0..20 {
+            grant(&mut h, Reward::SpellRank, &mut rng);
+        }
+        assert_eq!(h.abilities[0].level, 21, "no cap");
+        assert_ne!(h.abilities[0].perks, before);
+        // No spell at all: a run item instead.
+        h.abilities.clear();
         let text = grant(&mut h, Reward::SpellRank, &mut rng);
         assert!(!h.run_items.is_empty(), "{text}");
     }

@@ -122,11 +122,17 @@ pub struct Motion {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbilityView {
     pub key: String,
-    pub level: u8,
+    /// Its rank: no cap.
+    pub level: u16,
     /// Seconds of cooldown left.
     pub cd: f32,
-    /// The ranks' worth its damage grows by: the sum of each card's rarity weight.
-    pub power: f32,
+    /// What its cards gave it, summed: the damage share added, the cooldown share left, the
+    /// targets added, the area and duration shares added.
+    pub damage: f32,
+    pub cooldown: f32,
+    pub targets: u8,
+    pub area: f32,
+    pub duration: f32,
 }
 
 /// One hero's numbers, sent to its own player.
@@ -164,7 +170,6 @@ pub struct Vitals {
     /// What the hero has left to reroll the cards, banish one, or skip a level.
     pub rerolls: u8,
     pub banishes: u8,
-    pub skips: u8,
     /// The blessings a Shrine of Power offers this hero, which only one may be taken from.
     pub shrine_offer: Vec<Boon>,
     /// What the shrines gave this hero for the run.
@@ -194,15 +199,17 @@ pub enum Choice {
     Heal,
 }
 
-/// A dealt card: what it gives, and the rarity it was drawn at (`0` Common to `4` Legendary).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A dealt card: what it gives, the rarity it was drawn at (`0` Common to `4` Legendary), and
+/// the stats of its spell it grows, `(kind, value)`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Card {
     pub choice: Choice,
     pub rarity: u8,
+    pub perks: Vec<(u8, f32)>,
 }
 
 /// What a player does at the level-up cards, for the host to check against the hero's offer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CardAction {
     /// Take a card of the offer.
     Pick(Card),
@@ -493,7 +500,14 @@ impl Wire for Vitals {
             .f32(self.hp)
             .len(self.abilities.len());
         for a in &self.abilities {
-            w.str(&a.key).u8(a.level).f32(a.cd).f32(a.power);
+            w.str(&a.key)
+                .u16(a.level)
+                .f32(a.cd)
+                .f32(a.damage)
+                .f32(a.cooldown)
+                .u8(a.targets)
+                .f32(a.area)
+                .f32(a.duration);
         }
         w.len(self.passives.len());
         for (k, l, p) in &self.passives {
@@ -524,7 +538,7 @@ impl Wire for Vitals {
         for c in &self.offer {
             c.put(w);
         }
-        w.u8(self.rerolls).u8(self.banishes).u8(self.skips);
+        w.u8(self.rerolls).u8(self.banishes);
         w.len(self.shrine_offer.len());
         for b in &self.shrine_offer {
             put_bonus(w, b.bonus);
@@ -540,14 +554,18 @@ impl Wire for Vitals {
         let level = r.u32()?;
         let xp = r.f32()?;
         let hp = r.f32()?;
-        let n = r.len(11)?;
+        let n = r.len(26)?;
         let mut abilities = Vec::with_capacity(n);
         for _ in 0..n {
             abilities.push(AbilityView {
                 key: r.str()?,
-                level: r.u8()?,
+                level: r.u16()?,
                 cd: r.f32()?,
-                power: r.f32()?,
+                damage: r.f32()?,
+                cooldown: r.f32()?,
+                targets: r.u8()?,
+                area: r.f32()?,
+                duration: r.f32()?,
             });
         }
         let n = r.len(7)?;
@@ -599,7 +617,6 @@ impl Wire for Vitals {
             },
             rerolls: r.u8()?,
             banishes: r.u8()?,
-            skips: r.u8()?,
             shrine_offer: {
                 let n = r.len(7)?;
                 let mut out = Vec::with_capacity(n);
@@ -635,12 +652,23 @@ fn get_bonus(r: &mut Reader) -> Result<WireBonus, WireError> {
 impl Wire for Card {
     fn put(&self, w: &mut Writer) {
         self.choice.put(w);
-        w.u8(self.rarity);
+        w.u8(self.rarity).len(self.perks.len());
+        for (k, v) in &self.perks {
+            w.u8(*k).f32(*v);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
+        let choice = Choice::get(r)?;
+        let rarity = r.u8()?;
+        let n = r.len(5)?;
+        let mut perks = Vec::with_capacity(n);
+        for _ in 0..n {
+            perks.push((r.u8()?, r.f32()?));
+        }
         Ok(Self {
-            choice: Choice::get(r)?,
-            rarity: r.u8()?,
+            choice,
+            rarity,
+            perks,
         })
     }
 }
@@ -1205,9 +1233,13 @@ mod tests {
                 hp: 88.0,
                 abilities: vec![AbilityView {
                     key: "frostbolt".into(),
-                    level: 3,
+                    level: 300,
                     cd: 0.4,
-                    power: 3.5,
+                    damage: 2.5,
+                    cooldown: 0.6,
+                    targets: 3,
+                    area: 0.4,
+                    duration: 0.2,
                 }],
                 passives: vec![("might".into(), 2, 2.25)],
                 pending_levels: 1,
@@ -1222,15 +1254,16 @@ mod tests {
                     Card {
                         choice: Choice::Upgrade("frostbolt".into()),
                         rarity: 4,
+                        perks: vec![(0, 0.25), (2, 1.0)],
                     },
                     Card {
                         choice: Choice::Heal,
                         rarity: 0,
+                        perks: vec![(0, 0.25), (2, 1.0)],
                     },
                 ],
                 rerolls: 2,
                 banishes: 1,
-                skips: 3,
                 shrine_offer: vec![Boon {
                     bonus: (0, 0, 800),
                     rarity: 3,
@@ -1267,11 +1300,13 @@ mod tests {
             Game::Card(CardAction::Pick(Card {
                 choice: Choice::Upgrade("frostbolt".into()),
                 rarity: 2,
+                perks: vec![(0, 0.25), (2, 1.0)],
             })),
             Game::Card(CardAction::Reroll),
             Game::Card(CardAction::Banish(Card {
                 choice: Choice::NewPassive("might".into()),
                 rarity: 1,
+                perks: vec![(0, 0.25), (2, 1.0)],
             })),
             Game::Card(CardAction::Skip),
             Game::ShrineChoice((4, 0, 500)),
