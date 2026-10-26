@@ -35,6 +35,7 @@ sheet, and **V** switches to the classic top-down views.
 | Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more), or with a key if you hold one |
 | Playing | at the **merchant**: **1 / 2 / 3** (or click a ware) | buy that ware with the run's gold |
 | Playing | walk into a **jar** or a **crate** | break it: gold, or a heal |
+| Playing | stand in a **portal** for three seconds | the boss portal calls the stage's final boss; the portal onward takes everyone to the next stage |
 | Playing | stand in a **shrine** | charge it (Power: choose a blessing with **1 / 2 / 3** or a click), or wake it (Challenge, Greed, Curses) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
 | Level up | **R** (or **Reroll**) | deal the cards again: three rerolls to start a run |

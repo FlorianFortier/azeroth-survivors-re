@@ -12,8 +12,9 @@ use benilla_world::model_fade::DespawnFade;
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
 use survivors_net::game::{
-    AbilityView, Boon as WireBoon, Game, Motion, ObjectKind, PartyEntry, Post as WirePost, Role,
-    Score, Shrine as WireShrine, Spawn, Vitals as WireVitals, Ware as WireWare,
+    AbilityView, Boon as WireBoon, Game, Gate as WireGate, Motion, ObjectKind, PartyEntry,
+    Post as WirePost, Role, Score, Shrine as WireShrine, Spawn, Vitals as WireVitals,
+    Ware as WireWare,
 };
 use survivors_net::protocol::Target;
 
@@ -72,6 +73,8 @@ pub(in crate::survivors) struct Replicator {
     /// Seconds the host's own zone has stood loaded.
     clear_for: f32,
     outcome_sent: bool,
+    /// The stage the guests last loaded: a new one is waited for again.
+    leg: u8,
 }
 
 impl Replicator {
@@ -257,6 +260,13 @@ pub(super) fn receive(
         }
     }
 
+    // A new stage is a new zone: everyone loads it again.
+    if run.leg != rep.leg {
+        rep.leg = run.leg;
+        rep.loaded.clear();
+        rep.wait = 0.0;
+        rep.clear_for = 0.0;
+    }
     // Everyone loads the zone before the clock runs; a guest who never does is not waited for.
     if run.waiting {
         let dt = time.delta_secs();
@@ -303,6 +313,7 @@ pub(super) fn stream(
     time: Res<Time<Real>>,
     run: Res<Run>,
     session: Res<Session>,
+    selection: Res<Selection>,
     objects: Query<
         (
             Entity,
@@ -540,6 +551,19 @@ pub(super) fn stream(
                     sold: w.sold,
                 })
                 .collect(),
+            stage: run.leg,
+            zone: selection.stage.min(usize::from(u8::MAX)) as u8,
+            gates: run
+                .gates
+                .iter()
+                .map(|g| WireGate {
+                    kind: g.kind.to_wire(),
+                    pos: g.pos.to_array(),
+                    charge: g.charge,
+                    open: g.open,
+                })
+                .collect(),
+            swarm: run.swarm.unwrap_or(-1.0),
         });
         let entries: Vec<PartyEntry> = heroes
             .iter()

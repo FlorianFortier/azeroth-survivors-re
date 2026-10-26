@@ -1425,7 +1425,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "execute",
             "mortal_strike",
             "retaliation",
-            "revenge"
+            "revenge",
         ],
         looks: &[
             1300, 1374, 1375, 1504, 1578, 1599, 1707, 1721, 1880, 2096, 2103, 2113, 2196, 2198,
@@ -1741,6 +1741,37 @@ pub(crate) const FINAL_BOSS_SECS: f32 = 960.0;
 /// When each of a zone's five bosses comes under the solo rules, the last the final boss. A
 /// lobby's own length stretches or shrinks them all alike.
 pub(crate) const BOSS_TIMES: [f32; 5] = [180.0, 360.0, 540.0, 720.0, FINAL_BOSS_SECS];
+
+/// A run is this many stages, each a zone of the campaign from the one picked on, then the final
+/// swarm: hold out against it [`SWARM_SECS`] to win.
+pub(crate) const STAGES: u8 = 3;
+/// A stage's clock against the zone's own: its bosses come at their slots of this much of the
+/// run's length, and the boss portal opens at the final boss's.
+pub(crate) const STAGE_LENGTH: f32 = 0.6;
+/// What each stage after the first does to the foes, again per stage.
+pub(crate) const STAGE_HEALTH: f32 = 1.6;
+pub(crate) const STAGE_DAMAGE: f32 = 1.35;
+pub(crate) const STAGE_DENSITY: f32 = 1.15;
+/// Seconds a hero stands in a portal to wake it, and how near.
+pub(crate) const PORTAL_HOLD: f32 = 3.0;
+pub(crate) const PORTAL_RADIUS: f32 = 4.0;
+/// What a stage's end gives every hero: gold, scaled by the stage, a key, and a blessing to choose.
+pub(crate) const STAGE_GOLD: u32 = 50;
+/// The final swarm: how long to hold, and how much thicker the crowd.
+pub(crate) const SWARM_SECS: f32 = 60.0;
+pub(crate) const SWARM_DENSITY: f32 = 3.0;
+/// The portals' marks: the boss portal's and the stage portal's colours.
+pub(crate) const BOSS_PORTAL_COLOR: [f32; 3] = [0.9, 0.15, 0.2];
+pub(crate) const STAGE_PORTAL_COLOR: [f32; 3] = [0.3, 0.6, 1.0];
+/// Their icons, `Spell.dbc` rows for the icon only: Ritual of Summoning, and Teleport: Stormwind.
+pub(crate) const BOSS_PORTAL_ICON: u32 = 698;
+pub(crate) const STAGE_PORTAL_ICON: u32 = 3561;
+
+/// The zone stage `stage` (from 0) of a run begun in `first` stands in: the campaign's next ones,
+/// the last zone again once past the end.
+pub(crate) fn stage_zone(first: usize, stage: u8) -> usize {
+    (first + usize::from(stage)).min(MAPS.len() - 1)
+}
 /// A closing ring of the horde every two and a quarter minutes, half way into each interval.
 pub(crate) const AMBUSH_EVERY_SECS: f32 = 135.0;
 /// Experience per gem: every level of the curve comes at the run's pace.
@@ -3893,6 +3924,15 @@ mod tests {
         for b in 0..80 {
             assert_eq!(shop_price(CardRarity::Epic, b) % 5, 0);
         }
+    }
+
+    #[test]
+    fn stages_walk_the_campaign_and_stop_at_its_end() {
+        assert_eq!(stage_zone(0, 0), 0);
+        assert_eq!(stage_zone(0, 2), 2);
+        assert_eq!(stage_zone(MAPS.len() - 2, 2), MAPS.len() - 1);
+        assert!(STAGES >= 2);
+        assert!(STAGE_LENGTH > 0.0 && STAGE_LENGTH <= 1.0);
     }
 
     #[test]

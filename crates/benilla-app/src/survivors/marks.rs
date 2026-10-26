@@ -16,6 +16,7 @@ use bevy::prelude::*;
 use super::data::{self, Reward};
 use super::hud::{HudFont, HudRoot, SpellIcon};
 use super::lang::{tr, trf};
+use super::legs::Gate;
 use super::treasure::{FieldMark, ShrineState};
 use super::units::is_dead;
 use super::{LocalHero, Phase, Run};
@@ -39,6 +40,7 @@ pub(super) enum Key {
     Unit(Entity),
     Post(usize),
     Shrine(usize),
+    Gate(usize),
 }
 
 /// One label's nodes.
@@ -175,6 +177,43 @@ fn wanted(
                 title: tr(kind.title).to_string(),
                 line: trf("Back in {}s", &[&seconds_left(post.wait).to_string()]),
                 color: dim(kind.color, 0.7),
+            },
+        ));
+    }
+    // The stage's portals: the boss portal shut until its time, then charging; the way onward.
+    for (i, g) in run.gates.iter().enumerate() {
+        if !near(g.pos) {
+            continue;
+        }
+        let (title, icon, color) = match g.kind {
+            Gate::Boss => (
+                tr("Boss Portal"),
+                data::BOSS_PORTAL_ICON,
+                data::BOSS_PORTAL_COLOR,
+            ),
+            Gate::Onward => (
+                tr("Portal Onward"),
+                data::STAGE_PORTAL_ICON,
+                data::STAGE_PORTAL_COLOR,
+            ),
+        };
+        let line = if !g.open {
+            tr("Opens when the final boss is due").to_string()
+        } else if g.charge > 0.0 {
+            format!("{}  ·  {}%", tr("Stand in it"), (g.charge * 100.0) as u32)
+        } else if g.kind == Gate::Boss {
+            tr("Stand in it to call the boss").to_string()
+        } else {
+            tr("Stand in it to go on").to_string()
+        };
+        out.push((
+            Key::Gate(i),
+            Shown {
+                at: g.pos + Vec3::Y * 4.0,
+                icon,
+                title: title.to_string(),
+                line,
+                color: if g.open { color } else { dim(color, 0.6) },
             },
         ));
     }
@@ -474,7 +513,38 @@ pub(super) fn draw_rings(
             false,
             back,
         );
-    } // A shrine's reach, filling as it charges; a challenge's dashed while its elites are up.
+    }
+    // A portal's reach, dashed while shut, filling as it charges.
+    for g in &run.gates {
+        if !near(g.pos) {
+            continue;
+        }
+        let c = match g.kind {
+            Gate::Boss => data::BOSS_PORTAL_COLOR,
+            Gate::Onward => data::STAGE_PORTAL_COLOR,
+        };
+        ground_ring(
+            &mut gizmos,
+            &world,
+            g.pos,
+            data::PORTAL_RADIUS,
+            srgb(if g.open { c } else { dim(c, 0.6) }),
+            !g.open,
+            1.0,
+        );
+        if g.charge > 0.0 {
+            ground_ring(
+                &mut gizmos,
+                &world,
+                g.pos,
+                data::PORTAL_RADIUS * 0.8,
+                srgb(c),
+                false,
+                g.charge,
+            );
+        }
+    }
+    // A shrine's reach, filling as it charges; a challenge's dashed while its elites are up.
     for sh in &run.shrines {
         if sh.state == ShrineState::Spent || !near(sh.pos) {
             continue;

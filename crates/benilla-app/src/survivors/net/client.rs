@@ -34,7 +34,7 @@ const SNAP_YD: f32 = 10.0;
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        (receive, interpolate)
+        (receive, arrive, interpolate)
             .chain()
             .after(WorldStage::Input)
             .run_if(is_client),
@@ -54,6 +54,10 @@ pub(in crate::survivors) struct Replicas {
     loaded_sent: bool,
     /// Seconds the zone has stood loaded: the loading screen can take a frame to rise.
     clear_for: f32,
+    /// The run's stage this guest stands in; a new one takes its hero over to it.
+    leg: u8,
+    /// Where the local hero goes, on to a new stage.
+    arrive: Option<Vec3>,
 }
 
 impl Replicas {
@@ -264,6 +268,7 @@ pub(super) fn receive(
     mut reps: ResMut<Replicas>,
     mut run: ResMut<Run>,
     session: Res<Session>,
+    mut selection: ResMut<crate::survivors::Selection>,
     mut party: ResMut<Party>,
     mut fx: Fx,
     mut movers: Query<(&mut Replica, Option<&mut MovementState>)>,
@@ -387,7 +392,34 @@ pub(super) fn receive(
                 greed,
                 curse,
                 shop,
+                stage,
+                zone,
+                gates,
+                swarm,
             } => {
+                // On to a new stage: the world follows the zone, the hero goes over, and the
+                // zone is loaded again before the host's clock runs.
+                if stage != reps.leg {
+                    reps.leg = stage;
+                    run.past_secs += run.elapsed;
+                    selection.stage = usize::from(zone).min(data::MAPS.len() - 1);
+                    let center = crate::survivors::hero::arena(selection.stage_def());
+                    let a = f32::from(session.slot) / 4.0 * std::f32::consts::TAU;
+                    reps.arrive = Some(center + Vec3::new(a.cos(), 0.0, a.sin()) * 3.0);
+                    reps.loaded_sent = false;
+                    reps.clear_for = 0.0;
+                }
+                run.leg = stage;
+                run.gates = gates
+                    .into_iter()
+                    .map(|g| crate::survivors::legs::GateView {
+                        kind: crate::survivors::legs::Gate::from_wire(g.kind),
+                        pos: Vec3::from_array(g.pos),
+                        charge: g.charge,
+                        open: g.open,
+                    })
+                    .collect();
+                run.swarm = (swarm >= 0.0).then_some(swarm);
                 run.shop = shop
                     .into_iter()
                     .filter_map(|w| {
@@ -468,6 +500,17 @@ pub(super) fn receive(
             | Game::Buy { .. }
             | Game::Mobility { .. } => {}
         }
+    }
+}
+
+/// The local hero steps over to a new stage's battleground.
+pub(super) fn arrive(
+    mut reps: ResMut<Replicas>,
+    mut me: Query<&mut Transform, (With<LocalHero>, Without<Replica>)>,
+) {
+    let Some(at) = reps.arrive.take() else { return };
+    if let Ok(mut tf) = me.single_mut() {
+        tf.translation = at;
     }
 }
 

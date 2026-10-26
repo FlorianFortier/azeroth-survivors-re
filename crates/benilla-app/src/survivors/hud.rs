@@ -1497,13 +1497,29 @@ pub(super) fn refresh_hud(
     if let Ok(mut t) = texts.p0().single_mut() {
         **t = format!("Level {}", run.level);
     }
-    let secs = run.elapsed as u32;
+    // The stage's clock, or what is left of the final swarm.
+    let clock = match run.swarm {
+        Some(left) => {
+            let s = left.ceil().max(0.0) as u32;
+            super::lang::trf("Swarm {}", &[&format!("{}:{:02}", s / 60, s % 60)])
+        }
+        None => {
+            let secs = run.elapsed as u32;
+            format!("{:02}:{:02}", secs / 60, secs % 60)
+        }
+    };
     if let Ok(mut t) = texts.p1().single_mut() {
-        **t = format!("{:02}:{:02}", secs / 60, secs % 60);
+        if **t != clock {
+            **t = clock;
+        }
     }
     let kills = run.kills;
     if let Ok(mut t) = texts.p2().single_mut() {
         let mut want = super::lang::trf(
+            "Stage {}/{}  ·  ",
+            &[&(run.leg + 1).to_string(), &data::STAGES.to_string()],
+        );
+        want += &super::lang::trf(
             "Kills {}  ·  Gold {}  ·  Chest {}",
             &[
                 &kills.to_string(),

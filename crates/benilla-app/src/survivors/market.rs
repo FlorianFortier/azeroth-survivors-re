@@ -32,7 +32,8 @@ pub(crate) struct Ware {
 /// The merchant and the breakables of the run in play, as the host tends them.
 #[derive(Resource, Default)]
 pub(super) struct Market {
-    run_id: Option<u32>,
+    /// The run and stage it was laid out for.
+    run_id: Option<(u32, u8)>,
     pos: Vec3,
     restock: f32,
     /// Wares bought this run, for the markup.
@@ -152,9 +153,9 @@ pub(super) fn tend_market(
     let center = super::hero::arena(map);
 
     // A new run: the merchant takes its place with its wares, and the jars and crates theirs.
-    if market.run_id != Some(run.run_id) {
+    if market.run_id != Some((run.run_id, run.leg)) {
         *market = Market {
-            run_id: Some(run.run_id),
+            run_id: Some((run.run_id, run.leg)),
             restock: data::SHOP_RESTOCK_SECS,
             ..Market::default()
         };

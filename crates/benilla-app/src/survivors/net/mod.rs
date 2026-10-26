@@ -493,6 +493,7 @@ mod tests {
             .init_resource::<client::Replicas>()
             .init_resource::<host::Replicator>()
             .init_resource::<crate::survivors::market::BuyQueue>()
+            .init_resource::<crate::survivors::Selection>()
             .init_resource::<Party>()
             .init_resource::<PlaySeq>()
             .add_message::<CastEvent>()
@@ -852,6 +853,57 @@ mod tests {
             host.world().resource::<market::BuyQueue>().0,
             [(1, 2, "lodestone".to_string())]
         );
+    }
+
+    #[test]
+    fn a_guest_follows_the_host_to_the_next_stage() {
+        use crate::survivors::{hero, Selection};
+        let mut guest = world(Mode::Client, 1);
+        guest.add_systems(Update, (client::receive, client::arrive).chain());
+        let me = guest
+            .world_mut()
+            .spawn((Transform::default(), LocalHero))
+            .id();
+        let run_at = |stage: u8, zone: u8| Game::Run {
+            elapsed: 4.0,
+            bosses: 0,
+            waiting: true,
+            banner: None,
+            chest_cost: 20,
+            posts: Vec::new(),
+            shrines: Vec::new(),
+            greed: 0,
+            curse: 0,
+            shop: Vec::new(),
+            stage,
+            zone,
+            gates: vec![survivors_net::game::Gate {
+                kind: 0,
+                pos: [1.0, 2.0, 3.0],
+                charge: 0.0,
+                open: false,
+            }],
+            swarm: -1.0,
+        };
+        guest
+            .world_mut()
+            .resource_mut::<Net>()
+            .inbox
+            .push((0, run_at(1, 3)));
+        guest.update();
+        let world = guest.world();
+        assert_eq!(
+            world.resource::<Selection>().stage,
+            3,
+            "the world follows the zone"
+        );
+        let run = world.resource::<Run>();
+        assert_eq!(run.leg, 1);
+        assert_eq!(run.gates.len(), 1);
+        assert!(run.swarm.is_none());
+        let at = world.get::<Transform>(me).unwrap().translation;
+        let center = hero::arena(&data::MAPS[3]);
+        assert!(at.distance(center) < 5.0, "the hero went over to it");
     }
 
     #[test]

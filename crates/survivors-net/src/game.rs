@@ -31,6 +31,18 @@ pub enum Role {
     Merchant,
 }
 
+/// A portal of the run's stage: the boss portal (`0`), which calls the stage's final boss, or the
+/// portal onward (`1`), to the next stage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Gate {
+    pub kind: u8,
+    pub pos: [f32; 3],
+    /// How charged, 0 to 1.
+    pub charge: f32,
+    /// Whether a hero may wake it yet.
+    pub open: bool,
+}
+
 /// One of the merchant's wares: a run item by key, its price, and whether it is gone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ware {
@@ -285,6 +297,12 @@ pub enum Game {
         curse: u8,
         /// The merchant's wares.
         shop: Vec<Ware>,
+        /// The stage in play (from 0), the zone it stands in, its portals, and the final swarm's
+        /// seconds left (negative while it does not run).
+        stage: u8,
+        zone: u8,
+        gates: Vec<Gate>,
+        swarm: f32,
     },
     /// Your hero's numbers.
     Me(Vitals),
@@ -770,6 +788,10 @@ impl Wire for Game {
                 greed,
                 curse,
                 shop,
+                stage,
+                zone,
+                gates,
+                swarm,
             } => {
                 w.u8(8).f32(*elapsed).u32(*bosses).bool(*waiting).opt(
                     banner.as_ref(),
@@ -789,6 +811,11 @@ impl Wire for Game {
                 for ware in shop {
                     w.str(&ware.item).u32(ware.price).bool(ware.sold);
                 }
+                w.u8(*stage).u8(*zone).len(gates.len());
+                for g in gates {
+                    w.u8(g.kind).vec3(g.pos).f32(g.charge).bool(g.open);
+                }
+                w.f32(*swarm);
             }
             Game::Me(v) => {
                 w.u8(9);
@@ -939,6 +966,22 @@ impl Wire for Game {
                     }
                     out
                 },
+                stage: r.u8()?,
+                zone: r.u8()?,
+                gates: {
+                    let n = r.len(18)?;
+                    let mut out = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        out.push(Gate {
+                            kind: r.u8()?,
+                            pos: r.vec3()?,
+                            charge: r.f32()?,
+                            open: r.bool()?,
+                        });
+                    }
+                    out
+                },
+                swarm: r.f32()?,
             },
             9 => Game::Me(Vitals::get(r)?),
             10 => {
@@ -1141,6 +1184,15 @@ mod tests {
                         sold: true,
                     },
                 ],
+                stage: 2,
+                zone: 7,
+                gates: vec![Gate {
+                    kind: 1,
+                    pos: [3.0, 4.0, 5.0],
+                    charge: 0.25,
+                    open: true,
+                }],
+                swarm: 41.5,
             },
             Game::Me(Vitals {
                 level: 9,

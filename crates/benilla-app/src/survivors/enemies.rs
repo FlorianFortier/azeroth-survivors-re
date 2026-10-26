@@ -218,10 +218,14 @@ pub(super) fn spawn_enemies(
     let rules = run.threat(session.rules);
     let anchor = |rng: &mut Rng| anchors[rng.index(anchors.len())];
     let elapsed = run.elapsed;
-    let roster = data::roster(selection.map);
+    // The stage's zone: the one the world stands in.
+    let roster = data::roster(selection.stage);
     let pool = rules.wave_pool(elapsed, roster.enemies.len());
 
-    let due_bosses = rules.bosses_due(elapsed);
+    // The final boss is not the clock's: the boss portal calls it (`legs.rs`).
+    let due_bosses = rules
+        .bosses_due(elapsed)
+        .min(data::BOSS_TIMES.len() as u32 - 1);
     while run.bosses < due_bosses {
         let (def, final_boss) = rules.boss(roster, run.bosses);
         let slot = Some(run.bosses.min(u32::from(u8::MAX)) as u8);
@@ -560,8 +564,8 @@ pub(super) fn drop_loot(
     for d in drops.read() {
         // A boss drops its own item; one of the horde, rarely, one of the zone's.
         let item = match d.boss_slot {
-            Some(k) => data::boss_item(selection.map, usize::from(k)),
-            None => data::horde_item(selection.map, rng.f32()),
+            Some(k) => data::boss_item(selection.stage, usize::from(k)),
+            None => data::horde_item(selection.stage, rng.f32()),
         };
         if let Some(item) = item {
             spawn_gem(
@@ -607,7 +611,7 @@ pub(super) fn drop_loot(
                     let gear = (rng.index(100) < usize::from(percent))
                         .then(|| {
                             data::horde_item(
-                                selection.map,
+                                selection.stage,
                                 rng.f32() / data::HORDE_ITEM_ODDS as f32,
                             )
                         })

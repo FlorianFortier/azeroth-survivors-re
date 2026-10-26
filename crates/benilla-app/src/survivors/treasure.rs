@@ -23,6 +23,7 @@ struct Looks {
     shrine: Option<u32>,
     jar: Option<u32>,
     crate_: Option<u32>,
+    portal: Option<u32>,
 }
 
 static LOOKS: std::sync::OnceLock<Looks> = std::sync::OnceLock::new();
@@ -58,6 +59,7 @@ pub(super) fn find_looks(assets: Option<Res<benilla_assets::WorldAssets>>) {
                 shrine: find(&["shrine", "altar", "obelisk"]),
                 jar: find(&["jar", "urn", "vase"]),
                 crate_: find(&["crate", "barrel"]),
+                portal: find(&["portal"]),
             }
         }
         Err(e) => {
@@ -104,6 +106,14 @@ pub(crate) struct PostView {
     pub kind: usize,
     pub pos: Vec3,
     pub wait: f32,
+}
+
+/// A portal's display and scale; a big purple wisp when the tables have none.
+pub(super) fn portal_look() -> (u32, f32) {
+    LOOKS
+        .get()
+        .and_then(|l| l.portal)
+        .map_or((1307, 5.0), |d| (d, 1.0))
 }
 
 /// A jar's display and scale; a small wisp when the tables have none.
@@ -195,8 +205,9 @@ struct Post {
 /// The field of the run in play.
 #[derive(Resource, Default)]
 pub(super) struct Field {
-    /// The run it was laid out for ([`Run::run_id`]); another run lays it out anew.
-    run_id: Option<u32>,
+    /// The run and stage it was laid out for ([`Run::run_id`], [`Run::leg`]); another lays it
+    /// out anew.
+    run_id: Option<(u32, u8)>,
     opened: u32,
     posts: Vec<Post>,
     /// Seconds until each opened chest comes back elsewhere.
@@ -317,9 +328,9 @@ pub(super) fn tend_field(
     let rules = run.threat(session.rules);
 
     // A new run: the elites take their posts and the chests their places.
-    if field.run_id != Some(run.run_id) {
+    if field.run_id != Some((run.run_id, run.leg)) {
         *field = Field {
-            run_id: Some(run.run_id),
+            run_id: Some((run.run_id, run.leg)),
             ..Field::default()
         };
         let turn = rng.range(0.0, std::f32::consts::TAU);
