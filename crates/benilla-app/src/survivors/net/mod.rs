@@ -757,6 +757,7 @@ mod tests {
         let never = WireCard {
             choice: survivors_net::game::Choice::NewAbility("no_such_spell".into()),
             rarity: 0,
+            perks: Vec::new(),
         };
         for bad in [forged, never] {
             host.world_mut()

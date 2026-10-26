@@ -202,7 +202,13 @@ fn apply_me(run: &mut Run, v: WireVitals) {
                         def,
                         level: a.level,
                         cd: a.cd,
-                        power: a.power,
+                        perks: data::Perks {
+                            damage: a.damage,
+                            cooldown: a.cooldown,
+                            targets: a.targets,
+                            area: a.area,
+                            duration: a.duration,
+                        },
                     })
             })
             .collect();
@@ -234,7 +240,6 @@ fn apply_me(run: &mut Run, v: WireVitals) {
         run.offer = v.offer.iter().filter_map(PostDealt::from_wire).collect();
         run.rerolls = v.rerolls;
         run.banishes = v.banishes;
-        run.skips = v.skips;
         // The blessings offered, and what the shrines gave.
         run.shrine_offer = v
             .shrine_offer
@@ -636,7 +641,11 @@ mod tests {
                     key: key.clone(),
                     level: 3,
                     cd: 0.7,
-                    power: 1.0,
+                    damage: 0.0,
+                    cooldown: 1.0,
+                    targets: 0,
+                    area: 0.0,
+                    duration: 0.0,
                 }],
                 ..WireVitals::default()
             },
@@ -667,7 +676,11 @@ mod tests {
                     key,
                     level: 1,
                     cd: 0.2,
-                    power: 1.0,
+                    damage: 0.0,
+                    cooldown: 1.0,
+                    targets: 0,
+                    area: 0.0,
+                    duration: 0.0,
                 }],
                 ..WireVitals::default()
             },
@@ -690,7 +703,11 @@ mod tests {
                     key: "no_such_spell".into(),
                     level: 1,
                     cd: 0.0,
-                    power: 1.0,
+                    damage: 0.0,
+                    cooldown: 1.0,
+                    targets: 0,
+                    area: 0.0,
+                    duration: 0.0,
                 }],
                 passives: vec![("nope".into(), 1, 1.0)],
                 ..WireVitals::default()

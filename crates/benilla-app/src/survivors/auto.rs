@@ -190,14 +190,23 @@ pub(super) fn drive(
                     for key in run.class.pool {
                         if !run.abilities.iter().any(|o| o.def.key == *key) {
                             run.abilities
-                                .push(super::Owned::learned(data::ability(key), 1.0, 0.5));
+                                .push(super::Owned::learned(data::ability(key), &[], 0.5));
                         }
                     }
                 }
                 if auto.late {
+                    // Late in a run: a dozen Rare ranks on every spell.
+                    let mut rng = super::Rng::seeded(7);
                     for o in &mut run.abilities {
-                        o.level = data::MAX_ABILITY_LEVEL;
-                        o.power = f32::from(data::MAX_ABILITY_LEVEL);
+                        for _ in 0..12 {
+                            let perks = super::offer::draw_perks(
+                                o.def,
+                                false,
+                                data::CardRarity::Rare,
+                                &mut rng,
+                            );
+                            o.rank_up(&perks);
+                        }
                     }
                     run.elapsed = data::FINAL_BOSS_SECS * 2.0 / 3.0;
                     run.bosses = 3;
