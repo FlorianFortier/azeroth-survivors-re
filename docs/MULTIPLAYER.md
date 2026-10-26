@@ -112,8 +112,13 @@ won when the zone's final boss falls, and every player's profile counts the win.
     number — about twenty times a second, batched into one frame per tick;
   - `client.rs`: a guest builds those units exactly as the client builds a server's (a `Guid`, a
     `NetEntity` and an `ObjectStore` are all the engine's attach, animation and spell-visual
-    systems need), glides them toward the host's positions, and sends back its own hero's motion,
-    moves at the level-up cards (pick, reroll, banish, skip) and mobility casts;
+    systems need), draws them a tenth of a second behind the host between two positions it really
+    sent, and sends back its own hero's motion (stamped with its clock), moves at the level-up
+    cards (pick, reroll, banish, skip) and mobility casts;
+  - `smooth.rs`: that interpolation, the same on both sides: each motion carries its sender's
+    clock, a `Track` keeps the last positions and a `Clock` maps the sender's time to ours by the
+    quickest arrival, so a late packet does not stutter the picture; the host draws each guest's
+    hero the same way, rather than snapping it to every message;
   - `ui.rs`: the lobby screen, the party frames and the scoreboard.
 - **The simulation** (`survivors/`) plays any number of heroes: each carries its own numbers
   (`HeroState`), enemies chase the nearest hero they can see, every blow is credited to the hero

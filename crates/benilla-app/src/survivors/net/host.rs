@@ -17,6 +17,8 @@ use survivors_net::game::{
 };
 use survivors_net::protocol::Target;
 
+use super::client::SEND_EVERY as GUEST_SEND_EVERY;
+use super::smooth::{Clock, Track};
 use super::{Net, Party, PartyMember};
 use crate::creature_anim::MovementState;
 use crate::net::{Guid, NetEntity, ObjectStore};
@@ -30,7 +32,7 @@ use crate::survivors::{
 };
 
 /// Seconds between stream ticks: the horde's motion and the frame's effects.
-const TICK: f32 = 0.05;
+pub(super) const TICK: f32 = 0.05;
 /// Seconds between the run's clock, the party and each guest's own numbers.
 const SLOW_TICK: f32 = 0.2;
 /// The host waits this long for every guest to load the zone before starting without them.
@@ -42,7 +44,8 @@ const MAX_FX: usize = 1500;
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        receive
+        (receive, smooth_guests)
+            .chain()
             .after(WorldStage::Input)
             .before(SimSet)
             .run_if(is_host),
@@ -72,6 +75,8 @@ pub(in crate::survivors) struct Replicator {
     /// Seconds the host's own zone has stood loaded.
     clear_for: f32,
     outcome_sent: bool,
+    /// Each guest's clock against ours and the positions it sent for its hero, by seat.
+    guests: HashMap<u8, (Clock, Track)>,
 }
 
 impl Replicator {
@@ -84,6 +89,32 @@ impl Replicator {
     pub(super) fn due(&mut self) {
         self.tick = TICK;
         self.slow = SLOW_TICK;
+    }
+}
+
+/// Each guest's hero, drawn [`super::smooth::DELAY`] behind its own clock, between the two
+/// positions it sent around then: as smooth on the host's screen, and in the host's stream, as the
+/// guest's own.
+fn smooth_guests(
+    time: Res<Time<Real>>,
+    rep: Res<Replicator>,
+    mut heroes: Query<(&mut Transform, &HeroState), (With<Hero>, Without<LocalHero>)>,
+) {
+    let now = time.elapsed_secs();
+    for (mut tf, h) in &mut heroes {
+        let Some((clock, track)) = rep.guests.get(&h.slot) else {
+            continue;
+        };
+        let Some((pos, yaw)) = clock.draw_at(now).and_then(|at| track.at(at)) else {
+            continue;
+        };
+        if tf.translation != pos {
+            tf.translation = pos;
+        }
+        let want = Quat::from_rotation_y(yaw);
+        if tf.rotation != want {
+            tf.rotation = want;
+        }
     }
 }
 
@@ -192,13 +223,13 @@ pub(super) fn receive(
                 rep.loaded.insert(from);
             }
             Game::Input {
+                t,
                 motion,
                 haste,
                 haste_t,
                 vanish_t,
             } => {
-                let Some((_, mut tf, mut mv, mut h)) =
-                    heroes.iter_mut().find(|(.., h)| h.slot == from)
+                let Some((_, tf, mut mv, mut h)) = heroes.iter_mut().find(|(.., h)| h.slot == from)
                 else {
                     continue;
                 };
@@ -213,9 +244,16 @@ pub(super) fn receive(
                     pos.x = held.x;
                     pos.z = held.z;
                 }
-                tf.translation = pos;
-                if motion.yaw.is_finite() {
-                    tf.rotation = Quat::from_rotation_y(motion.yaw);
+                // Drawn by `smooth_guests`, between two of the positions the guest sent.
+                if t.is_finite() {
+                    let yaw = if motion.yaw.is_finite() {
+                        motion.yaw
+                    } else {
+                        tf.rotation.to_euler(EulerRot::YXZ).0
+                    };
+                    let (clock, track) = rep.guests.entry(from).or_default();
+                    clock.sync(time.elapsed_secs(), t);
+                    track.push(t, pos, yaw, GUEST_SEND_EVERY);
                 }
                 mv.speed = motion.speed.clamp(0.0, 40.0);
                 mv.flags = motion.flags;
