@@ -1,7 +1,7 @@
 //! The Rewards tab: reward points, earned by achievements ([`data::AchievementDef::points`]) and
 //! spent on what every hero of every class brings into a run. Today the perks
-//! ([`data::PERKS`]): more rerolls, banishes and skips, a fuller first hand, more experience and
-//! gold, gold in hand at the start. Ranks are bought on a draft and kept with Confirm (Undo drops
+//! ([`data::PERKS`]): more rerolls and banishes, more gold for a skipped hand, a fuller first
+//! hand, more experience and gold, gold in hand at the start. Ranks are bought on a draft and kept with Confirm (Undo drops
 //! the draft); Reset takes every perk point back, [`data::MAX_PERK_RESETS`] times a save.
 //!
 //! A perk's bonus rides the profile's other bonuses (`Profile::meta_bonuses`, so a guest's
@@ -19,8 +19,8 @@ use super::lang::{tr, trf};
 use super::profile::{Profile, ProfileStore};
 use super::Vitals;
 
-/// What a perk's ranks do that is not a bonus: rerolls, banishes and skips in hand, the first
-/// hand's extra cards, gold at the start. The bonuses go with the profile's
+/// What a perk's ranks do that is not a bonus: rerolls and banishes in hand, a skip's gold, the
+/// first hand's extra cards, gold at the start. The bonuses go with the profile's
 /// (`Profile::meta_bonuses`).
 pub(super) fn apply_perks(v: &mut Vitals, ranks: impl IntoIterator<Item = (&'static PerkDef, u8)>) {
     for (perk, rank) in ranks {
@@ -28,7 +28,7 @@ pub(super) fn apply_perks(v: &mut Vitals, ranks: impl IntoIterator<Item = (&'sta
         match perk.effect {
             PerkEffect::Rerolls(n) => v.rerolls = v.rerolls.saturating_add(n * rank),
             PerkEffect::Banishes(n) => v.banishes = v.banishes.saturating_add(n * rank),
-            PerkEffect::Skips(n) => v.skips = v.skips.saturating_add(n * rank),
+            PerkEffect::SkipGold(n) => v.skip_gold += n * u32::from(rank),
             PerkEffect::OpeningHand(n) => v.opening_hand = v.opening_hand.saturating_add(n * rank),
             PerkEffect::StartGold(n) => v.gold += (n * u32::from(rank)) as f32,
             PerkEffect::Bonus(_) => {}
@@ -553,13 +553,13 @@ mod tests {
     #[test]
     fn perks_land_on_the_hero() {
         let mut v = Vitals::new(&data::CLASSES[0], 1);
-        let start = (v.rerolls, v.banishes, v.skips, v.gold);
+        let start = (v.rerolls, v.banishes, v.skip_gold, v.gold);
         let all: Vec<(&'static PerkDef, u8)> =
             data::PERKS.iter().map(|p| (p, p.max_rank)).collect();
         apply_perks(&mut v, all);
         assert_eq!(v.rerolls, start.0 + 3);
         assert_eq!(v.banishes, start.1 + 3);
-        assert_eq!(v.skips, start.2 + 2);
+        assert_eq!(v.skip_gold, start.2 + 10);
         assert_eq!(v.opening_hand, 1);
         assert!(v.gold > start.3);
         // The bonus perks ride the profile's bonuses.

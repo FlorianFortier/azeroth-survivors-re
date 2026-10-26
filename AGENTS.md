@@ -57,8 +57,8 @@ it holds; read it before changing the file.
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
 | `enemies.rs` | the horde: spawning, the chase, contact damage, death, experience gems, loot |
-| `cards.rs` | the level-up cards as they show (their drawn rarity, the deal-in, tilt and burst) and the Reroll, Banish and Skip buttons and keys |
-| `offer.rs` | the level-up offer as the simulation deals it: three cards per banked level at drawn rarities (`data::CardRarity`), rerolls, banishes and skips, and `apply_action`, which takes a move only if it fits the hero's offer |
+| `cards.rs` | the level-up cards as they show (the key and NEW or RANK badge, icon, rarity, what a new spell does, the perks in green, the foot; the deal-in, tilt and burst), the Banish button under each, and the row under them (the spell slots, Skip and Reroll) |
+| `offer.rs` | the level-up offer as the simulation deals it: four spell cards per banked level at drawn rarities (`data::CardRarity`), each with the perks it grows (`draw_perks`), rerolls, banishes and skips, and `apply_action`, which takes a move only if it fits the hero's offer |
 | `units.rs` | local units built as streamed ones (`Guid`, `NetEntity`, `ObjectStore`), and `Fx`, every visual |
 | `sync.rs` | seating the run's heroes (and each guest's bonuses, `seat_bonuses`), the local player's moves at the cards onto its hero, the local hero mirrored into `Run` |
 | `outfit.rs` | the hero as a player character: body, the five appearance dials, worn pieces |
@@ -232,9 +232,12 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it
   was dealt, or a reroll, banish or skip the hero holds. The HUD (`hud::Offer`) only follows
-  `Run::offer`; it never deals. A card's rarity weighs its rank (`CardRarity::weight`) into
-  `Owned::power` and a passive's power, which damage and bonuses read; a rank's count,
-  cooldown and reach still go by `level`.
+  `Run::offer`; it never deals. The cards are spells only, four of them; a spell's ranks have no
+  cap. A card grows stats of its spell (`data::Perk`, drawn by `offer::draw_perks` for the
+  stats the spell has: one, two for an Epic, three for a Legendary, the rarer the more), summed
+  on `Owned::perks`, which a spell's damage, cooldown, targets, area and duration read; a new
+  spell's card brings one perk from Uncommon up. A card is taken only with the perks it was
+  dealt. A skip is always there, for `data::SKIP_GOLD`.
 - **Shown text goes through `lang::tr`.** A new label on the main screen or the HUD is written
   in English inside `tr(…)`, and its French added to `lang.rs`'s table; a name the profile stores
   (zones, items, classes) stays English in data and is translated only where it is shown.

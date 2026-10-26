@@ -933,7 +933,7 @@ fn spell_tip(
     stats: &super::Stats,
     spells: Option<&crate::ui_action::Spells>,
 ) -> Vec<TipLine> {
-    let owned = Owned::learned(def, 1.0, 0.0);
+    let owned = Owned::learned(def, &[], 0.0);
     hud::ability_tip(&owned, stats, spells)
 }
 

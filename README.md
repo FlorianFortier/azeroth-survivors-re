@@ -98,7 +98,7 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   levels, the collection, bosses met, talents, every zone, Heroic and Mythic), each paying gold
   once claimed from the **Achievements (N)** tab, and reward points once done. The **Rewards
   (N)** tab spends the points on perks every hero of every class brings into a run: more
-  rerolls, banishes and skips, a fuller first hand, more experience and gold, gold in hand at the
+  rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and gold, gold in hand at the
   start. Ranks are bought on a draft kept with **Confirm**; **Reset** takes every perk point
   back, twice a save.
 - **Options and French**: the **Options** page (bottom left) sets the master, music and effects
@@ -107,13 +107,15 @@ to the next, tougher zone, and after the third hold out against the final swarm 
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an
   effect that fires on its own, shown on the main screen and carried by co-op guests too.
-- **Level-up cards, Megabonk-style**, that deal in, tilt toward the cursor and lift on hover.
-  Each is drawn at a rarity, Common to Legendary in WoW's item-quality colours, and the rarer it
-  is the more its rank is worth (a Legendary rank adds three ranks' worth of damage or bonus);
-  each card lists exactly what changes, like `Damage 20 » 26` or `Targets 2 » 3`. Under them,
-  **Reroll** (R), **Banish** (B, then a card: it is never dealt again that run) and **Skip** (X):
-  three rerolls, one banish and one skip to start, and one more of them, in turn, every five
-  levels. In co-op the host deals every hero's cards and takes only a pick of what it dealt.
+- **Level-up cards, Megabonk-style**: four spell cards that deal in, tilt toward the cursor and
+  lift on hover, each drawn at a rarity, Common to Legendary in WoW's item-quality colours. A new
+  spell's card shows what the spell does and, from Uncommon up, a bonus; a known spell's card
+  grows one of its stats (`+25% damage`, `-10% cooldown`, `+1 targets`, area, duration), an Epic
+  two and a Legendary three, the rarer the more. Ranks have no cap, so no two builds scale alike.
+  Under each card its **Banish** (never dealt again that run), and under them **Skip** (+10 gold,
+  always there) and **Reroll** (R): two rerolls and three banishes to start, and one more of them,
+  in turn, every five levels. In co-op the host deals every hero's cards and takes only a pick of
+  what it dealt.
 - **A class movement spell on F** from level 5, aimed at the pointer: Blink, Charge, Sprint, Dash,
   Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
 - **A third-person 3D view with WoW's controls:** the pointer stays free; a left-drag swings the

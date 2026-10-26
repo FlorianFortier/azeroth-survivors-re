@@ -155,7 +155,11 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
                 key: o.def.key.to_string(),
                 level: o.level,
                 cd: o.cd,
-                power: o.power,
+                damage: o.perks.damage,
+                cooldown: o.perks.cooldown,
+                targets: o.perks.targets,
+                area: o.perks.area,
+                duration: o.perks.duration,
             })
             .collect(),
         passives: v
@@ -184,7 +188,6 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
         offer: v.offer.iter().map(|d| d.to_wire()).collect(),
         rerolls: v.rerolls,
         banishes: v.banishes,
-        skips: v.skips,
         shrine_offer: v
             .shrine_offer
             .iter()

@@ -37,10 +37,10 @@ sheet, and **V** switches to the classic top-down views.
 | Playing | walk into a **jar** or a **crate** | break it: gold, or a heal |
 | Playing | stand in a **portal** for three seconds | the boss portal calls the stage's final boss; the portal onward takes everyone to the next stage |
 | Playing | stand in a **shrine** | charge it (Power: choose a blessing with **1 / 2 / 3** or a click), or wake it (Challenge, Greed, Curses) |
-| Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
-| Level up | **R** (or **Reroll**) | deal the cards again: three rerolls to start a run |
-| Level up | **B** (or **Banish**), then a card | take that card out of your deals for the rest of the run: one to start |
-| Level up | **X** (or **Skip**) | let the level go by without a card: one to start |
+| Level up | **1 / 2 / 3 / 4** (or click a card) | pick a spell card |
+| Level up | **R** (or **Reroll**) | deal the cards again: two rerolls to start |
+| Level up | **Banish** under a card (or **B**, then a card) | take that spell out of your deals for the rest of the run: three to start |
+| Level up | **X** (or **Skip**) | let the level go by for 10 gold: always there |
 | Menu | **Run Options** (bottom left) | the difficulty: Heroic opens once a zone is won on Normal, Mythic once won on Heroic |
 | Paused | **Esc** | resume |
 | Game over | **Enter** (or **Play again**) | back to the menu (or the lobby, in multiplayer) |

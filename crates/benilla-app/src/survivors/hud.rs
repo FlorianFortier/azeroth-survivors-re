@@ -78,6 +78,9 @@ pub(super) struct LevelUpSub;
 /// The picker's title: a level up, or a shrine's blessing.
 #[derive(Component)]
 pub(super) struct LevelUpTitle;
+/// The gold badge over the title: the level reached.
+#[derive(Component)]
+pub(super) struct LevelBadge;
 
 /// A radial cooldown sweep over one ability icon: `sweep` is the remaining fraction
 /// (1.0 = just cast, 0.0 = ready), drawn by `ui_sweep.wgsl`.
@@ -194,35 +197,42 @@ pub(super) enum Choice {
 #[derive(Component)]
 pub(super) struct RerollHint;
 
-/// The lines around the cards: a level up's or a blessing's title, and how to pick, or that the
-/// next card chosen is banished.
+/// The lines around the cards: the level's badge, a level up's or a blessing's title and its
+/// line, and how to pick, or that the next card chosen is banished.
 #[allow(clippy::type_complexity)]
 pub(super) fn reroll_hint(
     offer: Res<Offer>,
+    run: Res<Run>,
     mut texts: ParamSet<(
         Query<&mut Text, With<RerollHint>>,
         Query<&mut Text, With<LevelUpTitle>>,
         Query<&mut Text, With<LevelUpSub>>,
+        Query<&mut Text, With<LevelBadge>>,
     )>,
 ) {
-    use super::lang::tr;
+    use super::lang::{tr, trf};
+    let badge = if offer.blessing {
+        tr("SHRINE").to_string()
+    } else {
+        trf("LEVEL {}", &[&run.level.to_string()])
+    };
     let (title, sub, hint) = if offer.blessing {
         (
-            tr("BLESSING"),
-            tr("Choose a blessing"),
+            tr("Blessing!"),
+            tr("Choose a blessing for the rest of the run."),
             tr("Click a blessing, or press 1, 2 or 3"),
         )
     } else if offer.banishing {
         (
-            tr("LEVEL UP"),
-            tr("Choose your power"),
-            tr("Banish: click a card, or press 1, 2 or 3  ·  B again to cancel"),
+            tr("Level Up!"),
+            tr("Choose a spell. Its rarity decides how strong it is."),
+            tr("Banish: click a card, or press 1 to 4  ·  B again to cancel"),
         )
     } else {
         (
-            tr("LEVEL UP"),
-            tr("Choose your power"),
-            tr("Click a card, or press 1, 2 or 3"),
+            tr("Level Up!"),
+            tr("Choose a spell. Its rarity decides how strong it is."),
+            tr("Click a card, or press 1 to 4"),
         )
     };
     let set = |t: &mut Text, want: &str| {
@@ -238,6 +248,9 @@ pub(super) fn reroll_hint(
     }
     for mut t in &mut texts.p2() {
         set(&mut t, sub);
+    }
+    for mut t in &mut texts.p3() {
+        set(&mut t, &badge);
     }
 }
 
@@ -295,6 +308,7 @@ pub(super) fn follow_offer(phase: Res<State<Phase>>, run: Res<Run>, mut offer: R
                 let d = Dealt {
                     choice: survivors_net::game::Choice::Heal,
                     rarity: b.rarity,
+                    perks: Vec::new(),
                 };
                 (d, Choice::Boon(i))
             })
@@ -917,17 +931,33 @@ pub(super) fn setup_hud(
                 UiTransform::default(),
                 bevy::ui::FocusPolicy::Pass,
             ));
+            // The level reached, on a gold tag over the title.
+            root.spawn((
+                Node {
+                    padding: UiRect::axes(Val::Px(16.0), Val::Px(3.0)),
+                    border_radius: BorderRadius::all(Val::Px(3.0)),
+                    margin: UiRect::bottom(Val::Px(-6.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.98, 0.82, 0.36)),
+            ))
+            .with_children(|b| {
+                b.spawn((
+                    LevelBadge,
+                    text(f, "LEVEL 2", 15.0, Color::srgb(0.12, 0.08, 0.02)),
+                ));
+            });
             root.spawn((
                 LevelUpTitle,
-                centered(f, super::lang::tr("LEVEL UP"), 52.0, GOLD),
+                centered(f, super::lang::tr("Level Up!"), 64.0, GOLD),
             ));
             root.spawn((
                 LevelUpSub,
                 centered(
                     f,
-                    super::lang::tr("Choose your power"),
-                    16.0,
-                    Color::srgb(0.85, 0.78, 0.6),
+                    super::lang::tr("Choose a spell. Its rarity decides how strong it is."),
+                    17.0,
+                    Color::srgb(0.75, 0.72, 0.66),
                 ),
             ));
             root.spawn((
@@ -935,7 +965,7 @@ pub(super) fn setup_hud(
                 Node {
                     column_gap: Val::Px(22.0),
                     // Room for a hovered card's lift.
-                    margin: UiRect::new(Val::ZERO, Val::ZERO, Val::Px(28.0), Val::Px(16.0)),
+                    margin: UiRect::new(Val::ZERO, Val::ZERO, Val::Px(22.0), Val::Px(8.0)),
                     ..default()
                 },
             ));
@@ -944,7 +974,7 @@ pub(super) fn setup_hud(
                 RerollHint,
                 centered(
                     f,
-                    super::lang::tr("Click a card, or press 1, 2 or 3"),
+                    super::lang::tr("Click a card, or press 1 to 4"),
                     14.0,
                     DIM,
                 ),
@@ -1330,108 +1360,97 @@ pub(super) fn refresh_menu(
     }
 }
 
+/// The badge at a card's top right.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Badge {
+    /// A spell not yet known: filled in the rarity's colour.
+    New,
+    /// The rank the card brings a known spell to: outlined.
+    Rank(u16),
+    /// A shrine's blessing.
+    Blessing,
+    /// The healthstone.
+    Heal,
+}
+
 /// What a level-up card shows.
 pub(super) struct CardText {
     pub spell: u32,
     pub name: String,
+    pub badge: Badge,
+    /// Under the name: "New spell", "Rank 1 » 2".
     pub tag: String,
-    pub tag_color: Color,
+    /// What the spell does, for one not yet known; empty otherwise.
     pub desc: String,
-    /// `(rank now, top rank)`, for the pips; `None` for the healthstone.
-    pub ranks: Option<(u8, u8)>,
+    /// What the card grows, as `(value, what)`: `+25%` `damage`.
+    pub perks: Vec<(String, &'static str)>,
+    /// The card's foot: what it takes, or what it does.
+    pub footer: String,
 }
 
-/// A card as it shows, its numbers at the rank it would give at `rarity`'s worth.
+/// A card as it shows: a new spell with its first rank's numbers and what its rarity adds, a rank
+/// with the stats it grows, a blessing with its stat.
 pub(super) fn describe_card(
     choice: Choice,
-    rarity: data::CardRarity,
+    perks: &[data::Perk],
     run: &Run,
     spells: Option<&crate::ui_action::Spells>,
 ) -> CardText {
-    let new = Color::srgb(0.3, 1.0, 0.3);
-    let w = rarity.weight();
+    use super::lang::{tr, trf};
+    let perk_list = || perks.iter().map(|&p| perk_text(p)).collect::<Vec<_>>();
     match choice {
         Choice::NewAbility(def) => {
             let stats = run.stats();
-            let c = cast_at(def, 1, w, &stats);
+            let c = cast_at(def, data::Perks::default(), &stats);
             CardText {
                 spell: def.spell,
                 name: spell_name(spells, def.spell, def.key),
-                tag: "New spell".into(),
-                tag_color: new,
+                badge: Badge::New,
+                tag: tr("New spell").to_string(),
                 desc: format!("{}.", ability_body(def, &c)),
-                ranks: Some((0, data::MAX_ABILITY_LEVEL)),
+                perks: perk_list(),
+                footer: trf(
+                    "Takes a spell slot · {}/{}",
+                    &[
+                        &(run.abilities.len() + 1).to_string(),
+                        &data::MAX_ABILITIES.to_string(),
+                    ],
+                ),
             }
         }
         Choice::Upgrade(k) => {
             let o = &run.abilities[k];
-            let next = o.level + 1;
-            let stats = run.stats();
-            let (a, b) = (
-                cast_at(o.def, o.level, o.power, &stats),
-                cast_at(o.def, next, o.power + w, &stats),
-            );
-            // What actually changes, as before → after.
-            let mut lines = Vec::new();
-            let (da, db) = if a.dmg > 0.0 {
-                (a.dmg, b.dmg)
-            } else {
-                (a.dot, b.dot)
-            };
-            if db > da {
-                lines.push(format!("Damage {} » {}", num(da), num(db)));
-            }
-            if b.cooldown < a.cooldown - 0.01 {
-                lines.push(format!(
-                    "Cooldown {}s » {}s",
-                    num(a.cooldown),
-                    num(b.cooldown)
-                ));
-            }
-            if b.count > a.count {
-                lines.push(format!("Targets {} » {}", a.count, b.count));
-            }
-            if b.radius > a.radius + 0.05 {
-                lines.push(format!("Area {} » {} yd", num(a.radius), num(b.radius)));
-            }
-            if b.duration > a.duration + 0.05 {
-                lines.push(format!("Lasts {}s » {}s", num(a.duration), num(b.duration)));
-            }
+            let next = o.level.saturating_add(1);
             CardText {
                 spell: o.def.spell,
                 name: spell_name(spells, o.def.spell, o.def.key),
-                tag: format!("Rank {} » {next}", o.level),
-                tag_color: Color::WHITE,
-                desc: lines.join("\n"),
-                ranks: Some((o.level, data::MAX_ABILITY_LEVEL)),
+                badge: Badge::Rank(next),
+                tag: trf("Rank {} » {}", &[&o.level.to_string(), &next.to_string()]),
+                desc: String::new(),
+                perks: perk_list(),
+                footer: tr("Improves a spell you know").to_string(),
             }
         }
+        // Passives are no longer dealt; a card naming one still reads.
         Choice::NewPassive(p) => CardText {
             spell: p.spell,
             name: p.name.into(),
-            tag: "New talent".into(),
-            tag_color: new,
-            desc: passive_text(p.stat, p.per_level * w),
-            ranks: Some((0, data::MAX_PASSIVE_LEVEL)),
+            badge: Badge::New,
+            tag: tr("New talent").to_string(),
+            desc: passive_text(p.stat, p.per_level),
+            perks: Vec::new(),
+            footer: String::new(),
         },
         Choice::UpPassive(k) => {
-            let (p, level, power) = run.passives[k];
-            let fmt = |v: f32| match p.stat {
-                Stat::Regen | Stat::Armor => num(v),
-                _ => pct(v),
-            };
+            let (p, level, _) = run.passives[k];
             CardText {
                 spell: p.spell,
                 name: p.name.into(),
-                tag: format!("Rank {level} » {}", level + 1),
-                tag_color: Color::WHITE,
-                desc: format!(
-                    "{}\n{} » {}",
-                    stat_label(p.stat),
-                    fmt(p.per_level * power),
-                    fmt(p.per_level * (power + w)),
-                ),
-                ranks: Some((level, data::MAX_PASSIVE_LEVEL)),
+                badge: Badge::Rank(u16::from(level) + 1),
+                tag: String::new(),
+                desc: passive_text(p.stat, p.per_level),
+                perks: Vec::new(),
+                footer: String::new(),
             }
         }
         Choice::Boon(k) => {
@@ -1441,20 +1460,22 @@ pub(super) fn describe_card(
             };
             CardText {
                 spell: data::shrine(0).spell,
-                name: super::lang::tr(stat_label(b.stat)).to_string(),
-                tag: super::lang::tr("Blessing").to_string(),
-                tag_color: GOLD,
+                name: tr(stat_label(b.stat)).to_string(),
+                badge: Badge::Blessing,
+                tag: tr("Blessing").to_string(),
                 desc: passive_text(b.stat, v),
-                ranks: None,
+                perks: Vec::new(),
+                footer: tr("For the rest of the run").to_string(),
             }
         }
         Choice::Heal => CardText {
             spell: 5720,
-            name: "Healthstone".into(),
-            tag: "Restore".into(),
-            tag_color: Color::WHITE,
-            desc: "Everything is mastered. Restores all health.".into(),
-            ranks: None,
+            name: tr("Healthstone").to_string(),
+            badge: Badge::Heal,
+            tag: tr("Restore").to_string(),
+            desc: tr("Every spell is banished. Restores all health.").to_string(),
+            perks: Vec::new(),
+            footer: String::new(),
         },
     }
 }
@@ -1589,7 +1610,7 @@ pub(super) fn refresh_hud(
     for (row, is_abilities, is_items) in &rows {
         commands.entity(row).despawn_related::<Children>();
         commands.entity(row).with_children(|row| {
-            let entries: Vec<(u32, u8, f32, TipFor, Color)> = if is_abilities {
+            let entries: Vec<(u32, u16, f32, TipFor, Color)> = if is_abilities {
                 run.abilities
                     .iter()
                     .enumerate()
@@ -1602,14 +1623,14 @@ pub(super) fn refresh_hud(
                     .enumerate()
                     .map(|(i, (item, n))| {
                         let edge = super::cards::rarity_color(item.rarity);
-                        (item.spell, *n, 26.0, TipFor::RunItem(i), edge)
+                        (item.spell, u16::from(*n), 26.0, TipFor::RunItem(i), edge)
                     })
                     .collect()
             } else {
                 run.passives
                     .iter()
                     .enumerate()
-                    .map(|(i, (p, l, _))| (p.spell, *l, 30.0, TipFor::Passive(i), EDGE))
+                    .map(|(i, (p, l, _))| (p.spell, u16::from(*l), 30.0, TipFor::Passive(i), EDGE))
                     .collect()
             };
             for (spell, level, size, tip, edge) in entries {
@@ -2029,13 +2050,13 @@ struct Cast {
     cooldown: f32,
 }
 
-/// What `def` casts at `level`, its ranks worth `power` (see [`Owned::power`]).
-fn cast_at(def: &'static AbilityDef, level: u8, power: f32, stats: &Stats) -> Cast {
+/// What `def` casts with `perks` from its cards.
+fn cast_at(def: &'static AbilityDef, perks: data::Perks, stats: &Stats) -> Cast {
     let o = Owned {
         def,
-        level,
+        level: 1,
         cd: 0.0,
-        power,
+        perks,
     };
     let mult = o.damage_mult() * stats.might;
     Cast {
@@ -2163,47 +2184,13 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
 }
 
 /// What the next rank changes, at the current stats.
-fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
-    let what = match def.kind {
-        Kind::Shield => "absorbed",
-        Kind::Heal => "healing",
-        _ => "damage",
-    };
-    let mut gains = Vec::new();
-    if next.dmg > 0.0 && def.kind != Kind::Dot && def.kind != Kind::Immune {
-        gains.push(format!("{} {what}", num(next.dmg)));
-    }
-    if next.dot > 0.0 {
-        gains.push(format!("{} damage per second", num(next.dot)));
-    }
-    if next.count != now.count
-        && matches!(
-            def.kind,
-            Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
-        )
-    {
-        gains.push(match def.kind {
-            Kind::Chain => format!("{} jumps", next.count),
-            _ => format!("{} targets", next.count),
-        });
-    }
-    if next.radius > 0.0 {
-        gains.push(format!("{} yd", num(next.radius)));
-    }
-    if next.duration > 0.0 {
-        gains.push(format!("{} sec", num(next.duration)));
-    }
-    gains.push(format!("{} sec cooldown", num(next.cooldown)));
-    gains.join(", ")
-}
-
 pub(super) fn ability_tip(
     o: &Owned,
     stats: &Stats,
     spells: Option<&crate::ui_action::Spells>,
 ) -> Vec<TipLine> {
     let def = o.def;
-    let now = cast_at(def, o.level, o.power, stats);
+    let now = cast_at(def, o.perks, stats);
     let mut lines = vec![
         TipLine::new(spell_name(spells, def.spell, def.key), Color::WHITE)
             .header()
@@ -2238,14 +2225,52 @@ pub(super) fn ability_tip(
             DIM,
         ));
     }
-    if o.level < data::MAX_ABILITY_LEVEL {
-        let next = cast_at(def, o.level + 1, o.power + 1.0, stats);
-        lines.push(TipLine::new("Next rank:", Color::WHITE));
-        lines.push(TipLine::new(next_rank(def, &now, &next), GOLD));
-    } else {
-        lines.push(TipLine::new("Highest rank", DIM));
+    // What its cards have given it so far.
+    let grown = perk_lines(&o.perks);
+    if !grown.is_empty() {
+        lines.push(TipLine::new(
+            super::lang::tr("From its cards:"),
+            Color::WHITE,
+        ));
+        for (v, l) in grown {
+            lines.push(TipLine::new(format!("{v} {l}"), GOLD));
+        }
     }
     lines
+}
+
+/// One perk as a card shows it: its value (`+25%`, `-10%`, `+1`) and what it grows.
+pub(super) fn perk_text(p: data::Perk) -> (String, &'static str) {
+    use super::lang::tr;
+    let share = |v: f32| format!("{}%", (v * 100.0).round() as i32);
+    match p {
+        data::Perk::Damage(v) => (format!("+{}", share(v)), tr("damage")),
+        data::Perk::Cooldown(v) => (format!("-{}", share(v)), tr("cooldown")),
+        data::Perk::Targets(n) => (format!("+{n}"), tr("targets")),
+        data::Perk::Area(v) => (format!("+{}", share(v)), tr("area")),
+        data::Perk::Duration(v) => (format!("+{}", share(v)), tr("duration")),
+    }
+}
+
+/// What a spell's cards have given it, summed, as lines: only what moved.
+fn perk_lines(p: &data::Perks) -> Vec<(String, &'static str)> {
+    let mut out = Vec::new();
+    if p.damage > 0.0 {
+        out.push(perk_text(data::Perk::Damage(p.damage)));
+    }
+    if p.cooldown < 1.0 {
+        out.push(perk_text(data::Perk::Cooldown(1.0 - p.cooldown)));
+    }
+    if p.targets > 0 {
+        out.push(perk_text(data::Perk::Targets(p.targets)));
+    }
+    if p.area > 0.0 {
+        out.push(perk_text(data::Perk::Area(p.area)));
+    }
+    if p.duration > 0.0 {
+        out.push(perk_text(data::Perk::Duration(p.duration)));
+    }
+    out
 }
 
 /// What a passive's bonus `v` does, in the voice of a buff.

@@ -899,7 +899,6 @@ pub(crate) fn ability(key: &str) -> &'static AbilityDef {
         .unwrap_or_else(|| panic!("survivors: no ability {key:?}"))
 }
 
-pub(crate) const MAX_ABILITY_LEVEL: u8 = 8;
 pub(crate) const MAX_PASSIVE_LEVEL: u8 = 5;
 pub(crate) const MAX_ABILITIES: usize = 6;
 pub(crate) const MAX_PASSIVES: usize = 6;
@@ -3223,17 +3222,171 @@ pub(crate) fn boon(stat: usize, rarity: CardRarity) -> Boon {
 }
 
 /// Rerolls of the level-up cards a run starts with (R at the cards).
-pub(crate) const REROLLS_PER_RUN: u8 = 3;
+pub(crate) const REROLLS_PER_RUN: u8 = 2;
 /// Banishes a run starts with: a card taken out of the hero's deals for the rest of the run.
-pub(crate) const BANISHES_PER_RUN: u8 = 1;
-/// Skips a run starts with: a level let go by without a card.
-pub(crate) const SKIPS_PER_RUN: u8 = 1;
-/// Every this many levels, the hero earns one more reroll, banish or skip, in turn.
+pub(crate) const BANISHES_PER_RUN: u8 = 3;
+/// What skipping a level-up pays, before the gold stat. A skip is always there to take.
+pub(crate) const SKIP_GOLD: u32 = 10;
+/// Every this many levels, the hero earns one more banish or reroll, in turn.
 pub(crate) const CARD_TOKEN_LEVELS: u32 = 5;
 /// The most of each a hero can hold.
 pub(crate) const MAX_CARD_TOKENS: u8 = 9;
 /// Cards on offer at a level-up.
-pub(crate) const CARDS_DEALT: usize = 3;
+pub(crate) const CARDS_DEALT: usize = 4;
+
+/// What one level-up card does to a spell: a single stat of it, the rarer the more, and an Epic
+/// or Legendary card two or three of them. A spell's ranks have no cap: each card adds its perks
+/// to what the spell already has ([`Perks`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Perk {
+    /// More damage, a share of the spell's own.
+    Damage(f32),
+    /// A shorter cooldown: this share off what it is.
+    Cooldown(f32),
+    /// More enemies struck.
+    Targets(u8),
+    /// A wider area, a share of the spell's own.
+    Area(f32),
+    /// A longer effect, a share of the spell's own.
+    Duration(f32),
+}
+
+/// The perk kinds, in their wire order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PerkKind {
+    Damage,
+    Cooldown,
+    Targets,
+    Area,
+    Duration,
+}
+
+impl PerkKind {
+    pub const ALL: [PerkKind; 5] = [
+        PerkKind::Damage,
+        PerkKind::Cooldown,
+        PerkKind::Targets,
+        PerkKind::Area,
+        PerkKind::Duration,
+    ];
+
+    /// Whether a spell has this stat to grow: damage for one that deals it, targets for one that
+    /// picks a number of them, area and duration for one that has them; every one a cooldown.
+    pub fn fits(self, def: &AbilityDef) -> bool {
+        match self {
+            PerkKind::Damage => def.damage > 0.0 || def.dot > 0.0,
+            PerkKind::Cooldown => def.cooldown > 0.0,
+            PerkKind::Targets => matches!(
+                def.kind,
+                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
+            ),
+            PerkKind::Area => def.radius > 0.0,
+            PerkKind::Duration => def.duration > 0.0,
+        }
+    }
+
+    /// This stat's perk at `rarity`.
+    pub fn at(self, rarity: CardRarity) -> Perk {
+        let r = rarity as usize;
+        match self {
+            PerkKind::Damage => Perk::Damage([0.12, 0.18, 0.25, 0.35, 0.5][r]),
+            PerkKind::Cooldown => Perk::Cooldown([0.06, 0.08, 0.1, 0.13, 0.17][r]),
+            PerkKind::Targets => Perk::Targets(if rarity == CardRarity::Legendary {
+                2
+            } else {
+                1
+            }),
+            PerkKind::Area => Perk::Area([0.08, 0.12, 0.16, 0.22, 0.3][r]),
+            PerkKind::Duration => Perk::Duration([0.1, 0.15, 0.2, 0.28, 0.4][r]),
+        }
+    }
+}
+
+impl Perk {
+    pub fn kind(self) -> PerkKind {
+        match self {
+            Perk::Damage(_) => PerkKind::Damage,
+            Perk::Cooldown(_) => PerkKind::Cooldown,
+            Perk::Targets(_) => PerkKind::Targets,
+            Perk::Area(_) => PerkKind::Area,
+            Perk::Duration(_) => PerkKind::Duration,
+        }
+    }
+
+    /// `(kind, value)` as the wire carries it.
+    pub fn to_wire(self) -> (u8, f32) {
+        let k = self.kind() as u8;
+        let v = match self {
+            Perk::Damage(v) | Perk::Cooldown(v) | Perk::Area(v) | Perk::Duration(v) => v,
+            Perk::Targets(n) => f32::from(n),
+        };
+        (k, v)
+    }
+
+    pub fn from_wire((k, v): (u8, f32)) -> Option<Perk> {
+        if !v.is_finite() {
+            return None;
+        }
+        Some(match PerkKind::ALL.get(usize::from(k))? {
+            PerkKind::Damage => Perk::Damage(v),
+            PerkKind::Cooldown => Perk::Cooldown(v),
+            PerkKind::Targets => Perk::Targets(v.clamp(0.0, 255.0) as u8),
+            PerkKind::Area => Perk::Area(v),
+            PerkKind::Duration => Perk::Duration(v),
+        })
+    }
+}
+
+/// How many stats a card of `rarity` grows: one, two for an Epic, three for a Legendary.
+pub(crate) fn perks_for(rarity: CardRarity) -> usize {
+    match rarity {
+        CardRarity::Epic => 2,
+        CardRarity::Legendary => 3,
+        _ => 1,
+    }
+}
+
+/// What a spell's cards have given it, summed: the share of damage added, what is left of its
+/// cooldown, the targets added, the shares of area and duration added.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Perks {
+    pub damage: f32,
+    pub cooldown: f32,
+    pub targets: u8,
+    pub area: f32,
+    pub duration: f32,
+}
+
+impl Default for Perks {
+    fn default() -> Self {
+        Self {
+            damage: 0.0,
+            cooldown: 1.0,
+            targets: 0,
+            area: 0.0,
+            duration: 0.0,
+        }
+    }
+}
+
+/// The least of its cooldown a spell keeps, however many cards cut it.
+pub(crate) const MIN_COOLDOWN_SHARE: f32 = 0.25;
+
+impl Perks {
+    /// These with `perk` added: shares add up, a cooldown is cut by its share of what is left.
+    pub fn with(mut self, perk: Perk) -> Self {
+        match perk {
+            Perk::Damage(v) => self.damage += v,
+            Perk::Cooldown(v) => {
+                self.cooldown = (self.cooldown * (1.0 - v)).max(MIN_COOLDOWN_SHARE);
+            }
+            Perk::Targets(n) => self.targets = self.targets.saturating_add(n),
+            Perk::Area(v) => self.area += v,
+            Perk::Duration(v) => self.duration += v,
+        }
+        self
+    }
+}
 
 /// A rarity of the run's draws: a level-up card's, the rarer the more its rank is worth, and a
 /// run item's, the rarer the less often drawn.
@@ -3425,10 +3578,11 @@ pub(crate) struct PerkDef {
 /// What a perk's rank does to a hero at the start of a run.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum PerkEffect {
-    /// More rerolls, banishes or skips in hand.
+    /// More rerolls or banishes in hand.
     Rerolls(u8),
     Banishes(u8),
-    Skips(u8),
+    /// More gold a skipped hand pays.
+    SkipGold(u32),
     /// The run's first level-up deals this many more cards.
     OpeningHand(u8),
     /// A bonus held all run, as the profile's other bonuses.
@@ -3442,11 +3596,10 @@ impl PerkDef {
     pub fn amount_at(&self, rank: u8) -> String {
         let k = rank.max(1);
         match self.effect {
-            PerkEffect::Rerolls(n)
-            | PerkEffect::Banishes(n)
-            | PerkEffect::Skips(n)
-            | PerkEffect::OpeningHand(n) => (u32::from(n) * u32::from(k)).to_string(),
-            PerkEffect::StartGold(n) => (n * u32::from(k)).to_string(),
+            PerkEffect::Rerolls(n) | PerkEffect::Banishes(n) | PerkEffect::OpeningHand(n) => {
+                (u32::from(n) * u32::from(k)).to_string()
+            }
+            PerkEffect::StartGold(n) | PerkEffect::SkipGold(n) => (n * u32::from(k)).to_string(),
             PerkEffect::Bonus(b) => match b.amount {
                 Amount::Flat(v) | Amount::Percent(v) => {
                     format!("{}", (v * 100.0 * f32::from(k)).round())
@@ -3479,11 +3632,11 @@ pub(crate) static PERKS: &[PerkDef] = &[
     PerkDef {
         key: "skip",
         name: "Skip",
-        text: "Skips every run: +{}. A skip passes on a hand.",
+        text: "A skipped hand pays {} more gold.",
         spell: 1953,
         max_rank: 2,
         cost: 10,
-        effect: PerkEffect::Skips(1),
+        effect: PerkEffect::SkipGold(5),
     },
     PerkDef {
         key: "opening_hand",

@@ -349,6 +349,42 @@ fn french(s: &str) -> Option<&'static str> {
         "  ·  Keys {}" => "  ·  Clés {}",
         "Key ({} held)" => "Clé ({} en main)",
         "Shady Merchant" => "Marchand louche",
+        // The level-up cards.
+        "Level Up!" => "Niveau supérieur !",
+        "LEVEL {}" => "NIVEAU {}",
+        "Choose a spell. Its rarity decides how strong it is." => {
+            "Choisissez un sort. Sa rareté décide de sa puissance."
+        }
+        "Click a card, or press 1 to 4" => "Cliquez une carte, ou appuyez sur 1 à 4",
+        "Banish: click a card, or press 1 to 4  ·  B again to cancel" => {
+            "Bannir : cliquez une carte, ou appuyez sur 1 à 4  ·  B de nouveau pour annuler"
+        }
+        "SHRINE" => "SANCTUAIRE",
+        "Blessing!" => "Bénédiction !",
+        "Choose a blessing for the rest of the run." => {
+            "Choisissez une bénédiction pour le reste de la partie."
+        }
+        "NEW" => "NOUVEAU",
+        "RANK {}" => "RANG {}",
+        "RESTORE" => "SOIN",
+        "New spell" => "Nouveau sort",
+        "New talent" => "Nouveau talent",
+        "Rank {} » {}" => "Rang {} » {}",
+        "Takes a spell slot · {}/{}" => "Prend un emplacement de sort · {}/{}",
+        "Improves a spell you know" => "Améliore un sort que vous connaissez",
+        "For the rest of the run" => "Pour le reste de la partie",
+        "Healthstone" => "Pierre de soins",
+        "Restore" => "Soin",
+        "Every spell is banished. Restores all health." => {
+            "Tous les sorts sont bannis. Rend toute la vie."
+        }
+        "cooldown" => "temps de recharge",
+        "targets" => "cibles",
+        "area" => "zone",
+        "duration" => "durée",
+        "From its cards:" => "Grâce à ses cartes :",
+        "Banish  ({})" => "Bannir  ({})",
+        "+{} gold" => "+{} or",
         "Boss Portal" => "Portail du boss",
         "Portal Onward" => "Portail de l'étape suivante",
         "Opens when the final boss is due" => "S'ouvre à l'heure du boss final",
@@ -449,7 +485,7 @@ fn french(s: &str) -> Option<&'static str> {
         "War Chest" => "Trésor de guerre",
         "Rerolls every run: +{}." => "Relances par partie : +{}.",
         "Banishes every run: +{}. A banished card is never dealt again." => "Bannissements par partie : +{}. Une carte bannie ne revient plus.",
-        "Skips every run: +{}. A skip passes on a hand." => "Passes par partie : +{}. Passer écarte une main.",
+        "A skipped hand pays {} more gold." => "Une main passée rapporte {} or de plus.",
         "Cards on your first level-up of every run: +{}." => "Cartes au premier niveau de chaque partie : +{}.",
         "Experience: +{}%." => "Expérience : +{} %.",
         "Gold: +{}%." => "Or : +{} %.",
