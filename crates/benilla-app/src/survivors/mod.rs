@@ -30,6 +30,7 @@ mod net;
 mod offer;
 mod outfit;
 mod profile;
+mod rewards;
 mod sheet;
 mod stats;
 mod sync;
@@ -89,6 +90,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(kit::plugin)
             .add_plugins(character::plugin)
             .add_plugins(sheet::plugin)
+            .add_plugins(rewards::plugin)
             .add_systems(Startup, hud::setup_hud)
             .add_systems(Update, (hero::daylight, treasure::find_looks))
             .add_systems(
@@ -280,12 +282,13 @@ impl Selection {
     }
 }
 
-/// What a hero brings from its profile beyond its race: bonuses as the wire carries them, and the
-/// gear worn by name.
+/// What a hero brings from its profile beyond its race: bonuses as the wire carries them, the
+/// gear worn by name, and the perks bought, `(key, rank)`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Brings {
     pub bonuses: Vec<(u8, u8, i32)>,
     pub gear: Vec<String>,
+    pub perks: Vec<(String, u8)>,
 }
 
 /// Who plays the run on this machine.
@@ -471,6 +474,10 @@ pub(super) struct Vitals {
     /// Rerolls and banishes in hand (a skip is always there to take).
     pub rerolls: u8,
     pub banishes: u8,
+    /// More cards on the next level-up's deal: the Opening Hand perk's, spent on the first.
+    pub opening_hand: u8,
+    /// More gold a skipped hand pays: the Skip perk's.
+    pub skip_gold: u32,
     /// Keys in hand: each opens a chest for nothing.
     pub keys: u8,
     /// The blessings a Shrine of Power offers this hero, by the simulation: one may be taken.
@@ -516,6 +523,8 @@ impl Default for Vitals {
             banned: Vec::new(),
             rerolls: data::REROLLS_PER_RUN,
             banishes: data::BANISHES_PER_RUN,
+            opening_hand: 0,
+            skip_gold: 0,
             keys: 0,
             shrine_offer: Vec::new(),
             boons: Vec::new(),

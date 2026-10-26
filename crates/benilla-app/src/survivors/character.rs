@@ -163,8 +163,6 @@ struct CodexBody;
 #[derive(Component)]
 struct AchievementsBody;
 #[derive(Component)]
-struct RewardsBody;
-#[derive(Component)]
 struct OptionsBody;
 
 /// One Options setting a button steps.
@@ -371,6 +369,11 @@ fn build_screen(
                     },
                 ))
                 .with_children(|pg| {
+                    // The Rewards tab is its own page: the points, and what they buy.
+                    if marker == 6 {
+                        super::rewards::page(pg, f);
+                        return;
+                    }
                     kit::panel(
                         pg,
                         f,
@@ -408,7 +411,6 @@ fn build_screen(
                                         3 => e.insert(DropsBody),
                                         4 => e.insert(CodexBody),
                                         5 => e.insert(AchievementsBody),
-                                        6 => e.insert(RewardsBody),
                                         _ => e.insert(OptionsBody),
                                     };
                                 },
@@ -2986,14 +2988,14 @@ fn refresh_codex(
     });
 }
 
-/// The Achievements tab, every one with its progress; the Rewards tab, those done and waiting to
-/// be claimed; and the Rewards tab's count.
+/// The Achievements tab: those done and waiting to be claimed, then every one with its progress;
+/// the Achievements tab's count of claims waiting, and the Rewards tab's of points to spend.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn refresh_achievements(
     mut commands: Commands,
     fonts: Option<Res<KitFonts>>,
     store: Res<ProfileStore>,
-    bodies: Query<(Entity, Has<AchievementsBody>), Or<(With<AchievementsBody>, With<RewardsBody>)>>,
+    bodies: Query<Entity, With<AchievementsBody>>,
     tabs: Query<(&TabButton, &Children)>,
     mut texts: Query<&mut Text>,
     mut shown: Local<Option<String>>,
@@ -3005,9 +3007,10 @@ fn refresh_achievements(
     let Some(fonts) = fonts else { return };
     let p = &store.profile;
     let view = format!(
-        "{:?}{:?}{}{}{}{}{}",
+        "{:?}{:?}{:?}{}{}{}{}{}",
         p.totals,
         p.claimed,
+        p.perks,
         p.gold,
         p.talent_points,
         p.inventory.len(),
@@ -3017,27 +3020,27 @@ fn refresh_achievements(
     if shown.as_deref() == Some(view.as_str()) {
         return;
     }
-    let mut bodies = bodies.iter();
-    let (Some(a), Some(b)) = (bodies.next(), bodies.next()) else {
+    let Ok(achievements) = bodies.single() else {
         return;
     };
     *shown = Some(view);
-    let (achievements, rewards) = if a.1 { (a.0, b.0) } else { (b.0, a.0) };
     let unclaimed = p.unclaimed();
-    // The Rewards tab says how many wait.
+    // The Achievements tab says how many claims wait; the Rewards tab, how many points.
+    let points = p.points_left();
     for (tab, children) in &tabs {
-        if tab.0 != REWARDS {
-            continue;
-        }
+        let want = match tab.0 {
+            ACHIEVEMENTS if !unclaimed.is_empty() => {
+                trf("Achievements ({})", &[&unclaimed.len().to_string()])
+            }
+            ACHIEVEMENTS => tr(TABS[ACHIEVEMENTS]).to_string(),
+            REWARDS if points > 0 => trf("Rewards ({})", &[&points.to_string()]),
+            REWARDS => tr(TABS[REWARDS]).to_string(),
+            _ => continue,
+        };
         for child in children.iter() {
             if let Ok(mut t) = texts.get_mut(child) {
-                let want = if unclaimed.is_empty() {
-                    tr(TABS[REWARDS]).to_string()
-                } else {
-                    trf("Rewards ({})", &[&unclaimed.len().to_string()])
-                };
                 if **t != want {
-                    **t = want;
+                    **t = want.clone();
                 }
             }
         }
@@ -3046,6 +3049,17 @@ fn refresh_achievements(
     let done = data::ACHIEVEMENTS.iter().filter(|x| p.achieved(x)).count();
     commands.entity(achievements).despawn_related::<Children>();
     commands.entity(achievements).with_children(|body| {
+        if !unclaimed.is_empty() {
+            let total: u64 = unclaimed.iter().map(|x| x.gold).sum();
+            kit::button(
+                body,
+                f,
+                tr("Claim all"),
+                Some(&trf("{} gold", &[&total.to_string()])),
+                kit::ButtonLook::ACTION,
+                ScreenAction::ClaimAll,
+            );
+        }
         kit::progress_bar(
             body,
             f,
@@ -3100,6 +3114,8 @@ fn refresh_achievements(
                     &trf("{} gold", &[&x.gold.to_string()]),
                     ok && !claimed,
                 );
+                // Its reward points come with it done, for the Rewards tab.
+                kit::chip(row, f, &trf("{} points", &[&x.points().to_string()]), ok);
                 if ok && !claimed {
                     kit::button(
                         row,
@@ -3112,55 +3128,6 @@ fn refresh_achievements(
                 } else if claimed {
                     row.spawn(kit::text(&f.body, tr("Claimed"), 11.0, theme::GREEN));
                 }
-            });
-        }
-    });
-    commands.entity(rewards).despawn_related::<Children>();
-    commands.entity(rewards).with_children(|body| {
-        if unclaimed.is_empty() {
-            body.spawn(kit::text(
-                &f.body,
-                tr("Nothing waits to be claimed. Achievements pay gold here once done."),
-                13.0,
-                theme::DIM,
-            ));
-            return;
-        }
-        let total: u64 = unclaimed.iter().map(|x| x.gold).sum();
-        kit::button(
-            body,
-            f,
-            tr("Claim all"),
-            Some(&trf("{} gold", &[&total.to_string()])),
-            kit::ButtonLook::ACTION,
-            ScreenAction::ClaimAll,
-        );
-        for x in &unclaimed {
-            let Some(i) = data::ACHIEVEMENTS.iter().position(|y| y == *x) else {
-                continue;
-            };
-            body.spawn(Node {
-                column_gap: Val::Px(12.0),
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|row| {
-                row.spawn(Node {
-                    width: Val::Px(320.0),
-                    ..default()
-                })
-                .with_children(|c| {
-                    c.spawn(kit::text(&f.title, x.name.clone(), 15.0, theme::GOLD));
-                });
-                kit::chip(row, f, &trf("{} gold", &[&x.gold.to_string()]), true);
-                kit::button(
-                    row,
-                    f,
-                    tr("Claim"),
-                    None,
-                    kit::ButtonLook::ACTION,
-                    ScreenAction::Claim(i),
-                );
             });
         }
     });

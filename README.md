@@ -96,7 +96,11 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   met.
 - **Achievements and Rewards**: thirty achievements written for the mode (runs, wins, kills,
   levels, the collection, bosses met, talents, every zone, Heroic and Mythic), each paying gold
-  once claimed from the **Rewards (N)** tab.
+  once claimed from the **Achievements (N)** tab, and reward points once done. The **Rewards
+  (N)** tab spends the points on perks every hero of every class brings into a run: more
+  rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and gold, gold in hand at the
+  start. Ranks are bought on a draft kept with **Confirm**; **Reset** takes every perk point
+  back, twice a save.
 - **Options and French**: the **Options** page (bottom left) sets the master, music and effects
   volumes, the mouse sensitivity, the picture polish and the language, English or French, and
   lists the controls. The run's headings follow the language from the next start.

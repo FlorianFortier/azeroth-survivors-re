@@ -121,6 +121,10 @@ pub(super) struct Profile {
     pub claimed: BTreeSet<String>,
     /// The Options page's settings.
     pub options: Options,
+    /// The perks bought with reward points: rank by [`data::PerkDef::key`].
+    pub perks: BTreeMap<String, u8>,
+    /// How many times every perk point has been taken back ([`data::MAX_PERK_RESETS`]).
+    pub perk_resets: u8,
 }
 
 /// Sound, mouse, picture and language, as the Options page sets them.
@@ -190,6 +194,8 @@ impl Default for Profile {
             codex: Codex::default(),
             claimed: BTreeSet::new(),
             options: Options::default(),
+            perks: BTreeMap::new(),
+            perk_resets: 0,
         }
     }
 }
@@ -355,6 +361,72 @@ impl Profile {
         true
     }
 
+    /// The reward points every achievement done has earned.
+    pub fn points_earned(&self) -> u32 {
+        data::ACHIEVEMENTS
+            .iter()
+            .filter(|a| self.achieved(a))
+            .map(|a| a.points())
+            .sum()
+    }
+
+    /// The reward points `perks` cost, rank by rank; a perk the tables no longer have costs
+    /// nothing.
+    pub fn perks_cost(perks: &BTreeMap<String, u8>) -> u32 {
+        perks
+            .iter()
+            .filter_map(|(k, r)| data::perk(k).map(|p| p.cost * u32::from((*r).min(p.max_rank))))
+            .sum()
+    }
+
+    /// The reward points spent.
+    pub fn points_spent(&self) -> u32 {
+        Self::perks_cost(&self.perks)
+    }
+
+    /// The reward points left to spend.
+    pub fn points_left(&self) -> u32 {
+        self.points_earned().saturating_sub(self.points_spent())
+    }
+
+    /// A perk's rank bought, held to its table's most.
+    pub fn perk_rank(&self, key: &str) -> u8 {
+        let most = data::perk(key).map_or(0, |p| p.max_rank);
+        self.perks.get(key).copied().unwrap_or(0).min(most)
+    }
+
+    /// The perks bought, `(perk, rank)`, in the table's order.
+    pub fn perk_ranks(&self) -> Vec<(&'static data::PerkDef, u8)> {
+        data::PERKS
+            .iter()
+            .map(|p| (p, self.perk_rank(p.key)))
+            .filter(|(_, r)| *r > 0)
+            .collect()
+    }
+
+    /// Take `perks` as the ranks bought, if they are within each perk's most and the points
+    /// earned pay for them; false and nothing changed otherwise.
+    pub fn set_perks(&mut self, perks: BTreeMap<String, u8>) -> bool {
+        let fits = perks
+            .iter()
+            .all(|(k, r)| data::perk(k).is_some_and(|p| *r <= p.max_rank));
+        if !fits || Self::perks_cost(&perks) > self.points_earned() {
+            return false;
+        }
+        self.perks = perks.into_iter().filter(|(_, r)| *r > 0).collect();
+        true
+    }
+
+    /// Take back every point spent on perks, while resets are left; false otherwise.
+    pub fn reset_perks(&mut self) -> bool {
+        if self.perk_resets >= data::MAX_PERK_RESETS || self.perks.is_empty() {
+            return false;
+        }
+        self.perks.clear();
+        self.perk_resets += 1;
+        true
+    }
+
     /// Train the next talent point with gold, if there is enough and a point left.
     pub fn train_point(&mut self) -> bool {
         let cost = super::talents::point_cost(self.talent_points);
@@ -432,8 +504,8 @@ impl Profile {
         (bonuses, procs)
     }
 
-    /// What the profile itself brings, beyond the race's own: the gear worn, the collection and
-    /// the class's talents. A guest's loadout carries these to the host.
+    /// What the profile itself brings, beyond the race's own: the gear worn, the collection, the
+    /// class's talents and the perks' bonuses. A guest's loadout carries these to the host.
     pub fn meta_bonuses(
         &self,
         race: u8,
@@ -445,6 +517,11 @@ impl Profile {
             bonuses.extend_from_slice(&item.bonuses);
         }
         bonuses.extend(self.collection_bonuses());
+        for (perk, rank) in self.perk_ranks() {
+            if let data::PerkEffect::Bonus(b) = perk.effect {
+                bonuses.push(super::stats::scaled(b, f32::from(rank)));
+            }
+        }
         if let (Some(catalog), Some(spent)) = (talents, self.talents.get(class.name)) {
             let trees = super::talents::trees(catalog, race, class.id);
             bonuses.extend(super::talents::bonuses(spent, &trees));
@@ -691,6 +768,12 @@ fn refresh_brings(
             .gear()
             .iter()
             .map(|i| i.name.clone())
+            .collect(),
+        perks: store
+            .profile
+            .perk_ranks()
+            .iter()
+            .map(|(p, r)| (p.key.to_string(), *r))
             .collect(),
     };
     if selection.brings != brings {

@@ -243,7 +243,8 @@ pub(super) fn apply_action(v: &mut Vitals, action: &CardAction, rng: &mut Rng) -
         },
         CardAction::Skip => {
             let mult = v.stats().gold;
-            v.gold += data::SKIP_GOLD as f32 * mult;
+            // The Skip perk's gold on top.
+            v.gold += (data::SKIP_GOLD + v.skip_gold) as f32 * mult;
             v.pending_levels -= 1;
             v.offer.clear();
             true
@@ -267,7 +268,10 @@ pub(super) fn deal_offers(
     }
     for mut h in &mut heroes {
         if h.pending_levels > 0 && h.offer.is_empty() && h.alive() {
-            let offer = deal(&h.v, &mut rng, data::CARDS_DEALT, &[]);
+            // The Opening Hand perk's cards go on the first deal.
+            let n = data::CARDS_DEALT + usize::from(h.v.opening_hand);
+            h.v.opening_hand = 0;
+            let offer = deal(&h.v, &mut rng, n, &[]);
             h.v.offer = offer;
         } else if h.pending_levels == 0 && !h.offer.is_empty() {
             h.v.offer.clear();
