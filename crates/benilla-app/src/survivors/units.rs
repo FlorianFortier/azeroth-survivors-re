@@ -204,6 +204,36 @@ pub(super) fn revive_unit(store: &mut ObjectStore) {
         .merge(ObjectFields::from_pairs(&[(FIELD_HEALTH, 100)]));
 }
 
+/// A living unit's health as its share of the whole, in the field every machine reads (1..100: a
+/// sliver left still reads 1, so only [`kill_unit`] lays it down).
+pub(super) fn set_health(store: &mut ObjectStore, share: f32) {
+    if is_dead(store) {
+        return;
+    }
+    let pct = (share * 100.0).ceil().clamp(1.0, 100.0) as u32;
+    store
+        .0
+        .merge(ObjectFields::from_pairs(&[(FIELD_HEALTH, pct)]));
+}
+
+/// A unit's health as a percent of its whole, as the host wrote it.
+pub(super) fn health_pct(store: &ObjectStore) -> f32 {
+    field(store, FIELD_HEALTH).map_or(100, |v| v.min(100)) as f32
+}
+
+/// A unit's level field, 0 if it has none.
+pub(super) fn level(store: &ObjectStore) -> u32 {
+    field(store, FIELD_LEVEL).unwrap_or(0)
+}
+
+fn field(store: &ObjectStore, index: u16) -> Option<u32> {
+    store
+        .0
+        .raw_fields()
+        .find(|&(i, _)| i == index)
+        .map(|(_, v)| v)
+}
+
 /// Whether a unit's health field reads zero: a corpse.
 pub(super) fn is_dead(store: &ObjectStore) -> bool {
     store

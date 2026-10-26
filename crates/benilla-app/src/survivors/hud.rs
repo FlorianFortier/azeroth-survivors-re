@@ -19,7 +19,7 @@ use super::{Owned, Phase, Rng, Run, Selection, Stats, Vitals};
 
 const GOLD: Color = Color::srgb(1.0, 0.82, 0.0);
 /// The mobility button's edge, an action button's 36 units.
-const MOBILITY_SIZE: f32 = 40.0;
+const MOBILITY_SIZE: f32 = super::frames::SLOT;
 const EDGE: Color = Color::srgb(0.55, 0.45, 0.25);
 const BUTTON: Color = Color::srgba(0.18, 0.06, 0.04, 0.95);
 const BUTTON_HOT: Color = Color::srgba(0.36, 0.12, 0.06, 0.98);
@@ -143,7 +143,11 @@ impl UiArt {
         }
     }
 
-    fn tinted(path: &'static str, tint: Color) -> Self {
+    pub(super) fn path(&self) -> &'static str {
+        self.path
+    }
+
+    pub(super) fn tinted(path: &'static str, tint: Color) -> Self {
         Self {
             path,
             coords: [0.0, 1.0, 0.0, 1.0],
@@ -533,15 +537,16 @@ pub(super) fn setup_hud(
             Visibility::Hidden,
         ))
         .with_children(|root| {
-            // `MainMenuExpBar`, 1024×13 at the bottom centre. The reference stacks it on the
-            // 40-unit action bar; with no action bar here it rests on the screen's edge.
+            // `MainMenuBar` under it all, its art, gryphons and twelve slots (`frames.rs`).
+            super::frames::spawn_action_bar(root);
+            // `MainMenuExpBar`, 1024×13 at the bottom centre, stacked on the action bar.
             root.spawn((
                 XpBar,
                 Interaction::default(),
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
-                    bottom: Val::Px(0.0),
+                    bottom: Val::Px(super::frames::BAR_TALL),
                     margin: UiRect::left(Val::Px(-512.0)),
                     width: Val::Px(1024.0),
                     height: Val::Px(13.0),
@@ -620,23 +625,33 @@ pub(super) fn setup_hud(
                 });
             });
             minimap::spawn_cluster(root, f, &map);
-            // The mobility button: a 36-unit action slot in `UI-Quickslot2`, its key over it.
+            // The spells, on the action bar's first slots, as `ActionButton1`.. sit.
+            root.spawn((
+                AbilityRow,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(50.0),
+                    bottom: Val::Px(super::frames::SLOT_BOTTOM),
+                    margin: UiRect::left(Val::Px(-512.0 + super::frames::SLOT_LEFT)),
+                    column_gap: Val::Px(super::frames::SLOT_STEP - super::frames::SLOT),
+                    ..default()
+                },
+            ));
+            // The mobility button on the bar's last slot, its key in the corner as
+            // `ActionButtonTemplate`'s `HotKey`.
+            let last = super::frames::SLOT_LEFT + super::frames::SLOT_STEP * 11.0;
             root.spawn((
                 MobilitySlot,
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
-                    bottom: Val::Px(24.0),
-                    margin: UiRect::left(Val::Px(-MOBILITY_SIZE / 2.0)),
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    row_gap: Val::Px(2.0),
+                    bottom: Val::Px(super::frames::SLOT_BOTTOM),
+                    margin: UiRect::left(Val::Px(-512.0 + last)),
                     display: Display::None,
                     ..default()
                 },
             ))
             .with_children(|col| {
-                col.spawn(centered(f, "F", 18.0, Color::WHITE));
                 col.spawn((
                     Node {
                         width: Val::Px(MOBILITY_SIZE),
@@ -686,6 +701,15 @@ pub(super) fn setup_hud(
                         MaterialNode(handle.clone()),
                         MobilitySweep(handle),
                     ));
+                    slot.spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            top: Val::Px(1.0),
+                            right: Val::Px(3.0),
+                            ..default()
+                        },
+                        text(f, "F", 12.0, Color::srgb(0.6, 0.6, 0.6)),
+                    ));
                 });
             });
             root.spawn(Node {
@@ -703,13 +727,11 @@ pub(super) fn setup_hud(
                     ..default()
                 })
                 .with_children(|col| {
-                    col.spawn((
-                        AbilityRow,
-                        Node {
-                            column_gap: Val::Px(4.0),
-                            ..default()
-                        },
-                    ));
+                    // Under the unit frames (`frames.rs`).
+                    col.spawn(Node {
+                        height: Val::Px(84.0),
+                        ..default()
+                    });
                     col.spawn((
                         PassiveRow,
                         Node {
@@ -744,6 +766,10 @@ pub(super) fn setup_hud(
                         line.spawn((LevelText, text(f, "Level 1", 14.0, GOLD)));
                         line.spawn((KillText, text(f, "Kills 0", 14.0, Color::WHITE)));
                     });
+                    col.spawn((
+                        super::frames::NextBossText,
+                        text(f, "", 14.0, Color::srgb(1.0, 0.45, 0.35)),
+                    ));
                 });
                 // The minimap cluster's column.
                 row.spawn(Node {
@@ -751,6 +777,7 @@ pub(super) fn setup_hud(
                     ..default()
                 });
             });
+            super::frames::spawn_frames(root, f);
             root.spawn(Node {
                 position_type: PositionType::Absolute,
                 top: Val::Percent(22.0),
@@ -1614,7 +1641,15 @@ pub(super) fn refresh_hud(
                 run.abilities
                     .iter()
                     .enumerate()
-                    .map(|(i, o)| (o.def.spell, o.level, 40.0, TipFor::Ability(i), EDGE))
+                    .map(|(i, o)| {
+                        (
+                            o.def.spell,
+                            o.level,
+                            super::frames::SLOT,
+                            TipFor::Ability(i),
+                            EDGE,
+                        )
+                    })
                     .collect()
             } else if is_items {
                 // Each item edged in its rarity's colour, its stacks in the corner.

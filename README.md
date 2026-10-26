@@ -49,6 +49,12 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   and a label over each chest give its price, each elite shows what it guards, and a fallen
   elite's post counts down to its return; the minimap marks them all, the far elites at its
   edge. Co-op guests see the same.
+- **A WoW HUD**: your unit frame (portrait, name, health, power, level) and your target's at the
+  top left, the clock with the time to the next boss (then to the boss portal) under it, a
+  Damage Done meter by spell under the minimap, and your spells on the action bar with its
+  gryphons at the bottom, the movement spell on its last slot and the experience bar on top.
+  Gold, kills, the chest's price and keys stay spelled out under the clock. Co-op guests see
+  their own damage and their target's health too.
 - **A shady merchant** stands somewhere on the field with three run items for the run's gold
   (Common to Legendary, dearer with each bought, restocked every two minutes): walk up to it and
   click a ware or press 1, 2 or 3. Elites sometimes drop a **key**, which opens a chest for

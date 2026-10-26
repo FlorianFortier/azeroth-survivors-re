@@ -68,6 +68,7 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
+| `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`) |
 | `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls, the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |
 | `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |
 | `marks.rs` | the field's marks over the world: rings on the ground under chests and elites, a fallen elite's post filling as it comes back, a chest's price and an elite's reward over them; all read off `treasure::FieldMark` and `Run::posts`, so guests see them too |
@@ -231,6 +232,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   on `Owned::perks`, which a spell's damage, cooldown, targets, area and duration read; a new
   spell's card brings one perk from Uncommon up. A card is taken only with the perks it was
   dealt. A skip is always there, for `data::SKIP_GOLD`.
+- **The damage meter counts what the simulation credits.** Every `abilities::Hit` names the
+  spell it is credited to (`Hit::spell`, 0 for none, shown as Other), and `abilities::credit`
+  adds it to the hero's `Vitals::damage_by`, which reaches guests on `Game::Me`. A target's
+  health reaches guests as a percent in its health field (`units::set_health`, 1..100 while it
+  lives; 0 is `kill_unit`'s).
 - **Shown text goes through `lang::tr`.** A new label on the main screen or the HUD is written
   in English inside `tr(…)`, and its French added to `lang.rs`'s table; a name the profile stores
   (zones, items, classes) stays English in data and is translated only where it is shown.

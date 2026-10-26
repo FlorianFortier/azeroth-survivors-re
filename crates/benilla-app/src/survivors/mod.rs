@@ -14,6 +14,7 @@ mod cards;
 mod character;
 mod data;
 mod enemies;
+mod frames;
 mod grade;
 mod hero;
 mod hud;
@@ -181,6 +182,8 @@ impl Plugin for SurvivorsPlugin {
                     hud::xp_hover,
                     hud::icon_tooltip,
                     hud::hero_plate,
+                    frames::refresh_frames,
+                    frames::refresh_next_boss,
                     marks::place_labels,
                     market::shop_panel,
                     marks::draw_rings,
@@ -447,6 +450,8 @@ pub(super) struct Vitals {
     /// Seconds an ally has stood over this fallen hero.
     pub revive_t: f32,
     pub damage_done: f64,
+    /// The damage done this run, by the spell that dealt it, for the damage meter.
+    pub damage_by: Vec<(u32, f64)>,
     /// Bumped whenever abilities or passives change, so the HUD rebuilds the icon rows once.
     pub version: u32,
     /// Moves at the level-up cards and blessings taken by this hero, so a client knows which of
@@ -504,6 +509,7 @@ impl Default for Vitals {
             dead_t: None,
             revive_t: 0.0,
             damage_done: 0.0,
+            damage_by: Vec::new(),
             version: 0,
             picks: 0,
             meta: Vec::new(),

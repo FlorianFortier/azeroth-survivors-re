@@ -170,6 +170,11 @@ fn apply_me(run: &mut Run, v: WireVitals) {
     run.kills = v.kills;
     run.gold = v.gold;
     run.keys = v.keys;
+    run.damage_by = v
+        .damage_by
+        .iter()
+        .map(|&(s, d)| (s, f64::from(d)))
+        .collect();
     let items: Vec<_> = v
         .run_items
         .iter()

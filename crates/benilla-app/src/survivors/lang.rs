@@ -239,6 +239,14 @@ fn french(s: &str) -> Option<&'static str> {
         "Done" => "Terminé",
         "Kills {}  ·  Gold {}  ·  Chest {}" => "Victimes {}  ·  Or {}  ·  Coffre {}",
         "Run items: {}" => "Objets de la partie : {}",
+        // The unit frames, the damage meter and the line under the clock.
+        "Damage Done" => "Dégâts infligés",
+        "Other" => "Autre",
+        "{} ({}%)" => "{} ({} %)",
+        "Next boss in {}" => "Prochain boss dans {}",
+        "Boss portal in {}" => "Portail du boss dans {}",
+        "Boss portal open" => "Portail du boss ouvert",
+        "Stage cleared" => "Étape terminée",
         // The field's marks.
         "Stand here to open" => "Restez ici pour ouvrir",
         "You have {}" => "Vous en avez {}",
