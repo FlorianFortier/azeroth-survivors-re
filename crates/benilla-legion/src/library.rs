@@ -143,6 +143,6 @@ mod tests {
     #[test]
     fn a_display_joins_the_catalog_past_vanillas_ids() {
         assert_eq!(display_model_path(61830), "Legion\\Display\\61830.mdx");
-        assert!(DISPLAY_BASE > 100_000);
+        const { assert!(DISPLAY_BASE > 100_000) };
     }
 }
