@@ -96,6 +96,7 @@ pub(super) fn begin_run(
                 seat.appearance,
                 seat.display,
                 &seat_gear(seat),
+                data::tabard(&seat.brings.tabard).map(|t| t.display),
                 catalog.as_deref().map(|c| &c.0),
                 displays.as_deref().map(|d| &d.catalog),
             );
@@ -222,6 +223,7 @@ mod tests {
                     "Thunderfury".into(),
                 ],
                 perks: vec![("second_thoughts".into(), 9), ("no_such_perk".into(), 1)],
+                tabard: "flame".into(),
             },
         };
         let (meta, procs) = seat_bonuses(&seat);

@@ -52,7 +52,7 @@ it holds; read it before changing the file.
 | `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
 | `hero.rs` | the local hero: WoW's mouse and keys in the chase view (`MouseLook`: a left-drag swings the camera, a right-drag turns the hero, both run, a press let go in place is a click; `CamRig::facing` is the hero's heading, A/D turn it, Q/E strafe), movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
 | `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks; the local hero's target first for those that strike the nearest (`aimed_order`) |
-| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) and races opened to every class (`data::RACE_POINTS`) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`), which leaves the races; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
+| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) races opened to every class (`data::RACE_POINTS`) and tabards (`data::TABARDS`, bought or earned by an achievement, one worn) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`), which leaves races and tabards; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
 | `sheet.rs` | the character sheet on `C`, over a paused run: the paper doll (gear worn, else the starting outfit; the neck, rings and trinkets are the run items), the live hero framed in its stage, the hero's numbers and its items' effects |
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
@@ -237,7 +237,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   each rank held to its perk's most). A race opened is stored by name (`Profile::races`) and
   only adds looks: `menu::all_looks` gives every class a look of it in both sexes, and
   `outfit::body` dresses a pair vanilla never had in the class's outfit from another race. The
-  lobby `Loadout` already carries class and race, so it needs nothing on the wire.
+  lobby `Loadout` already carries class and race, so it needs nothing on the wire. A tabard
+  bought is stored by key (`Profile::tabards`), one earned by an achievement is derived
+  (`Profile::tabard_owned`); the one worn (`Profile::tabard`) is only a look: `outfit::body`
+  puts its real 1.12.1 display in the tabard slot, and it reaches the host as `Brings::tabard`
+  and the lobby `Loadout::tabard`.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

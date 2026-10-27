@@ -57,13 +57,13 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   gryphons at the bottom, the movement spell on its last slot and the experience bar on top.
   Gold, kills, the chest's price and keys stay spelled out under the clock. Co-op guests see
   their own damage and their target's health too.
+- **Quicker levels, snappier pickups**: the first levels come faster, so a run opens on choices;
+  gems fly to you faster once your pickup range catches them, and when a stage's boss falls every
+  gem left on the field comes in at once.
 - **The horde comes in waves**: every 45 seconds of a stage it surges for 12, half again as
   thick and in packs from one side, then thins out for a breather; the line under the clock
   counts down to the next wave. The crowd is thicker than before, and never past what the frame
   can carry.
-- **Quicker levels, snappier pickups**: the first levels come faster, so a run opens on choices;
-  gems fly to you faster once your pickup range catches them, and when a stage's boss falls every
-  gem left on the field comes in at once.
 - **Balanced by simulation**: whole runs are played headless by a simple pilot for every class,
   and the numbers are tuned against what it meets: an ambush ring always leaves two openings, a
   wave comes from one side, the horde thins while you face a stage's boss, and the bosses are
@@ -123,8 +123,10 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   (N)** tab spends the points on perks every hero of every class brings into a run: more
   rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and gold, gold in hand at the
   start; and on races, each opened to every class for 100 points (an Orc paladin, a Tauren
-  mage), kept through resets. Both are bought on a draft kept with **Confirm**; **Reset** takes
-  every perk point back, twice a save.
+  mage), kept through resets; and on 1.12.1's own tabards (Stormwind, the Argent Dawn, the
+  Scarlet Crusade, the battlegrounds', Flame and Frost), some bought, some earned by an
+  achievement, one worn over the gear. All are bought on a draft kept with **Confirm**;
+  **Reset** takes every perk point back, twice a save.
 - **Options and French**: the **Options** page (bottom left) sets the master, music and effects
   volumes, the mouse sensitivity, the picture polish, the screen shake and the language, English or French, and
   lists the controls. The run's headings follow the language from the next start.

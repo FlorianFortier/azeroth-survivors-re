@@ -4001,6 +4001,99 @@ pub(crate) const MAX_PERK_RESETS: u8 = 2;
 /// perk reset leaves it.
 pub(crate) const RACE_POINTS: u32 = 100;
 
+/// How a tabard is earned: bought with reward points, or worn once an achievement is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TabardUnlock {
+    Points(u32),
+    Achievement(&'static str),
+}
+
+/// A tabard the hero can wear over its gear: the look alone, no numbers.
+#[derive(Debug)]
+pub(crate) struct TabardDef {
+    /// What the profile stores.
+    pub key: &'static str,
+    pub name: &'static str,
+    /// `ItemDisplayInfo.dbc` id, the real 1.12.1 tabard's (its `item_template.displayid`).
+    pub display: u32,
+    pub unlock: TabardUnlock,
+}
+
+/// The tabards, as 1.12.1 has them: the battlegrounds', the factions', the Upper Deck's two.
+pub(crate) const TABARDS: &[TabardDef] = &[
+    TabardDef {
+        key: "stormwind",
+        name: "Tabard of Stormwind",
+        display: 21338,
+        unlock: TabardUnlock::Points(50),
+    },
+    TabardDef {
+        key: "arathor",
+        name: "Arathor Battle Tabard",
+        display: 32695,
+        unlock: TabardUnlock::Points(75),
+    },
+    TabardDef {
+        key: "defilers",
+        name: "Battle Tabard of the Defilers",
+        display: 32694,
+        unlock: TabardUnlock::Points(75),
+    },
+    TabardDef {
+        key: "argent_dawn",
+        name: "Tabard of the Argent Dawn",
+        display: 35396,
+        unlock: TabardUnlock::Points(100),
+    },
+    TabardDef {
+        key: "scarlet_crusade",
+        name: "Tabard of the Scarlet Crusade",
+        display: 15817,
+        unlock: TabardUnlock::Points(100),
+    },
+    TabardDef {
+        key: "frostwolf",
+        name: "Frostwolf Battle Tabard",
+        display: 31527,
+        unlock: TabardUnlock::Achievement("victor"),
+    },
+    TabardDef {
+        key: "stormpike",
+        name: "Stormpike Battle Tabard",
+        display: 31528,
+        unlock: TabardUnlock::Achievement("slayer"),
+    },
+    TabardDef {
+        key: "silverwing",
+        name: "Silverwing Battle Tabard",
+        display: 32026,
+        unlock: TabardUnlock::Achievement("seasoned"),
+    },
+    TabardDef {
+        key: "warsong",
+        name: "Warsong Battle Tabard",
+        display: 32031,
+        unlock: TabardUnlock::Achievement("exterminator"),
+    },
+    TabardDef {
+        key: "flame",
+        name: "Tabard of Flame",
+        display: 37060,
+        unlock: TabardUnlock::Achievement("heroic"),
+    },
+    TabardDef {
+        key: "frost",
+        name: "Tabard of Frost",
+        display: 37061,
+        unlock: TabardUnlock::Achievement("mythic"),
+    },
+];
+
+/// A tabard by its key.
+pub(crate) fn tabard(key: &str) -> Option<&'static TabardDef> {
+    TABARDS.iter().find(|t| t.key == key)
+}
+
 /// The playable races, `ChrRaces.dbc` ids.
 pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
