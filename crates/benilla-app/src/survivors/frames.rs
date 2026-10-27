@@ -700,12 +700,30 @@ pub(super) fn next_boss_line(run: &Run, rules: data::Rules) -> String {
     }
 }
 
+/// The horde's wave beside it: the time to the next surge, or that one is on.
+pub(super) fn wave_line(run: &Run) -> String {
+    if run.swarm.is_some() || !run.begun {
+        return String::new();
+    }
+    if data::surging(run.elapsed) {
+        tr("Wave!").to_string()
+    } else {
+        trf("Wave in {}", &[&clock(data::next_surge_in(run.elapsed))])
+    }
+}
+
 pub(super) fn refresh_next_boss(
     run: Res<Run>,
     session: Res<Session>,
     mut text: Query<&mut Text, With<NextBossText>>,
 ) {
-    let want = next_boss_line(&run, run.threat(session.rules));
+    let boss = next_boss_line(&run, run.threat(session.rules));
+    let wave = wave_line(&run);
+    let want = match (boss.is_empty(), wave.is_empty()) {
+        (false, false) => format!("{boss}  ·  {wave}"),
+        (true, _) => wave,
+        (_, true) => boss,
+    };
     for mut t in &mut text {
         if t.0 != want {
             t.0 = want.clone();
@@ -716,6 +734,22 @@ pub(super) fn refresh_next_boss(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wave_line_counts_down_to_the_surge() {
+        let mut run = Run::default();
+        assert_eq!(wave_line(&run), "", "nothing before the run");
+        run.begun = true;
+        run.elapsed = 0.0;
+        assert_eq!(
+            wave_line(&run),
+            format!("Wave in {}", clock(data::WAVE_EVERY - data::SURGE_SECS))
+        );
+        run.elapsed = data::WAVE_EVERY - 1.0;
+        assert_eq!(wave_line(&run), "Wave!");
+        run.swarm = Some(5.0);
+        assert_eq!(wave_line(&run), "");
+    }
 
     #[test]
     fn the_line_under_the_clock_follows_the_stage() {

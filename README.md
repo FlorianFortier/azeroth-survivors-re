@@ -55,6 +55,10 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   gryphons at the bottom, the movement spell on its last slot and the experience bar on top.
   Gold, kills, the chest's price and keys stay spelled out under the clock. Co-op guests see
   their own damage and their target's health too.
+- **The horde comes in waves**: every 45 seconds of a stage it surges for 12, half again as
+  thick and in packs from one side, then thins out for a breather; the line under the clock
+  counts down to the next wave. The crowd is thicker than before, and never past what the frame
+  can carry.
 - **Hits you feel**: every blow shoves its foe back (the heavier the hit, the further; elites
   and bosses hardly budge), a struck model brightens for a moment, and the camera shakes at a
   heavy blow to you, a run of critical strikes and a boss's coming (Options turns the shake off).

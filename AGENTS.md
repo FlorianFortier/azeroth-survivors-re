@@ -56,7 +56,7 @@ it holds; read it before changing the file.
 | `sheet.rs` | the character sheet on `C`, over a paused run: the paper doll (gear worn, else the starting outfit; the neck, rings and trinkets are the run items), the live hero framed in its stage, the hero's numbers and its items' effects |
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
-| `enemies.rs` | the horde: spawning, the chase, contact damage, death, experience gems, loot |
+| `enemies.rs` | the horde: spawning (the stage's crowd, its waves: a surge of packs every `data::WAVE_EVERY`, a lull between, all under `HARD_CROWD_CAP`), the chase, contact damage, death, experience gems, loot |
 | `cards.rs` | the level-up cards as they show (the key and NEW or RANK badge, icon, rarity, what a new spell does, the perks in green, the foot; the deal-in, tilt and burst), the Banish button under each, and the row under them (the spell slots, Skip and Reroll) |
 | `offer.rs` | the level-up offer as the simulation deals it: four spell cards per banked level at drawn rarities (`data::CardRarity`), each with the perks it grows (`draw_perks`), rerolls, banishes and skips, and `apply_action`, which takes a move only if it fits the hero's offer |
 | `units.rs` | local units built as streamed ones (`Guid`, `NetEntity`, `ObjectStore`), and `Fx`, every visual |
@@ -69,7 +69,7 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
-| `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`) |
+| `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`, `wave_line`) |
 | `feel.rs` | how a hit feels on every machine: the struck model's brighten (the client's highlight bit, in `Last`) and the camera's shake (`Options::shake`), both read off `Struck`, which `units::Fx::number` writes; the shove itself is the simulation's (`data::knock_impulse`, `Enemy::knock`) |
 | `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls, the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |
 | `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |

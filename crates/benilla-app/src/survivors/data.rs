@@ -1780,6 +1780,20 @@ pub(crate) const XP_RATE: f32 = 2.0;
 /// challenge, is what grows.
 pub(crate) const HARD_CROWD_CAP: usize = 400;
 
+/// The horde comes in waves: every [`WAVE_EVERY`] seconds of a stage, the last [`SURGE_SECS`]
+/// of it are a surge, the crowd [`SURGE_CROWD`] times as thick and coming in packs; between
+/// surges it thins to [`LULL_CROWD`].
+pub(crate) const WAVE_EVERY: f32 = 45.0;
+pub(crate) const SURGE_SECS: f32 = 12.0;
+pub(crate) const SURGE_CROWD: f32 = 1.6;
+pub(crate) const LULL_CROWD: f32 = 0.85;
+/// A surge's spawns come this many together, from one side of a hero.
+pub(crate) const PACK_SIZE: usize = 8;
+/// The crowd a stage keeps: from [`CROWD_START`] to [`CROWD_PEAK`] over its clock, before the
+/// waves and the density.
+pub(crate) const CROWD_START: f32 = 24.0;
+pub(crate) const CROWD_PEAK: f32 = 270.0;
+
 /// A run's tunable rules: the solo defaults, or a lobby's settings for its number of heroes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Rules {
@@ -1842,11 +1856,13 @@ impl Rules {
         [lo, lo + 1, lo + 2]
     }
 
-    /// How many enemies the spawner keeps alive at a point in the run.
+    /// How many enemies the spawner keeps alive at a point in the run: the stage's crowd, the
+    /// wave's swell or lull on it, the density and the heroes.
     pub fn target_alive(&self, elapsed: f32) -> usize {
         let crowd = self.density * (1.0 + 0.35 * self.extra_heroes());
-        let solo = (14.0 + self.progress(elapsed) * 225.0).min(220.0);
-        ((solo * crowd) as usize).clamp(1, HARD_CROWD_CAP)
+        let solo = (CROWD_START + self.progress(elapsed) * (CROWD_PEAK - CROWD_START) * 1.05)
+            .min(CROWD_PEAK);
+        ((solo * wave_crowd(elapsed) * crowd) as usize).clamp(1, HARD_CROWD_CAP)
     }
 
     /// Enemy health grows on top of the tiers, so a late kill takes several spells.
@@ -1877,6 +1893,30 @@ impl Rules {
         let last = roster.bosses.len().saturating_sub(1);
         let n = (n as usize).min(last);
         (&roster.bosses[n], n == last)
+    }
+}
+
+/// Whether a surge is on at `elapsed` seconds into a stage: the last [`SURGE_SECS`] of every
+/// [`WAVE_EVERY`].
+pub(crate) fn surging(elapsed: f32) -> bool {
+    elapsed >= 0.0 && elapsed.rem_euclid(WAVE_EVERY) >= WAVE_EVERY - SURGE_SECS
+}
+
+/// The crowd's swell in a surge, or its lull between.
+pub(crate) fn wave_crowd(elapsed: f32) -> f32 {
+    if surging(elapsed) {
+        SURGE_CROWD
+    } else {
+        LULL_CROWD
+    }
+}
+
+/// Seconds to the next surge, 0 while one is on.
+pub(crate) fn next_surge_in(elapsed: f32) -> f32 {
+    if surging(elapsed) {
+        0.0
+    } else {
+        (WAVE_EVERY - SURGE_SECS) - elapsed.max(0.0).rem_euclid(WAVE_EVERY)
     }
 }
 
@@ -4561,14 +4601,34 @@ mod tests {
 
     #[test]
     fn crowd_grows_and_caps() {
-        assert_eq!(target_alive(0.0), 14);
-        assert_eq!(target_alive(FINAL_BOSS_SECS * 10.0), 220);
-        let mut prev = 0;
+        assert_eq!(target_alive(0.0), (CROWD_START * LULL_CROWD) as usize);
+        let late = FINAL_BOSS_SECS * 10.0;
+        assert!(target_alive(late) <= (CROWD_PEAK * SURGE_CROWD) as usize);
+        // Within each kind of moment, the crowd only grows.
+        let (mut lull, mut surge) = (0, 0);
         for s in 0..=900 {
-            let n = target_alive(s as f32);
-            assert!(n >= prev && n <= 220);
-            prev = n;
+            let t = s as f32;
+            let n = target_alive(t);
+            let prev = if surging(t) { &mut surge } else { &mut lull };
+            assert!(n >= *prev, "t={t}");
+            *prev = n;
         }
+    }
+
+    #[test]
+    fn the_horde_surges_on_its_clock() {
+        assert!(!surging(0.0) && !surging(WAVE_EVERY - SURGE_SECS - 0.1));
+        assert!(surging(WAVE_EVERY - SURGE_SECS) && surging(WAVE_EVERY - 0.1));
+        assert!(!surging(WAVE_EVERY) && surging(2.0 * WAVE_EVERY - 1.0));
+        assert_eq!(next_surge_in(0.0), WAVE_EVERY - SURGE_SECS);
+        assert_eq!(next_surge_in(WAVE_EVERY - 1.0), 0.0);
+        assert!((next_surge_in(WAVE_EVERY + 3.0) - (WAVE_EVERY - SURGE_SECS - 3.0)).abs() < 1e-4);
+        // A surge is thicker than a lull at the same point of the stage.
+        let r = Rules::SOLO;
+        assert!(r.target_alive(WAVE_EVERY - 1.0) > r.target_alive(WAVE_EVERY + 1.0));
+        // The waves average out a little above the even crowd.
+        let mean = (LULL_CROWD * (WAVE_EVERY - SURGE_SECS) + SURGE_CROWD * SURGE_SECS) / WAVE_EVERY;
+        assert!(mean > 1.0 && mean < 1.15, "{mean}");
     }
 
     #[test]
@@ -4603,10 +4663,6 @@ mod tests {
         let r = Rules::SOLO;
         for s in (0..=1200).step_by(15) {
             let t = s as f32;
-            assert_eq!(
-                r.target_alive(t),
-                ((14.0 + (t / FINAL_BOSS_SECS) * 225.0) as usize).min(220)
-            );
             assert_eq!(r.hp_scale(t), 1.0 + (t / FINAL_BOSS_SECS) * 0.75);
             assert_eq!(
                 r.bosses_due(t),
