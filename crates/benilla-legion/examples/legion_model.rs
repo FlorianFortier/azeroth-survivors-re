@@ -5,13 +5,14 @@
 //!
 //! ```text
 //! LEGION_URL=https://…/WoW_Legion_7.3.5.26972 LEGION_CACHE=/tmp/legion \
-//! LEGION_LISTFILE=/tmp/community-listfile.csv \
+//! LEGION_LISTFILE=/tmp/community-listfile.csv LEGION_DBD=/tmp/WoWDBDefs/definitions \
 //!   cargo run --release -p benilla-legion --example legion_model -- creature/illidan2/illidan2.m2 /tmp/out
 //! ```
 //!
-//! A texture the model leaves to its creature's display (types 11 to 13) is guessed from the
-//! listfile: the `.blp` files beside the model, a `skin` one first. The real answer is
-//! `CreatureDisplayInfo`, a DB2 table this spike does not read.
+//! With `LEGION_DBD` (a folder of WoWDBDefs' `.dbd` definitions), the model's creature display
+//! (`CreatureDisplayInfo`, the first of the model's, or `LEGION_DISPLAY`) gives the textures it
+//! leaves to its display (types 11 to 13) and the geosets shown. Without it, they are guessed: the
+//! `.blp` files beside the model in the listfile, and each geoset group's first variant.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -19,6 +20,9 @@ use std::path::{Path, PathBuf};
 
 use benilla_casc::remote::Remote;
 use benilla_casc::Casc;
+use benilla_legion::db2::{Raw, Table};
+use benilla_legion::dbd::Definition;
+use benilla_legion::display::{self, CreatureDisplay};
 use benilla_legion::{md21, model, skin};
 
 type Res<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -86,6 +90,32 @@ fn main() -> Res<()> {
         s.batches.len()
     );
 
+    // The creature display, from the DB2 tables, if the definitions are at hand.
+    let shown_display: Option<CreatureDisplay> = match std::env::var("LEGION_DBD") {
+        Ok(dir) => {
+            let info = table(&casc, &dir, "CreatureDisplayInfo")?;
+            let models = table(&casc, &dir, "CreatureModelData")?;
+            let all = display::displays_of_model(&info, &models, id);
+            println!(
+                "{} creature displays of this model: {:?}",
+                all.len(),
+                all.iter().map(|d| d.id).take(12).collect::<Vec<_>>()
+            );
+            let wanted = std::env::var("LEGION_DISPLAY")
+                .ok()
+                .and_then(|d| d.parse::<u32>().ok());
+            let d = match wanted {
+                Some(w) => display::creature_display(&info, &models, w),
+                None => all.into_iter().next(),
+            };
+            if let Some(d) = &d {
+                println!("display {d:?}");
+            }
+            d
+        }
+        Err(_) => None,
+    };
+
     // Textures: the model's own by TXID, a creature's replaceable ones guessed from the listfile.
     let folder = path.rsplit_once('/').map_or("", |(f, _)| f).to_string();
     let mut guesses: Vec<u32> = listfile
@@ -124,7 +154,8 @@ fn main() -> Res<()> {
         if !t.filename.is_empty() {
             println!("texture {i}: names {}", t.filename);
         }
-        let fid = named.or_else(|| match t.kind {
+        let from_display = shown_display.as_ref().and_then(|d| d.texture_for(t.kind));
+        let fid = named.or(from_display).or_else(|| match t.kind {
             11..=13 => guesses
                 .get((t.kind - 11) as usize)
                 .or(guesses.first())
@@ -172,8 +203,11 @@ fn main() -> Res<()> {
         }
     }
 
-    // The sections a creature shows by default: the body (0) and each group's first variant.
-    let shown = |id: u16| id == 0 || id % 100 == 1;
+    // The sections the display shows; without one, the body and each group's first variant.
+    let shown = |id: u16| match &shown_display {
+        Some(d) => d.shows(id),
+        None => id == 0 || id % 100 == 1,
+    };
     write_obj(&out, &m, &s, &shown)?;
     let picture = render(&m, &s, &images, &shown, 900);
     image::save_buffer(
@@ -185,6 +219,18 @@ fn main() -> Res<()> {
     )?;
     println!("wrote {}", out.display());
     Ok(())
+}
+
+/// A DB2 table from the install, typed by its definition in `dir`.
+fn table(casc: &Casc<Remote>, dir: &str, name: &str) -> Res<Table> {
+    let raw = Raw::parse(&casc.read_path(&format!("DBFilesClient/{name}.db2"))?)?;
+    let def = Definition::parse(&std::fs::read_to_string(
+        Path::new(dir).join(format!("{name}.dbd")),
+    )?)?;
+    let layout = def
+        .layout(raw.layout_hash, "7.3.5.26972")
+        .ok_or_else(|| format!("{name}: no layout {:08X}", raw.layout_hash))?;
+    Ok(Table::new(&raw, layout))
 }
 
 struct Listfile {
