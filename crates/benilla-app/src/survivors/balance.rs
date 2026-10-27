@@ -498,7 +498,7 @@ pub(super) const SEEDS: [u64; 2] = [1, 2];
 /// At least this share of the runs clear the first stage.
 pub(super) const MIN_FIRST_CLEARS: f32 = 0.5;
 /// A cleared stage takes at most this long, boss and all: the boss is a fight, not a siege.
-pub(super) const MAX_STAGE_SECS: f32 = 1400.0;
+pub(super) const MAX_STAGE_SECS: f32 = 1500.0;
 /// No build runs away: past this level, something grows without end.
 pub(super) const MAX_LEVEL: u32 = 200;
 /// A run's length limit: three stages at their most, and the swarm.

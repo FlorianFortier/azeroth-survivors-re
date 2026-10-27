@@ -4291,9 +4291,9 @@ pub(crate) struct Roster {
     pub bosses: Vec<EnemyDef>,
 }
 
-/// The final boss against the boss ladder's top rung (1.5 before the simulator: its fight ran
-/// past ten minutes).
-pub(crate) const FINAL_BOSS_HEALTH: f32 = 0.5;
+/// The final boss against the boss ladder's top rung, after [`BOSS_HEALTH`]: 1.5 before the
+/// simulator, whose fight ran past ten minutes; just enough to stay the zone's toughest.
+pub(crate) const FINAL_BOSS_HEALTH: f32 = 0.6;
 /// Every boss's health against the tuned ladder: a stage is a share of the old run's clock, and
 /// a hero meets its final boss at that stage's strength, not the old run's end (the simulator
 /// left it standing at 11% after half an hour).
