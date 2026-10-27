@@ -32,7 +32,7 @@ pub(super) fn begin_run(
     talents: Option<Res<crate::ui_talent::Talents>>,
     displays: Option<Res<crate::entities::ItemDisplays>>,
     world: WorldPoint,
-    local: Query<Entity, (With<Hero>, With<LocalHero>)>,
+    local: Query<(Entity, &Transform), (With<Hero>, With<LocalHero>)>,
 ) {
     if run.begun || *phase.get() != Phase::Playing {
         return;
@@ -51,7 +51,7 @@ pub(super) fn begin_run(
         run.begun = true;
         return;
     }
-    let Ok(me) = local.single() else {
+    let Ok((me, me_tf)) = local.single() else {
         return;
     };
     // Alone, the run is played at the difficulty picked, if the zone has opened it.
@@ -70,6 +70,17 @@ pub(super) fn begin_run(
     );
     run.me = std::mem::take(&mut run.me).with_meta(meta, &procs);
     super::rewards::apply_perks(&mut run.me, store.profile.perk_ranks());
+    if let Some(pet) = store.profile.chosen_pet() {
+        super::companion::spawn(
+            &mut commands,
+            &mut run,
+            pet,
+            me,
+            data::pet_stats(store.profile.perk_ranks()),
+            store.profile.instinct(),
+            me_tf.translation,
+        );
+    }
     commands.entity(me).insert(HeroState {
         slot: session.slot,
         v: run.me.clone(),
@@ -121,6 +132,17 @@ pub(super) fn begin_run(
                     v
                 },
             });
+            if let Some(pet) = data::companion(&seat.brings.pet) {
+                super::companion::spawn(
+                    &mut commands,
+                    &mut run,
+                    pet,
+                    e,
+                    data::pet_stats(super::rewards::seat_perks(seat)),
+                    data::Instinct::from_index(seat.brings.instinct),
+                    pos,
+                );
+            }
         }
     }
     run.begun = true;
@@ -228,6 +250,8 @@ mod tests {
                 perks: vec![("second_thoughts".into(), 9), ("no_such_perk".into(), 1)],
                 tabard: "flame".into(),
                 looks: vec!["helm_of_wrath".into()],
+                pet: "murky".into(),
+                instinct: 2,
             },
         };
         let (meta, procs) = seat_bonuses(&seat);

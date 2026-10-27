@@ -3902,6 +3902,11 @@ pub(crate) enum PerkEffect {
     Bonus(Bonus),
     /// Gold in hand when the run begins.
     StartGold(u32),
+    /// The companion's training: how far from the hero it runs (yd), how much quicker it runs
+    /// (a fraction of its pace), how close it must come to a pickup to send it flying (yd).
+    Leash(f32),
+    PetSpeed(f32),
+    Nose(f32),
 }
 
 impl PerkDef {
@@ -3913,6 +3918,8 @@ impl PerkDef {
                 (u32::from(n) * u32::from(k)).to_string()
             }
             PerkEffect::StartGold(n) | PerkEffect::SkipGold(n) => (n * u32::from(k)).to_string(),
+            PerkEffect::Leash(v) | PerkEffect::Nose(v) => format!("{}", v * f32::from(k)),
+            PerkEffect::PetSpeed(v) => format!("{}", (v * 100.0 * f32::from(k)).round()),
             PerkEffect::Bonus(b) => match b.amount {
                 Amount::Flat(v) | Amount::Percent(v) => {
                     format!("{}", (v * 100.0 * f32::from(k)).round())
@@ -3991,7 +3998,234 @@ pub(crate) static PERKS: &[PerkDef] = &[
 
 /// A perk by its key.
 pub(crate) fn perk(key: &str) -> Option<&'static PerkDef> {
-    PERKS.iter().find(|p| p.key == key)
+    PERKS.iter().chain(PET_TRAINING).find(|p| p.key == key)
+}
+
+/// The companion's training, bought rank by rank as the perks are, stored and reset with them.
+pub(crate) static PET_TRAINING: &[PerkDef] = &[
+    PerkDef {
+        key: "long_leash",
+        name: "Long Leash",
+        text: "Your companion runs {} yd farther from you.",
+        spell: 1515,
+        max_rank: 3,
+        cost: 10,
+        effect: PerkEffect::Leash(5.0),
+    },
+    PerkDef {
+        key: "quick_paws",
+        name: "Quick Paws",
+        text: "Your companion runs {}% faster.",
+        spell: 1850,
+        max_rank: 3,
+        cost: 10,
+        effect: PerkEffect::PetSpeed(0.2),
+    },
+    PerkDef {
+        key: "keen_nose",
+        name: "Keen Nose",
+        text: "Your companion sends what it comes within {} yd more of flying to you.",
+        spell: 1494,
+        max_rank: 2,
+        cost: 15,
+        effect: PerkEffect::Nose(1.0),
+    },
+];
+
+/// How far from its hero a companion runs for a pickup (yd), before training.
+pub(crate) const PET_LEASH: f32 = 10.0;
+/// How fast a companion runs (yd/s), before training: a little quicker than a hero.
+pub(crate) const PET_SPEED: f32 = 9.0;
+/// How close a companion comes to a pickup to send it flying to its hero (yd), before training.
+pub(crate) const PET_NOSE: f32 = 2.0;
+/// A companion this far from its hero (a portal, a blink) is put back at its side.
+pub(crate) const PET_TELEPORT: f32 = 40.0;
+
+/// What a companion runs for first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum Instinct {
+    /// The nearest pickup, whatever it is.
+    #[default]
+    Nearest,
+    /// Coins, keys and rewards before wisps.
+    Gold,
+    /// Experience wisps before anything else.
+    Wisps,
+}
+
+impl Instinct {
+    pub const ALL: [Instinct; 3] = [Instinct::Nearest, Instinct::Gold, Instinct::Wisps];
+
+    /// Its name, which the profile stores and the tab shows.
+    pub fn name(self) -> &'static str {
+        match self {
+            Instinct::Nearest => "Fetch Everything",
+            Instinct::Gold => "Gold Sniffer",
+            Instinct::Wisps => "Wisp Chaser",
+        }
+    }
+
+    pub fn text(self) -> &'static str {
+        match self {
+            Instinct::Nearest => "Runs for the nearest pickup.",
+            Instinct::Gold => "Runs for coins, keys and rewards first.",
+            Instinct::Wisps => "Runs for experience wisps first.",
+        }
+    }
+
+    /// Icon, a `Spell.dbc` row.
+    pub fn spell(self) -> u32 {
+        match self {
+            Instinct::Nearest => 883,
+            Instinct::Gold => 2481,
+            Instinct::Wisps => 20585,
+        }
+    }
+
+    /// The wire's byte.
+    pub fn index(self) -> u8 {
+        Self::ALL.iter().position(|i| *i == self).unwrap_or(0) as u8
+    }
+
+    pub fn from_index(i: u8) -> Self {
+        Self::ALL.get(usize::from(i)).copied().unwrap_or_default()
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|i| i.name() == name)
+            .unwrap_or_default()
+    }
+}
+
+/// A companion's look: a real 1.12.1 vanity pet, which runs at the hero's side in every run and
+/// fetches what drops. Owning any look is having a companion.
+#[derive(Debug)]
+pub(crate) struct CompanionDef {
+    /// What the profile stores.
+    pub key: &'static str,
+    pub name: &'static str,
+    /// `CreatureDisplayInfo.dbc` id (`creature_template.ModelId1`).
+    pub display: u32,
+    /// `ItemDisplayInfo.dbc` id of the item that summons it in 1.12.1, for its icon.
+    pub icon: u32,
+    pub unlock: Unlock,
+}
+
+/// The companions, the shop's first, then the feats'.
+pub(crate) const COMPANIONS: &[CompanionDef] = &[
+    CompanionDef {
+        key: "prairie_dog",
+        name: "Prairie Dog",
+        display: 1072,
+        icon: 15798,
+        unlock: Unlock::Points(50),
+    },
+    CompanionDef {
+        key: "mechanical_squirrel",
+        name: "Mechanical Squirrel",
+        display: 7937,
+        icon: 16536,
+        unlock: Unlock::Points(75),
+    },
+    CompanionDef {
+        key: "snowshoe_rabbit",
+        name: "Snowshoe Rabbit",
+        display: 328,
+        icon: 17284,
+        unlock: Unlock::Points(75),
+    },
+    CompanionDef {
+        key: "worg_pup",
+        name: "Worg Pup",
+        display: 9563,
+        icon: 20629,
+        unlock: Unlock::Points(100),
+    },
+    CompanionDef {
+        key: "sprite_darter",
+        name: "Sprite Darter Hatchling",
+        display: 6294,
+        icon: 18047,
+        unlock: Unlock::Points(100),
+    },
+    CompanionDef {
+        key: "dark_whelpling",
+        name: "Dark Whelpling",
+        display: 6288,
+        icon: 20655,
+        unlock: Unlock::Achievement("monster_hunter"),
+    },
+    CompanionDef {
+        key: "panda_cub",
+        name: "Panda Cub",
+        display: 10990,
+        icon: 24251,
+        unlock: Unlock::Achievement("collector"),
+    },
+    CompanionDef {
+        key: "zergling",
+        name: "Zergling",
+        display: 10993,
+        icon: 24252,
+        unlock: Unlock::Achievement("annihilator"),
+    },
+    CompanionDef {
+        key: "tranquil_mechanical_yeti",
+        name: "Tranquil Mechanical Yeti",
+        display: 10269,
+        icon: 34050,
+        unlock: Unlock::Achievement("talented"),
+    },
+    CompanionDef {
+        key: "mini_diablo",
+        name: "Mini Diablo",
+        display: 10992,
+        icon: 34364,
+        unlock: Unlock::Achievement("heroic"),
+    },
+    CompanionDef {
+        key: "murky",
+        name: "Murky",
+        display: 15369,
+        icon: 18050,
+        unlock: Unlock::Achievement("mythic"),
+    },
+];
+
+/// A companion by its key.
+pub(crate) fn companion(key: &str) -> Option<&'static CompanionDef> {
+    COMPANIONS.iter().find(|c| c.key == key)
+}
+
+/// A companion's numbers from its training ranks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PetStats {
+    pub leash: f32,
+    pub speed: f32,
+    pub nose: f32,
+}
+
+/// What `ranks` of training make of a companion; each rank held to its most.
+pub(crate) fn pet_stats<'a>(ranks: impl IntoIterator<Item = (&'a PerkDef, u8)>) -> PetStats {
+    let mut s = PetStats {
+        leash: PET_LEASH,
+        speed: PET_SPEED,
+        nose: PET_NOSE,
+    };
+    let mut quicker = 0.0;
+    for (p, r) in ranks {
+        let r = f32::from(r.min(p.max_rank));
+        match p.effect {
+            PerkEffect::Leash(v) => s.leash += v * r,
+            PerkEffect::PetSpeed(v) => quicker += v * r,
+            PerkEffect::Nose(v) => s.nose += v * r,
+            _ => {}
+        }
+    }
+    s.speed *= 1.0 + quicker;
+    s
 }
 
 /// How many times a save may take back every point spent on perks.

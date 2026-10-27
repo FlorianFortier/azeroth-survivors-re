@@ -138,6 +138,13 @@ pub(super) struct Profile {
     pub appearances: BTreeSet<String>,
     /// The appearance worn on each slot, by [`data::LookSlot::name`]: its key.
     pub looks: BTreeMap<String, String>,
+    /// The companions bought with reward points, by [`data::CompanionDef::key`]; those an
+    /// achievement earns are not stored.
+    pub pets: BTreeSet<String>,
+    /// The companion at the hero's side, by key; empty for none.
+    pub pet: String,
+    /// What it runs for first, by [`data::Instinct::name`].
+    pub instinct: String,
 }
 
 /// What has been bought with reward points, the profile's or a draft's: what it costs together.
@@ -147,6 +154,7 @@ pub(super) struct Spend<'a> {
     pub races: &'a BTreeSet<String>,
     pub tabards: &'a BTreeSet<String>,
     pub appearances: &'a BTreeSet<String>,
+    pub pets: &'a BTreeSet<String>,
 }
 
 impl Spend<'_> {
@@ -155,6 +163,7 @@ impl Spend<'_> {
             + Profile::races_cost(self.races)
             + Profile::tabards_cost(self.tabards)
             + Profile::appearances_cost(self.appearances)
+            + Profile::pets_cost(self.pets)
     }
 }
 
@@ -266,6 +275,9 @@ impl Default for Profile {
             tabard: String::new(),
             appearances: BTreeSet::new(),
             looks: BTreeMap::new(),
+            pets: BTreeSet::new(),
+            pet: String::new(),
+            instinct: String::new(),
         }
     }
 }
@@ -485,7 +497,74 @@ impl Profile {
             races: &self.races,
             tabards: &self.tabards,
             appearances: &self.appearances,
+            pets: &self.pets,
         }
+    }
+
+    /// The reward points `pets` cost; one an achievement earns, or the tables no longer have,
+    /// costs nothing.
+    pub fn pets_cost(pets: &BTreeSet<String>) -> u32 {
+        pets.iter()
+            .filter_map(|k| match data::companion(k)?.unlock {
+                data::Unlock::Points(n) => Some(n),
+                data::Unlock::Achievement(_) => None,
+            })
+            .sum()
+    }
+
+    /// Whether the companion is the profile's: bought, or its achievement done.
+    pub fn pet_owned(&self, c: &data::CompanionDef) -> bool {
+        self.unlocked(c.unlock, &self.pets, c.key)
+    }
+
+    /// Whether any companion is the profile's: the training and instincts need one.
+    pub fn has_companion(&self) -> bool {
+        data::COMPANIONS.iter().any(|c| self.pet_owned(c))
+    }
+
+    /// Take `pets` as the companions bought, if it keeps every one already bought, names only
+    /// companions sold for points, and the points earned pay for it; false and nothing changed
+    /// otherwise.
+    pub fn buy_pets(&mut self, pets: BTreeSet<String>) -> bool {
+        let fits = self.pets.is_subset(&pets)
+            && pets.iter().all(|k| {
+                data::companion(k).is_some_and(|c| matches!(c.unlock, data::Unlock::Points(_)))
+            });
+        let cost = Spend {
+            pets: &pets,
+            ..self.spend()
+        }
+        .cost();
+        if !fits || cost > self.points_earned() {
+            return false;
+        }
+        self.pets = pets;
+        true
+    }
+
+    /// Call a companion the profile owns to the hero's side, or send it home (`None`); false and
+    /// nothing changed for one it does not own.
+    pub fn choose_pet(&mut self, key: Option<&str>) -> bool {
+        match key {
+            None => self.pet.clear(),
+            Some(k) => {
+                if !data::companion(k).is_some_and(|c| self.pet_owned(c)) {
+                    return false;
+                }
+                self.pet = k.to_string();
+            }
+        }
+        true
+    }
+
+    /// The companion at the hero's side, if the profile still owns it.
+    pub fn chosen_pet(&self) -> Option<&'static data::CompanionDef> {
+        data::companion(&self.pet).filter(|c| self.pet_owned(c))
+    }
+
+    /// What the companion runs for first.
+    pub fn instinct(&self) -> data::Instinct {
+        data::Instinct::from_name(&self.instinct)
     }
 
     /// The reward points spent.
@@ -654,10 +733,11 @@ impl Profile {
         self.perks.get(key).copied().unwrap_or(0).min(most)
     }
 
-    /// The perks bought, `(perk, rank)`, in the table's order.
+    /// The perks bought, `(perk, rank)`, in the table's order, the companion's training last.
     pub fn perk_ranks(&self) -> Vec<(&'static data::PerkDef, u8)> {
         data::PERKS
             .iter()
+            .chain(data::PET_TRAINING)
             .map(|p| (p, self.perk_rank(p.key)))
             .filter(|(_, r)| *r > 0)
             .collect()
@@ -1050,6 +1130,12 @@ fn refresh_brings(
             .iter()
             .map(|a| a.key.to_string())
             .collect(),
+        pet: store
+            .profile
+            .chosen_pet()
+            .map(|c| c.key.to_string())
+            .unwrap_or_default(),
+        instinct: store.profile.instinct().index(),
     };
     if selection.brings != brings {
         selection.brings = brings;

@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 16;
+pub const PROTOCOL_VERSION: u16 = 17;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -48,6 +48,10 @@ pub struct Loadout {
     pub tabard: String,
     /// The appearances worn on the head and back, by key.
     pub looks: Vec<String>,
+    /// The companion at the hero's side, by key; empty for none.
+    pub pet: String,
+    /// What the companion runs for first.
+    pub instinct: u8,
 }
 
 /// Who a relayed game message goes to.
@@ -269,6 +273,7 @@ impl Wire for Loadout {
         for key in looks {
             w.str(key);
         }
+        w.str(&self.pet).u8(self.instinct);
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -310,6 +315,8 @@ impl Wire for Loadout {
                 }
                 out
             },
+            pet: r.str()?,
+            instinct: r.u8()?,
         })
     }
 }
@@ -599,6 +606,8 @@ mod tests {
             perks: vec![("second_thoughts".into(), 2)],
             tabard: "frostwolf".into(),
             looks: vec!["helm_of_wrath".into(), "bare_back".into()],
+            pet: "prairie_dog".into(),
+            instinct: 1,
         }
     }
 

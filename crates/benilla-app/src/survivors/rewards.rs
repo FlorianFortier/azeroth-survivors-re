@@ -6,9 +6,11 @@
 //! ([`data::TABARDS`]), 1.12.1's own, worn over the gear: some bought, some earned by an
 //! achievement, one worn at a time. The appearances ([`data::APPEARANCES`]): 1.12.1's hats,
 //! helms and cloaks worn over the gear's look on the head and back, or the slot shown bare;
-//! earned the same ways. All are bought on a draft and kept with Confirm (Undo drops the draft);
-//! Reset takes every perk point back, [`data::MAX_PERK_RESETS`] times a save, and leaves the
-//! rest.
+//! earned the same ways. The companions ([`data::COMPANIONS`]): 1.12.1's vanity pets, one at the
+//! hero's side in every run fetching what drops ([`super::companion`]), its instinct picked and
+//! its training ([`data::PET_TRAINING`]) bought rank by rank as the perks are. All are bought on a
+//! draft and kept with Confirm (Undo drops the draft); Reset takes every perk and training point
+//! back, [`data::MAX_PERK_RESETS`] times a save, and leaves the rest.
 //!
 //! A perk's bonus rides the profile's other bonuses (`Profile::meta_bonuses`, so a guest's
 //! loadout carries it); the rest lands on the hero when its run begins ([`apply_perks`]), on the
@@ -37,7 +39,11 @@ pub(super) fn apply_perks(v: &mut Vitals, ranks: impl IntoIterator<Item = (&'sta
             PerkEffect::SkipGold(n) => v.skip_gold += n * u32::from(rank),
             PerkEffect::OpeningHand(n) => v.opening_hand = v.opening_hand.saturating_add(n * rank),
             PerkEffect::StartGold(n) => v.gold += (n * u32::from(rank)) as f32,
-            PerkEffect::Bonus(_) => {}
+            // The bonuses ride the profile's; the training is the companion's (`data::pet_stats`).
+            PerkEffect::Bonus(_)
+            | PerkEffect::Leash(_)
+            | PerkEffect::PetSpeed(_)
+            | PerkEffect::Nose(_) => {}
         }
     }
 }
@@ -56,7 +62,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, (reward_clicks, refresh_rewards).chain());
 }
 
-/// The Rewards tab's sections; the perks and the races are built so far.
+/// The Rewards tab's sections.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Section {
     #[default]
@@ -82,6 +88,7 @@ struct Draft {
     races: Option<BTreeSet<String>>,
     tabards: Option<BTreeSet<String>>,
     appearances: Option<BTreeSet<String>>,
+    pets: Option<BTreeSet<String>>,
     section: Section,
 }
 
@@ -102,6 +109,10 @@ impl Draft {
         self.appearances.as_ref().unwrap_or(&profile.appearances)
     }
 
+    fn pets<'a>(&'a self, profile: &'a Profile) -> &'a BTreeSet<String> {
+        self.pets.as_ref().unwrap_or(&profile.pets)
+    }
+
     /// Everything the draft holds.
     fn spend<'a>(&'a self, profile: &'a Profile) -> Spend<'a> {
         Spend {
@@ -109,6 +120,7 @@ impl Draft {
             races: self.races(profile),
             tabards: self.tabards(profile),
             appearances: self.appearances(profile),
+            pets: self.pets(profile),
         }
     }
 
@@ -117,6 +129,7 @@ impl Draft {
             || self.races.is_some()
             || self.tabards.is_some()
             || self.appearances.is_some()
+            || self.pets.is_some()
     }
 
     fn clear(&mut self) {
@@ -130,6 +143,7 @@ impl Draft {
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 enum RewardAction {
     Section(Section),
+    /// A rank more or less of a perk, or of the companion's training after the perks.
     Up(usize),
     Down(usize),
     /// Open a race on the draft, or take it off again.
@@ -139,6 +153,10 @@ enum RewardAction {
     Tabard(usize),
     /// The same for an appearance, on its slot.
     Appearance(usize),
+    /// The same for a companion: owned, call it or send it home.
+    Pet(usize),
+    /// What the companion runs for first.
+    Instinct(usize),
     Confirm,
     Undo,
     Reset,
@@ -227,7 +245,7 @@ fn reward_clicks(
     match action {
         RewardAction::Section(s) => draft.section = s,
         RewardAction::Up(i) | RewardAction::Down(i) => {
-            let Some(perk) = data::PERKS.get(i) else {
+            let Some(perk) = data::PERKS.iter().chain(data::PET_TRAINING).nth(i) else {
                 return;
             };
             let mut perks = draft.perks(&store.profile).clone();
@@ -321,14 +339,49 @@ fn reward_clicks(
                 draft.appearances = (appearances != p.appearances).then_some(appearances);
             }
         }
+        RewardAction::Pet(i) => {
+            let Some(c) = data::COMPANIONS.get(i) else {
+                return;
+            };
+            if store.profile.pet_owned(c) {
+                let chosen = store.profile.pet == c.key;
+                store.edit(|p| {
+                    p.choose_pet((!chosen).then_some(c.key));
+                });
+                return;
+            }
+            if !matches!(c.unlock, data::Unlock::Points(_)) {
+                return;
+            }
+            let mut pets = draft.pets(&store.profile).clone();
+            toggle(&mut pets, c.key);
+            let p = &store.profile;
+            let cost = Spend {
+                pets: &pets,
+                ..draft.spend(p)
+            }
+            .cost();
+            if cost <= p.points_earned() {
+                draft.pets = (pets != p.pets).then_some(pets);
+            }
+        }
+        RewardAction::Instinct(i) => {
+            let Some(instinct) = data::Instinct::ALL.get(i) else {
+                return;
+            };
+            if store.profile.has_companion() && store.profile.instinct() != *instinct {
+                store.edit(|p| p.instinct = instinct.name().to_string());
+            }
+        }
         RewardAction::Confirm => {
             // Perks first: the races and tabards already bought count against them, and the new
             // ones against the perks just kept, so a draft that fits in all goes through.
-            let (perks, races, tabards, appearances) = (
+            let (perks, races, tabards, appearances, pets) = (
                 draft.perks.take(),
                 draft.races.take(),
                 draft.tabards.take(),
                 draft.appearances.take(),
+                draft.pets.take(),
             );
             store.edit(|p| {
                 if let Some(perks) = perks {
@@ -342,6 +395,16 @@ fn reward_clicks(
                 }
                 if let Some(appearances) = appearances {
                     p.buy_appearances(appearances);
+                }
+                if let Some(pets) = pets {
+                    // Its first companion comes at once to the hero's side.
+                    let first = !p.has_companion();
+                    if p.buy_pets(pets) && first {
+                        let new = data::COMPANIONS.iter().find(|c| p.pet_owned(c));
+                        if let Some(c) = new {
+                            p.choose_pet(Some(c.key));
+                        }
+                    }
                 }
             });
         }
@@ -382,6 +445,12 @@ struct View {
     looks: BTreeMap<String, String>,
     /// The appearances owned, achievements' included.
     owned_looks: Vec<bool>,
+    profile_pets: BTreeSet<String>,
+    draft_pets: Option<BTreeSet<String>>,
+    pet: String,
+    instinct: String,
+    /// The companions owned, achievements' included.
+    owned_pets: Vec<bool>,
     icons: bool,
     resets: u8,
     section: Section,
@@ -423,6 +492,11 @@ fn refresh_rewards(
             .iter()
             .map(|a| p.appearance_owned(a))
             .collect(),
+        profile_pets: p.pets.clone(),
+        draft_pets: draft.pets.clone(),
+        pet: p.pet.clone(),
+        instinct: p.instinct.clone(),
+        owned_pets: data::COMPANIONS.iter().map(|c| p.pet_owned(c)).collect(),
         icons: displays.is_some(),
         resets: p.perk_resets,
         section: draft.section,
@@ -481,10 +555,8 @@ fn refresh_rewards(
                 kit::ButtonLook::PLAIN,
                 RewardAction::Section(section),
             );
-            let built = matches!(section, Section::Perks | Section::Races | Section::Tabards | Section::Appearances);
             s.commands().entity(b).insert((
                 kit::Selected(section == draft.section),
-                kit::Disabled(!built),
                 Node {
                     width: Val::Percent(100.0),
                     align_items: AlignItems::FlexStart,
@@ -494,18 +566,13 @@ fn refresh_rewards(
                     ..default()
                 },
             ));
-            if !built {
-                s.commands()
-                    .entity(b)
-                    .insert(Tooltip::simple(tr(label), tr("Coming soon.")));
-            }
         }
         kit::heading(s, f, tr("Reset"));
         let resets_left = data::MAX_PERK_RESETS.saturating_sub(p.perk_resets);
         s.spawn(kit::text(
             &f.body,
             trf(
-                "Takes back every point spent on perks, to spend again. {} of {} resets left on this save.",
+                "Takes back every point spent on perks and on your companion's training, to spend again. {} of {} resets left on this save.",
                 &[&resets_left.to_string(), &data::MAX_PERK_RESETS.to_string()],
             ),
             13.0,
@@ -595,6 +662,60 @@ fn refresh_rewards(
                         left,
                         RewardAction::Tabard(i),
                     );
+                }
+            });
+        }
+        Section::Companions => {
+            kit::heading(m, f, tr("Companions"));
+            m.spawn(kit::text(
+                &f.body,
+                tr("A companion runs at your side in every run, to the wisps, coins and keys within its leash, and sends what it comes near flying to you. Own one to have it; its instinct and training are the same whichever you call."),
+                13.0,
+                theme::DIM,
+            ));
+            let has = p.has_companion();
+            let pets = draft.pets(p);
+            let catalog = displays.as_deref().map(|d| &d.catalog);
+            grid(m, |grid| {
+                for (i, c) in data::COMPANIONS.iter().enumerate() {
+                    let owned = p.pet_owned(c);
+                    let state = if owned && p.pet == c.key {
+                        LookState::Worn
+                    } else if owned {
+                        LookState::Owned
+                    } else if pets.contains(c.key) {
+                        LookState::Drafted
+                    } else {
+                        LookState::Locked
+                    };
+                    let icon = catalog
+                        .and_then(|cat| cat.get(c.icon)?.icon.clone())
+                        .unwrap_or_else(|| PET_ICON.to_string());
+                    look_card(
+                        grid,
+                        f,
+                        (c.name, c.unlock),
+                        state,
+                        icon,
+                        left,
+                        RewardAction::Pet(i),
+                    );
+                }
+            });
+            kit::heading(m, f, tr("Instinct"));
+            grid(m, |grid| {
+                let at = p.instinct();
+                for (i, instinct) in data::Instinct::ALL.into_iter().enumerate() {
+                    instinct_card(grid, f, i, instinct, instinct == at, has);
+                }
+            });
+            kit::heading(m, f, tr("Training"));
+            grid(m, |grid| {
+                for (j, perk) in data::PET_TRAINING.iter().enumerate() {
+                    let rank = perks.get(perk.key).copied().unwrap_or(0).min(perk.max_rank);
+                    // Training wants a companion: none, and only what is bought can be taken back.
+                    let left = if has { left } else { 0 };
+                    perk_card(grid, f, data::PERKS.len() + j, perk, rank, left);
                 }
             });
         }
@@ -704,6 +825,47 @@ enum RaceState {
     /// On the draft, kept with Confirm.
     Drafted,
     Open,
+}
+
+/// A companion's icon while the item displays are not read yet.
+const PET_ICON: &str = "Interface\\Icons\\INV_Box_PetCarrier_01";
+
+/// One instinct: its icon, name and what it does; picked, or Pick.
+fn instinct_card(
+    p: &mut ChildSpawnerCommands,
+    f: &KitFonts,
+    i: usize,
+    instinct: data::Instinct,
+    picked: bool,
+    has: bool,
+) {
+    p.spawn(card_node(picked)).with_children(|card| {
+        kit::icon(card, IconSource::Spell(instinct.spell()), 44.0, None);
+        card.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            min_width: Val::Px(0.0),
+            row_gap: Val::Px(3.0),
+            ..default()
+        })
+        .with_children(|c| {
+            c.spawn(kit::text(&f.body, tr(instinct.name()), 18.0, Color::WHITE));
+            c.spawn(kit::text(&f.body, tr(instinct.text()), 13.0, theme::TEXT));
+        });
+        if picked {
+            card.spawn(kit::text(&f.body, tr("Picked"), 14.0, theme::GREEN));
+        } else {
+            let b = kit::button(
+                card,
+                f,
+                tr("Pick"),
+                None,
+                kit::ButtonLook::PLAIN,
+                RewardAction::Instinct(i),
+            );
+            card.commands().entity(b).insert(kit::Disabled(!has));
+        }
+    });
 }
 
 /// A tabard's icon while the item displays are not read yet, or for a bare slot.
@@ -1197,6 +1359,68 @@ mod tests {
             assert!(data::APPEARANCES
                 .iter()
                 .any(|a| a.slot == slot && a.display == 0));
+        }
+    }
+
+    #[test]
+    fn a_companion_is_bought_or_earned_and_its_training_is_a_perk() {
+        let mut p = earned(300);
+        let dog = data::companion("prairie_dog").unwrap();
+        let zergling = data::companion("zergling").unwrap();
+        // Annihilator: 50,000 kills, which `earned` has.
+        assert!(p.pet_owned(zergling) && !p.pet_owned(dog));
+        assert!(p.has_companion());
+        assert!(!p.choose_pet(Some(dog.key)));
+        assert!(!p.buy_pets(BTreeSet::from([zergling.key.to_string()])));
+        assert!(p.buy_pets(BTreeSet::from([dog.key.to_string()])));
+        assert_eq!(p.points_spent(), 50);
+        assert!(p.choose_pet(Some(dog.key)));
+        assert_eq!(p.chosen_pet().map(|c| c.key), Some("prairie_dog"));
+        assert!(p.choose_pet(None));
+        assert!(p.chosen_pet().is_none());
+        // The training is bought as a perk, rides the perks to the host, and a reset gives it
+        // back; the companion stays.
+        let mut perks = BTreeMap::new();
+        perks.insert("long_leash".to_string(), 2);
+        assert!(p.set_perks(perks));
+        assert!(p
+            .perk_ranks()
+            .iter()
+            .any(|(k, r)| k.key == "long_leash" && *r == 2));
+        assert_eq!(
+            data::pet_stats(p.perk_ranks()).leash,
+            data::PET_LEASH + 10.0
+        );
+        assert!(p.reset_perks());
+        assert!(p.pet_owned(dog));
+        // The instinct, by name; an unknown one is the default.
+        assert_eq!(p.instinct(), data::Instinct::Nearest);
+        p.instinct = "Gold Sniffer".into();
+        assert_eq!(p.instinct(), data::Instinct::Gold);
+        assert_eq!(
+            data::Instinct::from_index(p.instinct().index()),
+            data::Instinct::Gold
+        );
+    }
+
+    #[test]
+    fn every_companion_is_sound() {
+        let mut keys = std::collections::HashSet::new();
+        for c in data::COMPANIONS {
+            assert!(keys.insert(c.key), "{} twice", c.key);
+            assert!(c.display > 0 && c.icon > 0, "{}", c.key);
+            assert_ne!(c.unlock, data::Unlock::Points(0), "{}", c.key);
+            if let data::Unlock::Achievement(x) = c.unlock {
+                assert!(
+                    data::ACHIEVEMENTS.iter().any(|y| y.key == x),
+                    "{}: no achievement {x}",
+                    c.key
+                );
+            }
+        }
+        for t in data::PET_TRAINING {
+            assert!(data::perk(t.key).is_some(), "{}", t.key);
+            assert!(!data::PERKS.iter().any(|p| p.key == t.key), "{}", t.key);
         }
     }
 
