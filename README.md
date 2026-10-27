@@ -254,7 +254,8 @@ The survivors mode is `crates/benilla-app/src/survivors/`, running on two upstre
 To work on it, start with [AGENTS.md](AGENTS.md): where everything lives, file by file, the
 commands and tests (most need no game data), the rules every change keeps, and the known
 pitfalls. Multiplayer is [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md), syncing upstream
-[docs/UPSTREAM.md](docs/UPSTREAM.md).
+[docs/UPSTREAM.md](docs/UPSTREAM.md), and what later expansions' data (Wrath 3.3.5a) would take
+[docs/EXPANSIONS.md](docs/EXPANSIONS.md).
 
 ## Legal
 

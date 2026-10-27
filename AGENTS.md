@@ -7,7 +7,8 @@ Rust + Bevy. There is no server, no login and no realm: the game boots straight 
 survivors mode, natively or in the browser. This file is the map for a person or an agent who
 has to build, fix or change something here. Upstream's own map and rules for the client crates
 are `docs/METHOD.md`, `docs/MAP.md` and `docs/CONTRIBUTING.md`; read them before changing client
-code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
+code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md). What reading a later client's data
+(Wrath 3.3.5a, TBC 2.4.3) would take is studied in [docs/EXPANSIONS.md](docs/EXPANSIONS.md).
 
 ## What lives where
 
