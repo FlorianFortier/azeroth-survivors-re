@@ -1406,6 +1406,7 @@ mod tests {
             weaken_t: 0.0,
             dots: Vec::new(),
             dead: false,
+            knock: 0.0,
         }
     }
 
