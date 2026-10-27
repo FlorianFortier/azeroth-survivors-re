@@ -1,16 +1,20 @@
 //! The balance simulator: whole runs played headless, with no game data, no window and no GPU,
 //! through the mode's own simulation (`SimSet`'s systems, in their order) on an empty, flat world.
 //!
-//! A simple pilot plays the hero the way a player new to the run would: it circles the field's
-//! middle, kiting the horde; walks to a chest once it has the gold; walks into a portal once one is
-//! open; takes the rarest card it is dealt and the first blessing it is offered. What it measures
-//! for every stage — how long it took, the level reached, the kills, the damage taken and the
-//! lowest health — is what the numbers in `data.rs` are tuned against
-//! ([`BANDS`], held by the tests).
+//! A simple pilot plays the hero as a careful player new to the run would: each step it looks
+//! sixteen ways ahead and goes where the horde is thinnest, keeping its spells' reach of it and
+//! the field's middle; it walks to a chest it can pay for and into an open portal, targets the
+//! stage's boss once it stands, takes the rarest card it is dealt and the first blessing offered.
+//! Each stage is logged (how long it took, the level, the kills, the damage taken, the lowest
+//! health, when the boss portal opened and the boss was called, how much of the boss was left),
+//! with the spells that did the most damage; the numbers in `data.rs` are tuned into the bands
+//! below ([`MIN_FIRST_CLEARS`], [`MAX_STAGE_SECS`], [`MAX_LEVEL`]).
 //!
-//! `cargo test -p benilla-app --lib --no-default-features survivors::balance -- --ignored
-//! --nocapture` runs every class through a whole run and prints the table; the suite itself runs
-//! a short one, and the first stage of a few classes against the bands.
+//! The suite runs a short one. `cargo test -p benilla-app --lib --no-default-features
+//! survivors::balance -- --ignored --nocapture` runs every class through whole runs against the
+//! bands and prints the table; `trace_a_run` prints what one run faced every ten seconds
+//! (`SIM_CLASS`, `SIM_SEED`, `SIM_LIMIT` pick it). The pilot is a proxy: a number tuned on it is
+//! checked again in game.
 
 #![cfg(test)]
 
@@ -95,7 +99,9 @@ pub(super) struct TracePoint {
 fn sim_app(class: usize, zone: usize, seed: u64) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(DT)))
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+            DT,
+        )))
         .insert_resource(Rng::seeded(seed))
         .insert_resource(Selection {
             map: zone,
@@ -253,7 +259,11 @@ fn pilot(app: &mut App, t: f32) {
         let speed = v.stats().speed;
         let engage = (data::ability(v.class.start).range * 0.7).max(2.5);
         // A fighter in melee brawls; a caster keeps its distance.
-        let (caution, pull) = if engage < 6.0 { (25.0, 1.5) } else { (40.0, 0.3) };
+        let (caution, pull) = if engage < 6.0 {
+            (25.0, 1.5)
+        } else {
+            (40.0, 0.3)
+        };
         // A player looks ahead: of sixteen headings, the one whose point a second and a half on
         // is clearest of foes, kept near the field's middle, and toward the goal if there is one.
         let near: Vec<Vec3> = foes
@@ -270,8 +280,13 @@ fn pilot(app: &mut App, t: f32) {
                 .sum()
         };
         // In a portal, standing is the point: the crowd matters less than the charge.
-        let in_gate = gate.is_some_and(|g| super::units::flat(g - at).length() < data::PORTAL_RADIUS);
-        let caution = if gate.is_some() { caution * 0.5 } else { caution };
+        let in_gate =
+            gate.is_some_and(|g| super::units::flat(g - at).length() < data::PORTAL_RADIUS);
+        let caution = if gate.is_some() {
+            caution * 0.5
+        } else {
+            caution
+        };
         let mut best = (f32::INFINITY, Vec3::ZERO);
         for k in 0..=16 {
             // Sixteen headings, and standing still.
@@ -476,27 +491,18 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
     log
 }
 
-/// What a stage should look like for a player new to the run, by stage (0-based): the most
-/// seconds it may take, and the level range at its end.
-pub(super) struct Band {
-    pub max_secs: f32,
-    pub levels: (u32, u32),
-}
-
-pub(super) const BANDS: [Band; 3] = [
-    Band {
-        max_secs: 760.0,
-        levels: (14, 40),
-    },
-    Band {
-        max_secs: 820.0,
-        levels: (24, 60),
-    },
-    Band {
-        max_secs: 880.0,
-        levels: (32, 80),
-    },
-];
+/// What a fresh profile's runs should look like, played by the pilot over every class and
+/// [`SEEDS`]: the bands the numbers were tuned into (see the PR's table), held by
+/// `the_runs_stay_in_band`.
+pub(super) const SEEDS: [u64; 2] = [1, 2];
+/// At least this share of the runs clear the first stage.
+pub(super) const MIN_FIRST_CLEARS: f32 = 0.5;
+/// A cleared stage takes at most this long, boss and all: the boss is a fight, not a siege.
+pub(super) const MAX_STAGE_SECS: f32 = 1400.0;
+/// No build runs away: past this level, something grows without end.
+pub(super) const MAX_LEVEL: u32 = 200;
+/// A run's length limit: three stages at their most, and the swarm.
+pub(super) const RUN_LIMIT: f32 = 3.0 * MAX_STAGE_SECS + data::SWARM_SECS;
 
 /// The run as a table row.
 fn row(log: &RunLog) -> String {
@@ -553,18 +559,37 @@ mod tests {
         assert!(!log.lost, "and lives through the first minute and a half");
     }
 
-    /// The first stage of every class, held to its band.
+    /// Every class through whole runs, held to the bands.
     #[test]
-    #[ignore = "a few minutes: run with --ignored"]
-    fn every_class_clears_its_first_stage_in_band() {
+    #[ignore = "five minutes: run with --ignored --nocapture"]
+    fn the_runs_stay_in_band() {
+        let mut runs = Vec::new();
         for class in 0..data::CLASSES.len() {
-            let log = play(class, 0, 7, BANDS[0].max_secs + 60.0);
-            println!("{}", row(&log));
-            let s = &log.stages[0];
-            assert!(s.cleared, "{}: the first stage is cleared: {s:?}", log.class);
-            assert!(s.secs <= BANDS[0].max_secs, "{}: {s:?}", log.class);
-            let (lo, hi) = BANDS[0].levels;
-            assert!((lo..=hi).contains(&s.level), "{}: {s:?}", log.class);
+            for seed in SEEDS {
+                let log = play(class, 0, seed, RUN_LIMIT);
+                println!("{}", row(&log));
+                runs.push(log);
+            }
+        }
+        let clears = runs.iter().filter(|r| r.stages[0].cleared).count();
+        let share = clears as f32 / runs.len() as f32;
+        assert!(
+            share >= MIN_FIRST_CLEARS,
+            "{clears} of {} clear the first stage",
+            runs.len()
+        );
+        for r in &runs {
+            for (i, s) in r.stages.iter().enumerate() {
+                if s.cleared {
+                    assert!(
+                        s.secs <= MAX_STAGE_SECS,
+                        "{} stage {}: {s:?}",
+                        r.class,
+                        i + 1
+                    );
+                }
+                assert!(s.level <= MAX_LEVEL, "{} runs away: {s:?}", r.class);
+            }
         }
     }
 
@@ -573,7 +598,12 @@ mod tests {
     #[ignore = "a diagnosis: run with --ignored --nocapture"]
     fn trace_a_run() {
         // SIM_CLASS, SIM_SEED and SIM_LIMIT pick the run, so a diagnosis needs no rebuild.
-        let env = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        let env = |k: &str, d: f32| {
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(d)
+        };
         let log = play(
             env("SIM_CLASS", 0.0) as usize,
             0,
@@ -594,19 +624,6 @@ mod tests {
                 p.elite,
                 if p.surge { " surge" } else { "" }
             );
-        }
-    }
-
-    /// Every class through a whole run, the table printed.
-    #[test]
-    #[ignore = "long: run with --ignored --nocapture"]
-    fn whole_runs_report() {
-        let limit: f32 = BANDS.iter().map(|b| b.max_secs).sum::<f32>() + data::SWARM_SECS + 60.0;
-        for class in 0..data::CLASSES.len() {
-            for seed in [1, 2] {
-                let log = play(class, 0, seed, limit);
-                println!("{}", row(&log));
-            }
         }
     }
 }

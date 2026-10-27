@@ -3693,9 +3693,7 @@ impl Perks {
             Perk::Cooldown(v) => {
                 self.cooldown = (self.cooldown * (1.0 - v)).max(MIN_COOLDOWN_SHARE);
             }
-            Perk::Targets(n) => {
-                self.targets = self.targets.saturating_add(n).min(MAX_PERK_TARGETS)
-            }
+            Perk::Targets(n) => self.targets = self.targets.saturating_add(n).min(MAX_PERK_TARGETS),
             Perk::Area(v) => self.area = (self.area + v).min(MAX_PERK_AREA),
             Perk::Duration(v) => self.duration = (self.duration + v).min(MAX_PERK_DURATION),
         }
@@ -4908,7 +4906,10 @@ mod tests {
     fn an_ambush_ring_leaves_its_openings() {
         let a = ring_angles(60, 0.0);
         assert_eq!(a.len(), 60);
-        let mut sorted: Vec<f32> = a.iter().map(|x| x.rem_euclid(std::f32::consts::TAU)).collect();
+        let mut sorted: Vec<f32> = a
+            .iter()
+            .map(|x| x.rem_euclid(std::f32::consts::TAU))
+            .collect();
         sorted.sort_by(f32::total_cmp);
         let mut gaps: Vec<f32> = sorted.windows(2).map(|w| w[1] - w[0]).collect();
         gaps.push(sorted[0] + std::f32::consts::TAU - sorted[59]);
