@@ -1786,6 +1786,10 @@ pub(crate) const XP_RATE: f32 = 2.0;
 /// challenge, is what grows.
 pub(crate) const HARD_CROWD_CAP: usize = 400;
 
+/// What the horde's blows grow by over a stage's clock (0.9 before the simulator: the late
+/// stage killed a fresh hero in a second of contact).
+pub(crate) const HORDE_DAMAGE_GROWTH: f32 = 0.6;
+
 /// The horde comes in waves: every [`WAVE_EVERY`] seconds of a stage, the last [`SURGE_SECS`]
 /// of it are a surge, the crowd [`SURGE_CROWD`] times as thick and coming in packs; between
 /// surges it thins to [`LULL_CROWD`].
@@ -1902,7 +1906,7 @@ impl Rules {
 
     /// Enemy damage grows the same way.
     pub fn damage_scale(&self, elapsed: f32) -> f32 {
-        (1.0 + self.progress(elapsed) * 0.9) * self.damage
+        (1.0 + self.progress(elapsed) * HORDE_DAMAGE_GROWTH) * self.damage
     }
 
     /// When the `n`th boss (from 0) comes: its [`BOSS_TIMES`] slot, scaled to the run's length.
@@ -4287,11 +4291,18 @@ pub(crate) struct Roster {
 
 /// How much tougher the final boss is than the boss ladder's top rung.
 pub(crate) const FINAL_BOSS_HEALTH: f32 = 1.5;
+/// Every boss's health against the tuned ladder: a stage is a share of the old run's clock, and
+/// a hero meets its final boss at that stage's strength, not the old run's end (the simulator
+/// left it standing at 11% after half an hour).
+pub(crate) const BOSS_HEALTH: f32 = 0.45;
 
 static ROSTERS: std::sync::LazyLock<Vec<Roster>> = std::sync::LazyLock::new(|| {
     MAPS.iter()
         .map(|m| {
             let mut bosses = ladder(m.bosses, BOSSES, m.might);
+            for b in &mut bosses {
+                b.hp = (b.hp * BOSS_HEALTH).round();
+            }
             if let Some(last) = bosses.last_mut() {
                 last.hp = (last.hp * FINAL_BOSS_HEALTH).round();
             }
@@ -4918,7 +4929,7 @@ mod tests {
         assert_eq!(hp_scale(0.0), 1.0);
         assert_eq!(damage_scale(0.0), 1.0);
         assert!((hp_scale(FINAL_BOSS_SECS) - 1.75).abs() < 1e-5);
-        assert!((damage_scale(FINAL_BOSS_SECS) - 1.9).abs() < 1e-5);
+        assert!((damage_scale(FINAL_BOSS_SECS) - (1.0 + HORDE_DAMAGE_GROWTH)).abs() < 1e-5);
         // A negative clock (never expected) does not shrink enemies below their base.
         assert_eq!(hp_scale(-10.0), 1.0);
     }
