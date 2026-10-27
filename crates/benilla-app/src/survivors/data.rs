@@ -3729,6 +3729,20 @@ pub(crate) fn perk(key: &str) -> Option<&'static PerkDef> {
 /// How many times a save may take back every point spent on perks.
 pub(crate) const MAX_PERK_RESETS: u8 = 2;
 
+/// What opening a race to every class costs, in reward points. An opened race stays open: a
+/// perk reset leaves it.
+pub(crate) const RACE_POINTS: u32 = 100;
+
+/// The playable races, `ChrRaces.dbc` ids.
+pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+/// The classes a race opened in the Rewards tab can be beyond vanilla's ([`race_classes`]).
+pub(crate) fn race_opens(race: u8) -> impl Iterator<Item = &'static ClassDef> {
+    CLASSES
+        .iter()
+        .filter(move |c| !race_classes(race).contains(&c.id))
+}
+
 /// Every achievement, in the order the tab lists them.
 pub(crate) static ACHIEVEMENTS: std::sync::LazyLock<Vec<AchievementDef>> =
     std::sync::LazyLock::new(|| {

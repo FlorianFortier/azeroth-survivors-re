@@ -712,7 +712,7 @@ fn clicks(
             let Some(creatures) = creatures.as_deref() else {
                 return;
             };
-            let all = menu::all_looks(creatures);
+            let all = menu::all_looks(creatures, &store.profile.opened_races());
             match action {
                 ScreenAction::Class(c) => menu::pick_class(&mut selection, &all, c),
                 ScreenAction::Race(r) => menu::pick_race(&mut selection, &all, r),
@@ -1430,6 +1430,8 @@ struct HeroView {
     dials_known: bool,
     strings_known: bool,
     name: String,
+    /// The races opened to every class in the Rewards tab.
+    races: Vec<u8>,
 }
 
 /// A dial's label as the create screen words it for the race and sex ("Piercings", "Tusks"), from
@@ -1510,6 +1512,7 @@ fn refresh_hero_card(
         dials_known: catalog.is_some(),
         strings_known: strings.is_some(),
         name: store.profile.hero.name.clone(),
+        races: store.profile.opened_races(),
     };
     if shown.as_ref() == Some(&view) {
         return;
@@ -1537,9 +1540,10 @@ fn refresh_hero_card(
     };
     *shown = Some(view);
     let f = &*fonts;
+    let opened = &store.profile.opened_races();
     let all = creatures
         .as_deref()
-        .map(menu::all_looks)
+        .map(|c| menu::all_looks(c, opened))
         .unwrap_or_default();
     for e in [faction, badge, line, race_section, title, races, dials] {
         commands.entity(e).despawn_related::<Children>();
@@ -1707,6 +1711,7 @@ fn refresh_hero_card(
                                     race_id,
                                     race,
                                     &all,
+                                    opened.contains(&race_id),
                                     &selection,
                                     race_icon(race_id),
                                 );
@@ -1783,6 +1788,7 @@ fn race_button(
     race_id: u8,
     race: u8,
     all: &[Vec<(u32, u8, u8)>],
+    opened: bool,
     selection: &Selection,
     icon: Option<IconSource>,
 ) {
@@ -1804,7 +1810,7 @@ fn race_button(
     let class = selection.class_def();
     // The client's looks decide; without them, vanilla's own pairs.
     let keeps_class = if all.is_empty() {
-        class.is_none_or(|c| data::race_classes(race_id).contains(&c.id))
+        opened || class.is_none_or(|c| data::race_classes(race_id).contains(&c.id))
     } else {
         selection
             .class
@@ -1816,7 +1822,19 @@ fn race_button(
     } else {
         trf("Picking {} changes your class.", &[tr(name)])
     };
-    r.commands().entity(e).insert(Tooltip::simple(name, note));
+    let mut tip = vec![
+        TipLine::new(name, Color::WHITE).header(),
+        TipLine::new(note, theme::TEXT),
+    ];
+    if opened {
+        tip.push(TipLine::new(tr("Opened to every class."), theme::GREEN));
+    } else if !keeps_class {
+        tip.push(TipLine::new(
+            tr("Open it to every class in the Rewards tab."),
+            theme::DIM,
+        ));
+    }
+    r.commands().entity(e).insert(Tooltip(tip));
 }
 
 /// One appearance dial: its arrows either side of its label, "7 / 9", and a dot per choice.

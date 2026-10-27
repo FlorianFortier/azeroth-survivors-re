@@ -107,19 +107,43 @@ pub(super) fn restore_pick(
         selection.version += 1;
     }
     if let Some(class) = class {
-        let all = all_looks(creatures);
+        let all = all_looks(creatures, &store.profile.opened_races());
         if let Some(l) = find(&all[class], Some(hero.race), Some(hero.sex)) {
             set(&mut selection, &all, class, l);
         }
     }
 }
 
-/// Every class's looks, `(display, race, sex)`, indexed like [`data::CLASSES`].
-pub(super) fn all_looks(creatures: &crate::entities::Creatures) -> Vec<Vec<(u32, u8, u8)>> {
+/// Every class's looks, `(display, race, sex)`, indexed like [`data::CLASSES`]: its trainers',
+/// and each race `opened` in the Rewards tab in both sexes.
+pub(super) fn all_looks(
+    creatures: &crate::entities::Creatures,
+    opened: &[u8],
+) -> Vec<Vec<(u32, u8, u8)>> {
     data::CLASSES
         .iter()
-        .map(|c| looks_for(c, creatures))
+        .map(|c| open_looks(looks_for(c, creatures), opened))
         .collect()
+}
+
+/// A class's `looks` with every race in `opened` added in both sexes, where it has none. An
+/// added look borrows a trainer's display of that sex, which only the old trainer body shows;
+/// the player body is the race's own.
+pub(super) fn open_looks(mut looks: Vec<(u32, u8, u8)>, opened: &[u8]) -> Vec<(u32, u8, u8)> {
+    let known = looks.clone();
+    for &race in opened {
+        for sex in [0u8, 1] {
+            if find(&looks, Some(race), Some(sex)).is_some() {
+                continue;
+            }
+            let borrowed = find(&known, None, Some(sex)).or_else(|| find(&known, None, None));
+            if let Some(i) = borrowed {
+                looks.push((known[i].0, race, sex));
+            }
+        }
+    }
+    looks.sort_by_key(|&(_, r, s)| (r, s));
+    looks
 }
 
 fn find(looks: &[(u32, u8, u8)], race: Option<u8>, sex: Option<u8>) -> Option<usize> {
@@ -598,7 +622,7 @@ pub(super) fn menu_clicks(
     else {
         return;
     };
-    let all = all_looks(creatures);
+    let all = all_looks(creatures, &store.profile.opened_races());
     match action {
         MenuAction::Map(i) => {
             if selection.map != i {
@@ -653,17 +677,19 @@ pub(super) fn refresh_menu_ui(
     mut labels: Query<&mut Visibility, (With<HoverLabel>, Without<MenuAction>)>,
     mut faces: Query<(&RaceFace, &mut ImageNode)>,
     mut name: Query<(&mut Text, &mut TextColor), With<PickName>>,
-    mut cache: Local<(Option<u32>, bool, Vec<Vec<(u32, u8, u8)>>)>,
+    store: Res<ProfileStore>,
+    mut cache: Local<(Option<u32>, bool, Vec<u8>, Vec<Vec<(u32, u8, u8)>>)>,
 ) {
     let have = creatures.is_some();
-    if cache.0 != Some(selection.version) || cache.1 != have {
-        *cache = (
-            Some(selection.version),
-            have,
-            creatures.as_deref().map(all_looks).unwrap_or_default(),
-        );
+    let opened = store.profile.opened_races();
+    if cache.0 != Some(selection.version) || cache.1 != have || cache.2 != opened {
+        let all = creatures
+            .as_deref()
+            .map(|c| all_looks(c, &opened))
+            .unwrap_or_default();
+        *cache = (Some(selection.version), have, opened, all);
     }
-    let all = &cache.2;
+    let all = &cache.3;
     let cur = selection
         .look
         .and_then(|i| selection.looks.get(i))
