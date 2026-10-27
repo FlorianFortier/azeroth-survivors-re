@@ -2723,9 +2723,10 @@ pub(crate) fn chest_cost(opened: u32) -> u32 {
 /// Chests on the field at once, and the seconds an opened one takes to come back elsewhere.
 pub(crate) const CHESTS: usize = 6;
 pub(crate) const CHEST_RESPAWN_SECS: f32 = 40.0;
-/// Seconds a hero stands at a chest to open it, and how near.
-pub(crate) const CHEST_OPEN_SECS: f32 = 1.0;
+/// How near a hero comes to a chest to open it, at once.
 pub(crate) const CHEST_REACH: f32 = 3.0;
+/// The run items an opened chest offers: one may be taken.
+pub(crate) const CHEST_CHOICES: usize = 3;
 
 /// The half of the gold left unspent at the end that the profile keeps.
 pub(crate) const UNSPENT_GOLD_KEPT: f32 = 0.5;
@@ -3261,18 +3262,6 @@ pub(crate) enum Reward {
     Gold(u32),
 }
 
-/// What a chest gives, from `roll` (uniform in `[0, 1)`): a run item more often than not, else a
-/// spell's rank, else a fair roll for gear.
-pub(crate) fn chest_reward(roll: f32) -> Reward {
-    if roll < 0.55 {
-        Reward::RunItem
-    } else if roll < 0.85 {
-        Reward::SpellRank
-    } else {
-        Reward::Gear { percent: 60 }
-    }
-}
-
 /// The field's elites: where each stands, what it guards, how long it takes to come back.
 pub(crate) struct EliteKind {
     pub title: &'static str,
@@ -3428,8 +3417,12 @@ pub(crate) fn shrine(kind: usize) -> &'static ShrineDef {
     &SHRINES[kind.min(SHRINES.len() - 1)]
 }
 
-/// How far from a shrine's middle a hero stands in it.
-pub(crate) const SHRINE_RADIUS: f32 = 4.0;
+/// How far from a shrine's middle a hero stands in it: wide, so a hero kiting through the horde
+/// can charge it without stopping on its stone.
+pub(crate) const SHRINE_RADIUS: f32 = 7.0;
+/// How big a shrine's stone is drawn, against its model's own size: a marker in the grass, not a
+/// monument.
+pub(crate) const SHRINE_SCALE: f32 = 0.4;
 /// How fast a shrine left alone loses its charge, against how fast it gains it.
 pub(crate) const SHRINE_DECAY: f32 = 0.5;
 /// The elites a Shrine of Challenge calls.
@@ -4230,6 +4223,9 @@ pub(crate) fn pet_stats<'a>(ranks: impl IntoIterator<Item = (&'a PerkDef, u8)>) 
 
 /// How many times a save may take back every point spent on perks.
 pub(crate) const MAX_PERK_RESETS: u8 = 2;
+
+/// What a critical strike's damage is, times the hit's.
+pub(crate) const CRIT_MULT: f32 = 2.0;
 
 /// What opening a race to every class costs, in reward points. An opened race stays open: a
 /// perk reset leaves it.
@@ -5725,9 +5721,6 @@ mod tests {
             assert!(chest_cost(n + 1) >= chest_cost(n));
             assert_eq!(chest_cost(n) % 5, 0);
         }
-        assert_eq!(chest_reward(0.0), Reward::RunItem);
-        assert_eq!(chest_reward(0.7), Reward::SpellRank);
-        assert!(matches!(chest_reward(0.99), Reward::Gear { .. }));
     }
 
     #[test]

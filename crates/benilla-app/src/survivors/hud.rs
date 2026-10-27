@@ -167,6 +167,8 @@ pub(super) enum TipFor {
     /// An index into the run's items.
     RunItem(usize),
     Mobility,
+    /// An index into the merchant's wares.
+    Ware(usize),
 }
 
 /// The one `GameTooltip`, and the column its lines go in.
@@ -195,6 +197,8 @@ pub(super) enum Choice {
     Heal,
     /// A Shrine of Power's blessing, by its index in the hero's shrine offer.
     Boon(usize),
+    /// A chest's run item, by its index in the hero's chest offer.
+    ChestItem(usize),
 }
 
 /// The line under the cards: how to pick, or how to banish.
@@ -215,12 +219,20 @@ pub(super) fn reroll_hint(
     )>,
 ) {
     use super::lang::{tr, trf};
-    let badge = if offer.blessing {
+    let badge = if offer.chest {
+        tr("CHEST").to_string()
+    } else if offer.blessing {
         tr("SHRINE").to_string()
     } else {
         trf("LEVEL {}", &[&run.level.to_string()])
     };
-    let (title, sub, hint) = if offer.blessing {
+    let (title, sub, hint) = if offer.chest {
+        (
+            tr("Chest!"),
+            tr("Choose an item for the rest of the run."),
+            tr("Click an item, or press 1, 2 or 3"),
+        )
+    } else if offer.blessing {
         (
             tr("Blessing!"),
             tr("Choose a blessing for the rest of the run."),
@@ -264,12 +276,15 @@ pub(super) fn reroll_hint(
 pub(super) struct Offer {
     cards: Vec<(Dealt, Choice)>,
     /// What the cards were last built from: the offer, the moves made, and whether they are
-    /// blessings.
-    shown: Option<(Vec<Dealt>, u32, bool)>,
+    /// a chest's items or blessings.
+    shown: Option<(Vec<Dealt>, u32, bool, bool)>,
     /// The next card chosen is banished, not picked.
     pub(super) banishing: bool,
-    /// The cards are a Shrine of Power's blessings: picked, never rerolled, banished or skipped.
+    /// The cards are only picked, never rerolled, banished or skipped: a Shrine of Power's
+    /// blessings, or a chest's items ([`Self::chest`]).
     pub(super) blessing: bool,
+    /// The cards are an opened chest's run items.
+    pub(super) chest: bool,
 }
 
 impl Offer {
@@ -302,9 +317,24 @@ pub(super) fn follow_offer(phase: Res<State<Phase>>, run: Res<Run>, mut offer: R
         }
         return;
     }
-    // A blessing waiting goes first: its cards wear their rarity as a card does.
-    let blessing = !run.shrine_offer.is_empty();
-    let cards: Vec<(Dealt, Choice)> = if blessing {
+    // A chest's items go first, then a blessing waiting: their cards wear their rarity as a card
+    // does.
+    let chest = !run.chest_offer.is_empty();
+    let blessing = chest || !run.shrine_offer.is_empty();
+    let cards: Vec<(Dealt, Choice)> = if chest {
+        run.chest_offer
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let d = Dealt {
+                    choice: survivors_net::game::Choice::Heal,
+                    rarity: item.rarity,
+                    perks: Vec::new(),
+                };
+                (d, Choice::ChestItem(i))
+            })
+            .collect()
+    } else if blessing {
         run.shrine_offer
             .iter()
             .enumerate()
@@ -327,12 +357,14 @@ pub(super) fn follow_offer(phase: Res<State<Phase>>, run: Res<Run>, mut offer: R
         cards.iter().map(|(d, _)| d.clone()).collect(),
         run.picks,
         blessing,
+        chest,
     );
     if offer.shown.as_ref() == Some(&key) {
         return;
     }
     offer.cards = cards;
     offer.blessing = blessing;
+    offer.chest = chest;
     if blessing {
         offer.banishing = false;
     }
@@ -358,6 +390,26 @@ pub(super) fn make_move(
     picks: &mut super::sync::LocalPicks,
 ) -> bool {
     use survivors_net::game::CardAction;
+    let done = |run: &Run| {
+        run.pending_levels == 0 && run.shrine_offer.is_empty() && run.chest_offer.is_empty()
+    };
+    if offer.chest {
+        let Move::Pick(i) = m else { return false };
+        let Some(Choice::ChestItem(k)) = offer.cards.get(i).map(|(_, c)| *c) else {
+            return false;
+        };
+        let Some(item) = run.chest_offer.get(k).copied() else {
+            return false;
+        };
+        if !super::treasure::take_chest_item(&mut run.me, item.key) {
+            return false;
+        }
+        picks.2.push(item.key.to_string());
+        if done(run) {
+            next.set(Phase::Playing);
+        }
+        return true;
+    }
     if offer.blessing {
         let Move::Pick(i) = m else { return false };
         let Some(Choice::Boon(k)) = offer.cards.get(i).map(|(_, c)| *c) else {
@@ -371,7 +423,7 @@ pub(super) fn make_move(
             return false;
         }
         picks.1.push(wire);
-        if run.pending_levels == 0 && run.shrine_offer.is_empty() {
+        if done(run) {
             next.set(Phase::Playing);
         }
         return true;
@@ -416,7 +468,7 @@ pub(super) fn make_move(
     }
     offer.banishing = false;
     picks.0.push(action);
-    if run.pending_levels == 0 && run.shrine_offer.is_empty() {
+    if done(run) {
         next.set(Phase::Playing);
     }
     true
@@ -1499,6 +1551,45 @@ pub(super) fn describe_card(
                 footer: tr("For the rest of the run").to_string(),
             }
         }
+        Choice::ChestItem(k) => {
+            let Some(item) = run.chest_offer.get(k).copied() else {
+                return describe_card(Choice::Heal, perks, run, spells);
+            };
+            let held = run
+                .run_items
+                .iter()
+                .find(|(i, _)| *i == item)
+                .map_or(0, |(_, n)| *n);
+            let b = item.bonus;
+            let v = match b.amount {
+                data::Amount::Flat(v) | data::Amount::Percent(v) => v,
+            };
+            let mut desc = passive_text(b.stat, v);
+            if let Some(e) = item.effect {
+                desc += " ";
+                desc += &item_effect_text(e.at(held + 1));
+            }
+            CardText {
+                spell: item.spell,
+                name: tr(item.name).to_string(),
+                badge: if held == 0 {
+                    Badge::New
+                } else {
+                    Badge::Rank(u16::from(held) + 1)
+                },
+                tag: if held == 0 {
+                    tr("New item").to_string()
+                } else {
+                    trf(
+                        "Stack {} » {}",
+                        &[&held.to_string(), &(held + 1).to_string()],
+                    )
+                },
+                desc,
+                perks: Vec::new(),
+                footer: tr("For the rest of the run").to_string(),
+            }
+        }
         Choice::Heal => CardText {
             spell: 5720,
             name: tr("Healthstone").to_string(),
@@ -1961,6 +2052,8 @@ pub(super) fn xp_hover(
 const TIP_FILL: Color = Color::srgb(0.09, 0.09, 0.19);
 /// The grey a spell tooltip prints its rank in, right of the name.
 const TIP_GREY: Color = Color::srgb(0.5, 0.5, 0.5);
+/// A tooltip's bonuses, WoW's green.
+const TIP_GREEN: Color = Color::srgb(0.12, 1.0, 0.12);
 
 /// One tooltip line: the left text, an optional right-aligned one, the colour and font size
 /// (`GameTooltipHeaderText` 14, `GameTooltipText` 12).
@@ -2228,6 +2321,7 @@ pub(super) fn ability_tip(
     stats: &Stats,
     spells: Option<&crate::ui_action::Spells>,
 ) -> Vec<TipLine> {
+    use super::lang::{tr, trf};
     let def = o.def;
     let now = cast_at(def, o.perks, stats);
     let mut lines = vec![
@@ -2235,46 +2329,73 @@ pub(super) fn ability_tip(
             .header()
             .right(format!("Rank {}", o.level), TIP_GREY),
     ];
+    // As WoW's spell tooltip: its range, then how it casts and its cooldown, then what it does.
     let range = match def.kind {
-        Kind::Melee => Some("Melee Range".to_string()),
+        Kind::Melee => Some(tr("Melee Range").to_string()),
         Kind::Bolt | Kind::Strike | Kind::Chain | Kind::Dot | Kind::Ground | Kind::Totem => {
-            Some(format!("{} yd range", num(def.range)))
+            Some(trf("{} yd range", &[&num(def.range)]))
         }
         _ => None,
     };
-    let mut cast = TipLine::new("Casts itself", Color::WHITE);
     if let Some(range) = range {
-        cast = cast.right(range, Color::WHITE);
+        lines.push(TipLine::new(range, Color::WHITE));
     }
-    lines.push(cast);
     lines.push(
-        TipLine::new("Instant", Color::WHITE)
-            .right(format!("{} sec cooldown", num(now.cooldown)), Color::WHITE),
+        TipLine::new(tr("Automatic"), Color::WHITE)
+            .right(trf("{} sec cooldown", &[&num(now.cooldown)]), Color::WHITE),
     );
     lines.push(TipLine::new(ability_body(def, &now), GOLD));
+    // What its cards have given it so far, in green as WoW's bonuses.
+    let grown: Vec<String> = perk_lines(&o.perks)
+        .into_iter()
+        .map(|(v, l)| format!("{v} {l}"))
+        .collect();
+    if !grown.is_empty() {
+        lines.push(TipLine::new(
+            trf("Your bonuses: {}", &[&grown.join(", ")]),
+            TIP_GREEN,
+        ));
+    }
     if !matches!(
         def.kind,
         Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot
     ) {
         lines.push(TipLine::new(
-            format!(
-                "{} chance to critically strike for double damage",
-                pct(stats.crit)
+            trf(
+                "{} chance to crit for {} damage",
+                &[&pct(stats.crit), &pct(data::CRIT_MULT)],
             ),
-            DIM,
-        ));
-    }
-    // What its cards have given it so far.
-    let grown = perk_lines(&o.perks);
-    if !grown.is_empty() {
-        lines.push(TipLine::new(
-            super::lang::tr("From its cards:"),
             Color::WHITE,
         ));
-        for (v, l) in grown {
-            lines.push(TipLine::new(format!("{v} {l}"), GOLD));
-        }
     }
+    lines
+}
+
+/// A ware of the merchant's: the item as it would be once bought, and its price.
+fn ware_tip(w: &super::market::Ware, run: &Run, stats: &Stats) -> Vec<TipLine> {
+    use super::lang::{tr, trf};
+    let held = run
+        .run_items
+        .iter()
+        .find(|(i, _)| *i == w.item)
+        .map_or(0, |(_, n)| *n);
+    let after = (held + 1).min(data::MAX_RUN_ITEM_STACKS);
+    let mut lines = item_tip(w.item, after, stats);
+    let (line, color) = if w.sold {
+        (tr("Sold").to_string(), DIM)
+    } else if held >= data::MAX_RUN_ITEM_STACKS {
+        (tr("Most stacks: it cannot be bought").to_string(), DIM)
+    } else if held == 0 && run.run_items.len() >= data::MAX_RUN_ITEM_KINDS {
+        (tr("Five kinds held: it cannot be bought").to_string(), DIM)
+    } else if run.gold + 1e-3 >= w.price as f32 {
+        (trf("Buy for {} gold", &[&w.price.to_string()]), TIP_GREEN)
+    } else {
+        (
+            trf("Costs {} gold", &[&w.price.to_string()]),
+            Color::srgb(0.85, 0.3, 0.25),
+        )
+    };
+    lines.push(TipLine::new(line, color));
     lines
 }
 
@@ -2556,8 +2677,9 @@ pub(super) fn icon_tooltip(
         &bevy::ui::UiGlobalTransform,
     )>,
     mut frames: Query<(&mut Node, &mut Visibility), With<GameTooltip>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut built: Local<Option<(Entity, Entity)>>,
-    mut shown: Local<Option<(TipFor, u32)>>,
+    mut shown: Local<Option<(TipFor, u32, u32)>>,
 ) {
     let Some((frame, body)) = *built else {
         if let Some(assets) = assets.as_deref_mut() {
@@ -2584,17 +2706,30 @@ pub(super) fn icon_tooltip(
         *shown = None;
         return;
     };
-    // Physical pixels to the 768-unit canvas the `Val`s are on.
+    // Physical pixels to the 768-unit canvas the `Val`s are on. Under the icon, or over it for an
+    // icon in the screen's lower half (the action bar, the shop), where under is off the screen.
     let inv = computed.inverse_scale_factor;
-    let (left, top) = (
-        Val::Px((at.translation.x - computed.size().x / 2.0) * inv),
-        Val::Px((at.translation.y + computed.size().y / 2.0) * inv + 4.0),
-    );
-    if node.left != left || node.top != top {
+    let half = computed.size() / 2.0;
+    let screen = windows
+        .single()
+        .map_or(f32::MAX, |w| w.physical_height() as f32);
+    let left = Val::Px((at.translation.x - half.x) * inv);
+    let (top, bottom) = if at.translation.y > screen / 2.0 {
+        (
+            Val::Auto,
+            Val::Px((screen - (at.translation.y - half.y)) * inv + 4.0),
+        )
+    } else {
+        (Val::Px((at.translation.y + half.y) * inv + 4.0), Val::Auto)
+    };
+    if node.left != left || node.top != top || node.bottom != bottom {
         node.left = left;
         node.top = top;
+        node.bottom = bottom;
     }
-    if *shown == Some((tip, run.version)) {
+    // The gold in hand changes what a ware's tooltip says.
+    let seen = (tip, run.version, run.gold.floor() as u32);
+    if *shown == Some(seen) {
         if *vis != Visibility::Inherited {
             *vis = Visibility::Inherited;
         }
@@ -2614,6 +2749,7 @@ pub(super) fn icon_tooltip(
             .run_items
             .get(i)
             .map(|&(item, n)| item_tip(item, n, &stats)),
+        TipFor::Ware(i) => run.shop.get(i).map(|w| ware_tip(w, &run, &stats)),
         TipFor::Mobility => run.mobility().map(|m| {
             vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),
@@ -2624,7 +2760,7 @@ pub(super) fn icon_tooltip(
         }),
     };
     let Some(lines) = lines else { return };
-    *shown = Some((tip, run.version));
+    *shown = Some(seen);
     // Shown from the next frame, once the new lines have laid out.
     *vis = Visibility::Hidden;
     fill_tooltip(&mut commands, body, &font.0, lines);

@@ -164,7 +164,7 @@ fn schedule(
 
 fn roll(rng: &mut Rng, crit: f32, dmg: f32) -> (f32, bool) {
     if rng.f32() < crit {
-        (dmg * 2.0, true)
+        (dmg * data::CRIT_MULT, true)
     } else {
         (dmg, false)
     }

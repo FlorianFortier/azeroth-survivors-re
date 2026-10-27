@@ -380,6 +380,12 @@ fn french(s: &str) -> Option<&'static str> {
             "Bannir : cliquez une carte, ou appuyez sur 1 à 4  ·  B de nouveau pour annuler"
         }
         "SHRINE" => "SANCTUAIRE",
+        "CHEST" => "COFFRE",
+        "Chest!" => "Coffre !",
+        "Choose an item for the rest of the run." => "Choisissez un objet pour le reste de la partie.",
+        "Click an item, or press 1, 2 or 3" => "Cliquez sur un objet, ou appuyez sur 1, 2 ou 3",
+        "New item" => "Nouvel objet",
+        "Stack {} » {}" => "Cumul {} » {}",
         "Blessing!" => "Bénédiction !",
         "Choose a blessing for the rest of the run." => {
             "Choisissez une bénédiction pour le reste de la partie."
@@ -415,6 +421,16 @@ fn french(s: &str) -> Option<&'static str> {
         "Stage {}/{}  ·  " => "Étape {}/{}  ·  ",
         "Stand near to trade" => "Approchez pour marchander",
         "Sold" => "Vendu",
+        "Melee Range" => "Allonge",
+        "{} yd range" => "Portée de {} m",
+        "Automatic" => "Automatique",
+        "{} sec cooldown" => "Recharge {} s",
+        "Your bonuses: {}" => "Vos bonus : {}",
+        "{} chance to crit for {} damage" => "{} de chances de critique pour {} des dégâts",
+        "Most stacks: it cannot be bought" => "Cumul maximal : impossible à acheter",
+        "Five kinds held: it cannot be bought" => "Cinq sortes déjà portées : impossible à acheter",
+        "Buy for {} gold" => "Acheter pour {} pièces d'or",
+        "Costs {} gold" => "Coûte {} pièces d'or",
         "Click a ware, or press 1, 2 or 3 to buy" => "Cliquez un article, ou appuyez sur 1, 2 ou 3 pour l'acheter",
         // The shrines.
         "Free" => "Gratuit",

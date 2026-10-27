@@ -231,7 +231,8 @@ fn wanted(
         out.push((
             Key::Shrine(i),
             Shown {
-                at: sh.pos + Vec3::Y * 3.0,
+                // Over its stone, which is small.
+                at: sh.pos + Vec3::Y * 1.6,
                 icon: def.spell,
                 title: tr(def.title).to_string(),
                 line,

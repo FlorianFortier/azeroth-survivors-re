@@ -508,6 +508,8 @@ pub(super) struct Vitals {
     pub keys: u8,
     /// The blessings a Shrine of Power offers this hero, by the simulation: one may be taken.
     pub shrine_offer: Vec<data::Boon>,
+    /// The run items an opened chest offers this hero, by the simulation: one may be taken.
+    pub chest_offer: Vec<&'static data::RunItemDef>,
     /// What the field's shrines gave this hero for the rest of the run: blessings taken, and
     /// Greed's gold and the Curse's experience.
     pub boons: Vec<Bonus>,
@@ -555,6 +557,7 @@ impl Default for Vitals {
             skip_gold: 0,
             keys: 0,
             shrine_offer: Vec::new(),
+            chest_offer: Vec::new(),
             boons: Vec::new(),
         }
     }

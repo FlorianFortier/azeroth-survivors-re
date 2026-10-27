@@ -242,6 +242,15 @@ fn pilot(app: &mut App, t: f32) {
         if let Some(b) = v.shrine_offer.first().copied() {
             treasure::take_boon(v, data::bonus_to_wire(&b.bonus));
         }
+        // The rarest of a chest's items.
+        if let Some(item) = v
+            .chest_offer
+            .iter()
+            .max_by_key(|i| CardRarity::ALL.iter().position(|r| *r == i.rarity))
+            .copied()
+        {
+            treasure::take_chest_item(v, item.key);
+        }
 
         // Where to: an open portal, a chest it can pay for, else round the middle.
         let at = tf.translation;
