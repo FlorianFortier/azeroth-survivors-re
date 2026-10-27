@@ -29,7 +29,7 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md). What reading a l
 | `crates/survivors-net` | multiplayer protocol, lobby settings, the lobby hub's state machine. No I/O, no deps | ours |
 | `crates/survivors-server` | the lobby server (`make lobby`); its router is mounted by `wenilla-host` at `/lobby` | ours |
 | `crates/warcraft-survivors` | the native launcher (`make native`) | ours |
-| `crates/benilla-casc`, `crates/benilla-legion` | a spike toward Legion 7.3.5's data, native only and read by nothing yet: a CASC reader (with a `remote` feature reading a copy by byte ranges) Legion's chunked M2 and `.skin`, and its DB2 tables (WDC1, typed by WoWDBDefs' `.dbd` read from a local folder, never vendored) with creature displays; their examples draw a model to a PNG without a GPU. See [docs/EXPANSIONS.md](docs/EXPANSIONS.md) | ours |
+| `crates/benilla-casc`, `crates/benilla-legion` | a spike toward Legion 7.3.5's data, native only and read by nothing yet: a CASC reader (with a `remote` feature reading a copy by byte ranges) Legion's chunked M2 and `.skin`, and its DB2 tables (WDC1, typed by WoWDBDefs' `.dbd` read from a local folder, never vendored) with creature displays, and a transcoder writing a Legion model as a 1.12.1 MD20 (`transcode`); their examples draw a model to a PNG without a GPU. See [docs/EXPANSIONS.md](docs/EXPANSIONS.md) | ours |
 | `crates/wenilla` | the wasm entry crate (`#[wasm_bindgen(start)]`), boots the survivors mode | ours |
 | `crates/wenilla-host` | local dev server: static files, `/data/*`, and the lobby at `/lobby`. Loopback by default. | wenilla's |
 | `web/` | the page side: `index.html`, `boot.js`, `platform.js`, `bridge.js`, `examples/`, `wasi_stubs.js` | wenilla's |

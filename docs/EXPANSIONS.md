@@ -174,6 +174,19 @@ upstream merge. Each step is one pull request or a few.
    textures named by virtual paths, materials, bones in their bind pose, the geosets its display
    picks, Legion's shader combos brought to the nearest 1.12.1 blend. Done when `benilla-m2`
    reads the result, and a test holds Illidan's counts.
+   **Done**: `benilla-legion`'s `transcode` (`to_vanilla`): the 1.12.1 header (`0x144` bytes) with
+   the Legion arrays it shares copied as they are (vertices, lookups, collision), the skin as one
+   embedded view (sections cut to 32 bytes, the batches of the geosets the display hides dropped,
+   one texture a batch), textures named `Legion\<file data id>.blp` (`texture_files`: `TXID`,
+   else the record's path, else the display's replaceable one), materials to 1.12.1's flags and
+   blends (Legion's 7, a premultiplied blend, to an alpha blend), bones keyless in their bind pose, sequences laid end to end on one
+   timeline, colours and weights at their first key, attachments; no texture transforms, events,
+   lights, cameras, ribbons or particles yet. `benilla-m2` and the client's own loader
+   (`parse_m2_render_submeshes`) read the result: Illidan (6,005 vertices, 127 bones, 3 sections,
+   14 attachments) in two draws, his glow left out as its alpha is 0 in his stand, as 1.12.1's
+   static cull wants until step 4 brings the tracks; the Fel Lord in ten (display 61830), the Fel
+   Bat in two (65202). `cargo test -p benilla-legion --test legion_data -- --ignored` holds
+   Illidan's counts; `legion_model` writes `vanilla.m2` beside its preview.
 3. **The Legion source in the asset chain.** `WOW_LEGION=<folder>` (native only) opens the install
    through `benilla-casc`; virtual paths (`Legion\<file data id>.m2`, `.blp`) are answered by our
    layer, which transcodes models and passes textures through. One hook into upstream's asset
