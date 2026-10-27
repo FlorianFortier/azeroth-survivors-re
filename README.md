@@ -77,11 +77,12 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   click a ware or press 1, 2 or 3. Elites sometimes drop a **key**, which opens a chest for
   nothing, and **jars and crates** about the field break as you walk into them, for a few coins
   or a bite to eat. Co-op guests buy, break and open too, the host checking each.
-- **Shrines** across the field: stand in a **Shrine of Power** until it charges and choose one
+- **Shrines** across the field, small stones with a ring around them: stand within the wide ring
+  of a **Shrine of Power** until it charges and choose one
   blessing of three (a stat for the rest of the run, drawn Common to Legendary); wake the
   **Shrine of Challenge** and beat the elites it calls for a free chest; the **Shrine of Greed**
   gives every hero more gold and the foes more bite, the **Shrine of Curses** more experience
-  and more foes. Each shows its ring, its charge and what it does over the world and on the
+  and more foes; those three have a narrow ring, to be woken on purpose. Each shows its ring, its charge and what it does over the world and on the
   minimap, and co-op guests see and use them too.
 - **A main screen in tabs** (Character, Collection, Drop Tables, Codex, Talents, Achievements,
   Rewards). The Character tab shows the class on the left (its health, starting spell and spell
