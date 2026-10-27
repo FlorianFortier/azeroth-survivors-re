@@ -80,6 +80,9 @@ pub(super) struct TracePoint {
     pub clock: f32,
     pub hp: f32,
     pub alive: usize,
+    /// The hero's distance from the field's middle, and from the nearest elite.
+    pub off: f32,
+    pub elite: f32,
     /// The most foes within 4 yd of the hero at once since the last point.
     pub near: usize,
     /// Health lost since the last point, and how much of it in reach of a boss.
@@ -263,7 +266,8 @@ fn pilot(app: &mut App, t: f32) {
             d.iter().map(|d| 1.0 / (d * d)).sum()
         };
         // In a portal, standing is the point: the crowd matters less than the charge.
-        let caution = if gate.is_some() { caution * 0.5 } else { caution };
+        let in_gate = gate.is_some_and(|g| super::units::flat(g - at).length() < data::PORTAL_RADIUS);
+        let caution = if in_gate { caution * 0.5 } else { caution };
         let mut best = (f32::INFINITY, Vec3::ZERO);
         for k in 0..=16 {
             // Sixteen headings, and standing still.
@@ -283,7 +287,8 @@ fn pilot(app: &mut App, t: f32) {
                     let out = (super::units::flat(at + dir * speed * 0.5 - g).length()
                         - data::PORTAL_RADIUS * 0.6)
                         .max(0.0);
-                    score += out * out * 4.0;
+                    // On the way, steadily; inside, hard to leave.
+                    score += if in_gate { out * out * 4.0 } else { out * 0.8 };
                 }
                 (None, Some(g)) => score += super::units::flat(ahead - g).length() * 0.05,
                 // With nothing to go to, it keeps its spells' reach of the horde.
@@ -359,6 +364,18 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
             (n, b)
         };
         window.near = window.near.max(near);
+        let (off, elite) = {
+            let center = hero::arena(world.resource::<Selection>().stage_def());
+            let mut q = world.query::<(&Transform, &enemies::Enemy)>();
+            let elite = q
+                .iter(world)
+                .filter(|(_, e)| !e.dead && e.elite.is_some())
+                .map(|(t, _)| super::units::flat(t.translation - at).length())
+                .fold(f32::INFINITY, f32::min);
+            (super::units::flat(at - center).length(), elite)
+        };
+        window.off = off;
+        window.elite = elite;
         if let Some(prev) = last_hp {
             if hp < prev {
                 stage.taken += prev - hp;
@@ -548,17 +565,26 @@ mod tests {
     #[test]
     #[ignore = "a diagnosis: run with --ignored --nocapture"]
     fn trace_a_run() {
-        let log = play(0, 0, 2, 900.0);
+        // SIM_CLASS, SIM_SEED and SIM_LIMIT pick the run, so a diagnosis needs no rebuild.
+        let env = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        let log = play(
+            env("SIM_CLASS", 0.0) as usize,
+            0,
+            env("SIM_SEED", 2.0) as u64,
+            env("SIM_LIMIT", 900.0),
+        );
         println!("{}", row(&log));
         for p in &log.trace {
             println!(
-                "{:>5.0}s hp {:>5.0} foes {:>3} near {:>2} took {:>4.0} (boss {:>4.0}){}",
+                "{:>5.0}s hp {:>5.0} foes {:>3} near {:>2} took {:>4.0} (boss {:>4.0}) off {:>3.0} elite {:>3.0}{}",
                 p.clock,
                 p.hp,
                 p.alive,
                 p.near,
                 p.taken,
                 p.by_boss,
+                p.off,
+                p.elite,
                 if p.surge { " surge" } else { "" }
             );
         }
