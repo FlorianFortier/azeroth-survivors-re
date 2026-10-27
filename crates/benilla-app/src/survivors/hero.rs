@@ -951,7 +951,7 @@ fn chase_eye(rig: &CamRig, focus: Vec3, ground: impl Fn(Vec3) -> Option<f32>) ->
 /// Damage the hero takes from one blow, after immunity, armour and the shield; returns what got
 /// through.
 pub(super) fn hurt_hero(hero: &mut Vitals, raw: f32) -> f32 {
-    if hero.immune_t > 0.0 || hero.dead_t.is_some() {
+    if hero.immune_t > 0.0 || hero.dead_t.is_some() || hero.away {
         return 0.0;
     }
     let stats = hero.stats();
@@ -1096,8 +1096,9 @@ pub(super) fn hero_vitals(
         }
     } else if heroes
         .iter()
-        .all(|h| h.5.dead_t.is_some_and(|t| t > DOWN_SECS))
+        .all(|h| h.5.away || h.5.dead_t.is_some_and(|t| t > DOWN_SECS))
     {
+        // Every hero down, or away with its player gone.
         run.lost = true;
     }
 }

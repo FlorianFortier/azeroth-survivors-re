@@ -145,9 +145,9 @@ impl Hub {
     /// in a run, which is kept away for its player to rejoin by its token.
     pub fn disconnect(&mut self, conn: ConnId) -> Vec<Send> {
         let mut out = Vec::new();
-        let in_run = self.seat_of(conn).filter(|(code, slot)| {
-            *slot != 0 && self.lobbies[code].state == LobbyState::InRun
-        });
+        let in_run = self
+            .seat_of(conn)
+            .filter(|(code, slot)| *slot != 0 && self.lobbies[code].state == LobbyState::InRun);
         match in_run {
             Some((code, slot)) => {
                 if let Some(seat) = self
@@ -856,7 +856,11 @@ mod tests {
         // The guest's connection drops: its seat stays, away, under its name.
         let out = h.disconnect(2);
         let v = view_for(&out, 1);
-        let m = v.members.iter().find(|m| m.slot == 1).expect("the seat stays");
+        let m = v
+            .members
+            .iter()
+            .find(|m| m.slot == 1)
+            .expect("the seat stays");
         assert!(m.away && m.name == "Guest");
         assert!(!v.members.iter().find(|m| m.slot == 2).unwrap().away);
         // Nothing goes to an away seat.
@@ -870,7 +874,12 @@ mod tests {
         assert!(out.is_empty());
         // A new connection: a wrong token, another seat's token, a token for no run are refused.
         hello(&mut h, 5, "Guest");
-        for (c, t) in [(code.as_str(), t2 ^ 1), (code.as_str(), t3), ("ZZZZZ", t2), (code.as_str(), 0)] {
+        for (c, t) in [
+            (code.as_str(), t2 ^ 1),
+            (code.as_str(), t3),
+            ("ZZZZZ", t2),
+            (code.as_str(), 0),
+        ] {
             let out = h.handle(
                 5,
                 Up::Rejoin {

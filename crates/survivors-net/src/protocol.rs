@@ -189,7 +189,9 @@ impl ErrorCode {
             ErrorCode::ServerFull => "The server is full; try again later.",
             ErrorCode::BadState => "That cannot be done right now.",
             ErrorCode::BadFrame => "The server could not read a message.",
-            ErrorCode::CannotRejoin => "The run could not be rejoined: it ended, or the seat was given up.",
+            ErrorCode::CannotRejoin => {
+                "The run could not be rejoined: it ended, or the seat was given up."
+            }
         }
     }
 }

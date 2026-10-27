@@ -80,11 +80,19 @@ pub(in crate::survivors) struct Replicator {
     leg: u8,
     /// Each guest's clock against ours and the positions it sent for its hero, by seat.
     guests: HashMap<u8, (Clock, Track)>,
+    /// Seats that came back to the run with nothing: the next tick sends them the whole world.
+    resync: HashSet<u8>,
 }
 
 impl Replicator {
     pub(super) fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// A seat asks for the whole world, as its `Game::Resync` would.
+    #[cfg(test)]
+    pub(super) fn ask_resync(&mut self, slot: u8) {
+        self.resync.insert(slot);
     }
 
     /// Make the next stream run both its ticks, whatever the clock says.
@@ -229,6 +237,11 @@ pub(super) fn receive(
             Game::Loaded => {
                 rep.loaded.insert(from);
             }
+            Game::Resync => {
+                rep.resync.insert(from);
+                // Its hero is drawn from what it sends from now on, on its new clock.
+                rep.guests.remove(&from);
+            }
             Game::Input {
                 t,
                 motion,
@@ -321,28 +334,88 @@ pub(super) fn receive(
             rep.loaded.insert(session.slot);
         }
         rep.wait += dt;
-        // Everyone still at the table; one who left during the load is not waited for.
-        let seated: Vec<u8> = net
-            .lobby
-            .as_ref()
-            .map_or_else(Vec::new, |l| l.members.iter().map(|m| m.slot).collect());
+        // Everyone still at the table; one who left during the load, or whose connection
+        // dropped, is not waited for.
+        let seated: Vec<u8> = net.lobby.as_ref().map_or_else(Vec::new, |l| {
+            l.members
+                .iter()
+                .filter(|m| !m.away)
+                .map(|m| m.slot)
+                .collect()
+        });
         let all = seated.iter().all(|s| rep.loaded.contains(s));
         if all || rep.wait > LOAD_GRACE {
             run.waiting = false;
         }
     }
 
-    // A guest who left takes their hero with them.
+    // A guest who left takes their hero with them; one whose connection dropped leaves it
+    // standing, away (protected, and no help), until they rejoin.
     if let Some(lobby) = &net.lobby {
-        for (e, .., h) in &heroes {
-            if !lobby.members.iter().any(|m| m.slot == h.slot) {
-                commands
-                    .entity(e)
-                    .remove::<HeroState>()
-                    .remove::<Hero>()
-                    .insert(DespawnFade::default());
+        for (e, .., mut h) in &mut heroes {
+            match lobby.members.iter().find(|m| m.slot == h.slot) {
+                None => {
+                    commands
+                        .entity(e)
+                        .remove::<HeroState>()
+                        .remove::<Hero>()
+                        .insert(DespawnFade::default());
+                }
+                Some(m) => {
+                    if h.away != m.away {
+                        h.away = m.away;
+                    }
+                }
             }
         }
+    }
+}
+
+/// The wire kind of a streamed object.
+fn kind_of(net_entity: &NetEntity) -> ObjectKind {
+    match net_entity.kind {
+        benilla_protocol::EntityKind::GameObject => ObjectKind::GameObject,
+        benilla_protocol::EntityKind::DynamicObject => ObjectKind::DynamicObject,
+        benilla_protocol::EntityKind::Player => ObjectKind::Player,
+        _ => ObjectKind::Unit,
+    }
+}
+
+/// An object as a guest first meets it: its kind, its part in the run, its look and fields, where
+/// it stands.
+#[allow(clippy::too_many_arguments)]
+fn spawn_of(
+    guid: &Guid,
+    net_entity: &NetEntity,
+    store: &ObjectStore,
+    now: Motion,
+    hero_state: Option<&HeroState>,
+    mark: Option<&FieldMark>,
+    hostile: bool,
+    pickup: bool,
+) -> Spawn {
+    let kind = kind_of(net_entity);
+    let role = match (hero_state, mark, hostile, pickup, kind) {
+        (Some(h), ..) => Role::Hero(h.slot),
+        (_, Some(FieldMark::Chest), ..) => Role::Chest,
+        (_, Some(FieldMark::FreeChest), ..) => Role::FreeChest,
+        (_, Some(FieldMark::Merchant), ..) => Role::Merchant,
+        (_, Some(FieldMark::Elite(k)), ..) => Role::Elite(*k),
+        (_, _, true, ..) => Role::Enemy,
+        (_, _, _, true, _) => Role::Pickup,
+        (.., ObjectKind::DynamicObject) => Role::Area,
+        (.., ObjectKind::GameObject) => Role::Pickup,
+        _ => Role::Totem,
+    };
+    Spawn {
+        guid: guid.0,
+        kind,
+        role,
+        display: net_entity.display_id,
+        scale: net_entity.scale,
+        fields: store.0.raw_fields().collect(),
+        pos: now.pos,
+        yaw: now.yaw,
     }
 }
 
@@ -382,6 +455,10 @@ pub(super) fn stream(
         return;
     }
     rep.tick = 0.0;
+    // A seat that came back gets the run's clock, the party and its numbers this tick.
+    if !rep.resync.is_empty() {
+        rep.slow = SLOW_TICK;
+    }
 
     let mut out: Vec<Game> = Vec::new();
     let mut motions: Vec<Motion> = Vec::new();
@@ -402,38 +479,14 @@ pub(super) fn stream(
             }
             continue;
         }
-        let kind = match net_entity.kind {
-            benilla_protocol::EntityKind::GameObject => ObjectKind::GameObject,
-            benilla_protocol::EntityKind::DynamicObject => ObjectKind::DynamicObject,
-            benilla_protocol::EntityKind::Player => ObjectKind::Player,
-            _ => ObjectKind::Unit,
-        };
         let now = motion_of(guid.0, tf, mv);
         match rep.known.get_mut(&e) {
             None => {
-                let role = match (hero_state, mark, hostile, pickup, kind) {
-                    (Some(h), ..) => Role::Hero(h.slot),
-                    (_, Some(FieldMark::Chest), ..) => Role::Chest,
-                    (_, Some(FieldMark::FreeChest), ..) => Role::FreeChest,
-                    (_, Some(FieldMark::Merchant), ..) => Role::Merchant,
-                    (_, Some(FieldMark::Elite(k)), ..) => Role::Elite(*k),
-                    (_, _, true, ..) => Role::Enemy,
-                    (_, _, _, true, _) => Role::Pickup,
-                    (.., ObjectKind::DynamicObject) => Role::Area,
-                    (.., ObjectKind::GameObject) => Role::Pickup,
-                    _ => Role::Totem,
-                };
-                let fields: Vec<(u16, u32)> = store.0.raw_fields().collect();
-                out.push(Game::Spawn(Spawn {
-                    guid: guid.0,
-                    kind,
-                    role,
-                    display: net_entity.display_id,
-                    scale: net_entity.scale,
-                    fields: fields.clone(),
-                    pos: now.pos,
-                    yaw: now.yaw,
-                }));
+                let spawn = spawn_of(
+                    guid, net_entity, store, now, hero_state, mark, hostile, pickup,
+                );
+                let fields = spawn.fields.clone();
+                out.push(Game::Spawn(spawn));
                 rep.known.insert(
                     e,
                     Known {
@@ -659,6 +712,24 @@ pub(super) fn stream(
     }
 
     net.relay(Target::Others, &out);
+
+    // A seat back from a dropped connection has nothing: the whole world, to it alone, after
+    // this tick's changes (which it drops for want of the units, and which this snapshot holds).
+    for slot in std::mem::take(&mut rep.resync) {
+        let snapshot: Vec<Game> = objects
+            .iter()
+            .filter(|o| !o.9)
+            .map(
+                |(_, guid, net_entity, store, tf, mv, hero_state, hostile, pickup, _, mark)| {
+                    let now = motion_of(guid.0, tf, mv);
+                    Game::Spawn(spawn_of(
+                        guid, net_entity, store, now, hero_state, mark, hostile, pickup,
+                    ))
+                },
+            )
+            .collect();
+        net.relay(Target::Slot(slot), &snapshot);
+    }
 }
 
 #[cfg(test)]

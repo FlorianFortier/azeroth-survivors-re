@@ -260,7 +260,7 @@ pub(super) fn cast_abilities(
 
     let target = target.and_then(|t| t.0);
     for (me, htf, mut hero, local) in &mut heroes {
-        if !hero.alive() {
+        if !hero.alive() || hero.away {
             continue;
         }
         let hero = &mut hero.v;

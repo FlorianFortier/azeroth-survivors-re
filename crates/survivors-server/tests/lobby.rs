@@ -109,11 +109,12 @@ async fn create_join_start_relay_and_close() {
     send(&mut guest, Up::SetReady(true)).await;
     until(&mut host, |d| matches!(d, Down::Lobby(v) if v.all_ready())).await;
     send(&mut host, Up::Start).await;
-    let Down::Started { seed } = until(&mut guest, |d| matches!(d, Down::Started { .. })).await
+    let Down::Started { seed, .. } = until(&mut guest, |d| matches!(d, Down::Started { .. })).await
     else {
         unreachable!()
     };
-    let Down::Started { seed: s2 } = until(&mut host, |d| matches!(d, Down::Started { .. })).await
+    let Down::Started { seed: s2, .. } =
+        until(&mut host, |d| matches!(d, Down::Started { .. })).await
     else {
         unreachable!()
     };
@@ -173,4 +174,78 @@ async fn health_reports_counts() {
     stream.read_to_string(&mut body).await.unwrap();
     assert!(body.contains("ok protocol="), "{body}");
     assert!(body.contains("connections=1"), "{body}");
+}
+
+#[tokio::test]
+async fn a_guest_dropped_in_a_run_comes_back_on_a_new_socket() {
+    let (url, _server) = serve().await;
+    let mut host = connect(&url, "Host").await;
+    let mut guest = connect(&url, "Guest").await;
+    send(
+        &mut host,
+        Up::Create {
+            settings: Settings::default(),
+            loadout: Loadout::default(),
+        },
+    )
+    .await;
+    let Down::Lobby(view) = recv(&mut host).await else {
+        panic!("expected the new lobby")
+    };
+    let code = view.code.clone();
+    send(
+        &mut guest,
+        Up::Join {
+            code: code.clone(),
+            loadout: Loadout::default(),
+        },
+    )
+    .await;
+    send(&mut guest, Up::SetReady(true)).await;
+    until(&mut host, |d| matches!(d, Down::Lobby(v) if v.all_ready())).await;
+    send(&mut host, Up::Start).await;
+    let Down::Started { token, .. } =
+        until(&mut guest, |d| matches!(d, Down::Started { .. })).await
+    else {
+        unreachable!()
+    };
+
+    // The guest's connection dies: the host sees its seat kept, away.
+    drop(guest);
+    let Down::Lobby(v) = until(
+        &mut host,
+        |d| matches!(d, Down::Lobby(v) if v.members.iter().any(|m| m.away)),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(v.members.len(), 2);
+
+    // A new socket, the token: the seat is back, and the run's relays flow to it again.
+    let mut back = connect(&url, "Guest").await;
+    send(&mut back, Up::Rejoin { code, token }).await;
+    assert_eq!(
+        until(&mut back, |d| matches!(d, Down::Rejoined | Down::Error(_))).await,
+        Down::Rejoined
+    );
+    until(
+        &mut host,
+        |d| matches!(d, Down::Lobby(v) if v.members.len() == 2 && v.members.iter().all(|m| !m.away)),
+    )
+    .await;
+    send(
+        &mut host,
+        Up::Relay {
+            to: Target::Slot(1),
+            data: encode_batch(&[Game::Resync]),
+        },
+    )
+    .await;
+    let Down::Relay { from, data } = until(&mut back, |d| matches!(d, Down::Relay { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(from, 0);
+    assert_eq!(decode_batch(&data), vec![Game::Resync]);
 }

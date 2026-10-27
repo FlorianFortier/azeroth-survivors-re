@@ -161,7 +161,9 @@ impl Settings {
                 scale_with_players: self.difficulty.scale_with_players,
             },
             duration_secs: self.duration_secs.clamp(DURATION_MIN, DURATION_MAX),
-            ambush_every_secs: self.ambush_every_secs.clamp(AMBUSH_EVERY_MIN, AMBUSH_EVERY_MAX),
+            ambush_every_secs: self
+                .ambush_every_secs
+                .clamp(AMBUSH_EVERY_MIN, AMBUSH_EVERY_MAX),
             shared_xp: self.shared_xp,
             revive: self.revive,
             listed: self.listed,
