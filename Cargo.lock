@@ -675,6 +675,13 @@ name = "benilla-bytes"
 version = "0.2.0"
 
 [[package]]
+name = "benilla-casc"
+version = "0.2.0"
+dependencies = [
+ "flate2",
+]
+
+[[package]]
 name = "benilla-dbc"
 version = "0.2.0"
 dependencies = [

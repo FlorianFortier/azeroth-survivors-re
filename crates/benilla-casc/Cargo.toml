@@ -1,0 +1,12 @@
+[package]
+name = "benilla-casc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A read-only CASC reader for a local WoW Legion (7.3.5, build 26972) install: native only, a spike toward later clients' data (docs/EXPANSIONS.md)"
+
+[dependencies]
+flate2 = "1.1"
+
+[lints]
+workspace = true
