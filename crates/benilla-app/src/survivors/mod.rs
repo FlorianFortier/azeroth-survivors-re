@@ -75,6 +75,7 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<targeting::HeroTarget>()
             .init_resource::<abilities::PendingHits>()
             .init_resource::<enemies::Spawner>()
+            .init_resource::<enemies::Vacuum>()
             .init_resource::<treasure::Field>()
             .init_resource::<market::Market>()
             .init_resource::<legs::Legs>()

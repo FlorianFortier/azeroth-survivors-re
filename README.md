@@ -55,6 +55,9 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   gryphons at the bottom, the movement spell on its last slot and the experience bar on top.
   Gold, kills, the chest's price and keys stay spelled out under the clock. Co-op guests see
   their own damage and their target's health too.
+- **Quicker levels, snappier pickups**: the first levels come faster, so a run opens on choices;
+  gems fly to you faster once your pickup range catches them, and when a stage's boss falls every
+  gem left on the field comes in at once.
 - **Hits you feel**: every blow shoves its foe back (the heavier the hit, the further; elites
   and bosses hardly budge), a struck model brightens for a moment, and the camera shakes at a
   heavy blow to you, a run of critical strikes and a boss's coming (Options turns the shake off).

@@ -66,6 +66,10 @@ pub(super) struct Spawner {
     timer: f32,
 }
 
+/// While it runs, every gem on the field flies to the nearest hero: a stage's fall clears it.
+#[derive(Resource, Default)]
+pub(super) struct Vacuum(pub f32);
+
 /// An enemy died here, worth this much.
 #[derive(Message, Clone, Copy)]
 pub(super) struct Loot {
@@ -674,7 +678,7 @@ pub(super) fn spawn_gem(commands: &mut Commands, serial: u64, pos: Vec3, kind: G
         Gem {
             kind,
             pulled: None,
-            speed: 6.0,
+            speed: data::GEM_SPEED,
         },
         Pickup,
     ));
@@ -692,8 +696,11 @@ pub(super) fn collect_gems(
     session: Res<Session>,
     mut heroes: Query<(Entity, &Transform, &mut HeroState), (With<Hero>, Without<Gem>)>,
     mut gems: Query<(Entity, &mut Transform, &mut Gem)>,
+    mut vacuum: ResMut<Vacuum>,
 ) {
     let dt = time.delta_secs();
+    let sweeping = vacuum.0 > 0.0;
+    vacuum.0 = (vacuum.0 - dt).max(0.0);
     let catchers: Vec<(Entity, Vec3, f32)> = heroes
         .iter()
         .filter(|(_, _, h)| h.alive())
@@ -707,7 +714,7 @@ pub(super) fn collect_gems(
         if g.pulled.is_none() {
             g.pulled = catchers
                 .iter()
-                .filter(|(_, p, magnet)| flat(*p - tf.translation).length() <= *magnet)
+                .filter(|(_, p, magnet)| sweeping || flat(*p - tf.translation).length() <= *magnet)
                 .min_by(|a, b| {
                     flat(a.1 - tf.translation)
                         .length()
@@ -719,7 +726,7 @@ pub(super) fn collect_gems(
         // The catcher fell or left: the gem waits for the next magnet.
         let Some(&(_, at, _)) = catchers.iter().find(|c| c.0 == to) else {
             g.pulled = None;
-            g.speed = 6.0;
+            g.speed = data::GEM_SPEED;
             continue;
         };
         let target = at + Vec3::Y * 1.0;
@@ -730,7 +737,7 @@ pub(super) fn collect_gems(
             commands.entity(e).despawn();
             continue;
         }
-        g.speed += 30.0 * dt;
+        g.speed += data::GEM_ACCEL * if sweeping { 3.0 } else { 1.0 } * dt;
         tf.translation += d / dist * (g.speed * dt).min(dist);
     }
 

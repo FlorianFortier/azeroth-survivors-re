@@ -127,6 +127,7 @@ pub(super) fn tend_legs(
     mut legs: ResMut<Legs>,
     mut spawner: ResMut<Spawner>,
     mut pending: ResMut<PendingHits>,
+    mut vacuum: ResMut<enemies::Vacuum>,
     world: WorldPoint,
     left: Query<Entity, (With<RunEntity>, Without<HeroState>)>,
     mut heroes: Query<(&mut Transform, &mut HeroState), With<Hero>>,
@@ -240,6 +241,8 @@ pub(super) fn tend_legs(
     // The stage's boss falls: rewards for everyone, and the way onward, or the final swarm.
     if run.final_slain && !run.leg_done {
         run.leg_done = true;
+        // The field's gems all come in, so nothing is left behind on the way onward.
+        vacuum.0 = data::VACUUM_SECS;
         let stage = run.leg;
         for (_, mut h) in &mut heroes {
             reward(&mut h.v, stage, &mut rng);
