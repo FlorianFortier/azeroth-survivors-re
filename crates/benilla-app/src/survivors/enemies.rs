@@ -267,8 +267,19 @@ pub(super) fn spawn_enemies(
         });
     }
 
-    // Half way between bosses, a closing ring of the moment's weakest around every standing hero.
+    // The showdown: from the boss portal's opening to the boss's fall, the crowd thins out.
+    let showdown = !run.leg_done
+        && (run.bosses as usize >= data::BOSS_TIMES.len()
+            || run
+                .gates
+                .iter()
+                .any(|g| g.kind == super::legs::Gate::Boss && g.open));
+    // Half way between bosses, a closing ring of the moment's weakest around every standing hero;
+    // none in the showdown.
     let due_rings = ((elapsed + rules.ambush_every / 2.0) / rules.ambush_every.max(1.0)) as u32;
+    if run.rings < due_rings && showdown {
+        run.rings = due_rings;
+    }
     if run.rings < due_rings {
         run.rings = due_rings;
         let def = &roster.enemies[pool[0]];
@@ -298,13 +309,6 @@ pub(super) fn spawn_enemies(
         return;
     }
     spawner.timer = 0.12;
-    // The showdown: from the boss portal's opening to the boss's fall, the crowd thins out.
-    let showdown = !run.leg_done
-        && (run.bosses as usize >= data::BOSS_TIMES.len()
-            || run
-                .gates
-                .iter()
-                .any(|g| g.kind == super::legs::Gate::Boss && g.open));
     // A surge is told as it begins; the final swarm is a surge of its own.
     let surge = data::surging(elapsed) && run.swarm.is_none() && !showdown;
     if surge && !spawner.surging {
@@ -318,7 +322,9 @@ pub(super) fn spawn_enemies(
     let alive = enemies.iter().filter(|e| !e.dead).count();
     let target = rules.target_alive(elapsed);
     let target = if showdown {
-        ((target as f32 * data::SHOWDOWN_CROWD) as usize).max(1)
+        // As thin as a lull's, and halved again.
+        let lull = data::LULL_CROWD / data::wave_crowd(elapsed);
+        ((target as f32 * lull * data::SHOWDOWN_CROWD) as usize).max(1)
     } else {
         target
     };
