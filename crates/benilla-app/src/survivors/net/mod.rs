@@ -270,6 +270,42 @@ fn flush(mut net: ResMut<Net>) {
     }
 }
 
+/// Most messages a machine holds unread before it sheds some.
+const MAX_INBOX: usize = 20_000;
+
+/// Whether a message can be shed when the inbox is full: what only shows (a cast, a number, a
+/// swing, an impact) and motion, which the next motion supersedes. A unit's coming, its fields,
+/// its going, the run's state and a hero's numbers are never shed: losing one would leave the
+/// copy wrong for the rest of the run.
+fn sheddable(g: &Game) -> bool {
+    matches!(
+        g,
+        Game::Cast { .. }
+            | Game::Impact { .. }
+            | Game::Swing { .. }
+            | Game::Number { .. }
+            | Game::Motions { .. }
+            | Game::Input { .. }
+    )
+}
+
+/// Hold `inbox` to `cap`: the oldest sheddable messages go first, and only those.
+fn trim_inbox(inbox: &mut Vec<(u8, Game)>, cap: usize) {
+    let over = inbox.len().saturating_sub(cap);
+    if over == 0 {
+        return;
+    }
+    let mut shed = 0;
+    inbox.retain(|(_, g)| {
+        if shed < over && sheddable(g) {
+            shed += 1;
+            false
+        } else {
+            true
+        }
+    });
+}
+
 /// Out of the lobby: a multiplayer run ends here, and the menu takes over.
 fn drop_out(session: &mut Session, phase: Phase, next: &mut NextState<Phase>) {
     let was_multi = session.multiplayer();
@@ -323,10 +359,7 @@ fn handle(
                 net.inbox.push((from, g));
             }
             // A guest that stopped reading must not grow without bound.
-            if net.inbox.len() > 20_000 {
-                let excess = net.inbox.len() - 20_000;
-                net.inbox.drain(..excess);
-            }
+            trim_inbox(&mut net.inbox, MAX_INBOX);
         }
         Down::Left(reason) => {
             net.lobby = None;
@@ -911,6 +944,270 @@ mod tests {
         let at = world.get::<Transform>(me).unwrap().translation;
         let center = hero::arena(&data::MAPS[3]);
         assert!(at.distance(center) < 5.0, "the hero went over to it");
+    }
+
+    /// xorshift64*, for the link's whims: the same on every run.
+    struct Whims(u64);
+    impl Whims {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.0 = x;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n.max(1)
+        }
+    }
+
+    /// The host's relay frames for the guest in seat 1, as bytes.
+    fn frames_for_guest(host: &mut App) -> Vec<Vec<u8>> {
+        std::mem::take(&mut host.world_mut().resource_mut::<Net>().outbox)
+            .into_iter()
+            .filter_map(|up| match up {
+                Up::Relay { to, data } if matches!(to, Target::Others | Target::Slot(1)) => {
+                    Some(data)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A frame reaches the guest as the server would hand it on: decoded, from its sender.
+    fn arrive(guest: &mut App, from: u8, data: &[u8]) {
+        let msgs = decode_batch(data);
+        guest
+            .world_mut()
+            .resource_mut::<Net>()
+            .inbox
+            .extend(msgs.into_iter().map(|m| (from, m)));
+    }
+
+    /// The host's world over a bad link: frames late by up to 400 ms and in bursts, as a slow
+    /// network delivers TCP (in order, never lost); a guest's frames that only the host may send;
+    /// a host frame the transport cut; NaN positions in well-formed messages. Units come, move,
+    /// are hurt and go all the while. Once the link has caught up, the guest's copy is the host's:
+    /// the same units, at the same places, with the same fields, and none of the poison.
+    #[test]
+    fn the_guest_converges_through_a_bad_link() {
+        use survivors_net::game::{encode_batch, Motion, ObjectKind, Role, Spawn};
+        use std::collections::{HashMap, VecDeque};
+        for seed in 1..=6u64 {
+            let mut whims = Whims(0xBAD_11E5 ^ seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+            let mut host = world(Mode::Host, 0);
+            host.add_systems(Update, host::stream);
+            host.insert_resource(FxLog::default());
+            let mut guest = world(Mode::Client, 1);
+            guest.add_systems(Update, client::receive);
+
+            let mut alive: Vec<(Entity, u64)> = Vec::new();
+            let mut next_guid = 1000u64;
+            // In order, as TCP: a frame is never handed on before the one sent before it.
+            let mut link: VecDeque<(u32, Vec<u8>)> = VecDeque::new();
+            let mut last_due = 0u32;
+            for tick in 0..420u32 {
+                let churn = tick < 380;
+                if churn {
+                    // Units come and go.
+                    for _ in 0..whims.below(3) {
+                        let e = host.world_mut().spawn((unit(next_guid, 100), Hostile)).id();
+                        alive.push((e, next_guid));
+                        next_guid += 1;
+                    }
+                    if !alive.is_empty() && whims.below(3) == 0 {
+                        let (e, _) = alive.swap_remove(whims.below(alive.len() as u64) as usize);
+                        host.world_mut().despawn(e);
+                    }
+                    // They move and are hurt.
+                    for &(e, _) in &alive {
+                        if whims.below(2) == 0 {
+                            let step = Vec3::new(
+                                whims.below(100) as f32 / 100.0 - 0.5,
+                                0.0,
+                                whims.below(100) as f32 / 100.0 - 0.5,
+                            );
+                            host.world_mut().get_mut::<Transform>(e).unwrap().translation += step;
+                        }
+                        if whims.below(6) == 0 {
+                            let hp = 1 + whims.below(100) as u32;
+                            host.world_mut()
+                                .get_mut::<ObjectStore>(e)
+                                .unwrap()
+                                .0
+                                .merge(ObjectFields::from_pairs(&[(22, hp)]));
+                        }
+                    }
+                }
+                host.world_mut().resource_mut::<Run>().elapsed += host::TICK;
+                host.world_mut().resource_mut::<host::Replicator>().due();
+                host.update();
+
+                for data in frames_for_guest(&mut host) {
+                    // Late by up to eight ticks, never ahead of what went before.
+                    let due = (tick + whims.below(9) as u32).max(last_due);
+                    last_due = due;
+                    link.push_back((due, data));
+                }
+                // Poison, now and then, mixed into the stream.
+                if churn && whims.below(10) == 0 {
+                    let t = host.world().resource::<Run>().elapsed;
+                    let victim = alive.first().map_or(1, |a| a.1);
+                    let bad = encode_batch(&[
+                        Game::Motions {
+                            t,
+                            list: vec![Motion {
+                                guid: victim,
+                                pos: [f32::NAN, 0.0, f32::INFINITY],
+                                yaw: f32::NAN,
+                                speed: 1.0,
+                                flags: 0,
+                                vertical_speed: 0.0,
+                            }],
+                        },
+                        Game::Spawn(Spawn {
+                            guid: 9_999_999,
+                            kind: ObjectKind::Unit,
+                            role: Role::Enemy,
+                            display: Some(1),
+                            scale: 1.0,
+                            fields: vec![],
+                            pos: [f32::NAN; 3],
+                            yaw: 0.0,
+                        }),
+                    ]);
+                    link.push_back((last_due, bad));
+                }
+                // The guest goes through its inbox each frame, whether or not anything came.
+                while link.front().is_some_and(|(due, _)| *due <= tick) {
+                    let (_, data) = link.pop_front().unwrap();
+                    arrive(&mut guest, 0, &data);
+                    // A frame cut short by a broken transport, and another guest's word on the
+                    // run, which only the host may give.
+                    if whims.below(25) == 0 {
+                        arrive(&mut guest, 0, &data[..data.len() / 2]);
+                    }
+                    if whims.below(25) == 0 {
+                        let spawn = encode_batch(&[Game::Despawn {
+                            guid: alive.first().map_or(1, |a| a.1),
+                            fade: false,
+                        }]);
+                        arrive(&mut guest, 2, &spawn);
+                    }
+                }
+                guest.update();
+            }
+            // The link catches up.
+            while let Some((_, data)) = link.pop_front() {
+                arrive(&mut guest, 0, &data);
+            }
+            guest.update();
+
+            let want: HashMap<u64, (Vec3, u32)> = alive
+                .iter()
+                .map(|&(e, g)| {
+                    let w = host.world();
+                    let hp = w
+                        .get::<ObjectStore>(e)
+                        .unwrap()
+                        .0
+                        .raw_fields()
+                        .find(|(i, _)| *i == 22)
+                        .map_or(0, |(_, v)| v);
+                    (g, (w.get::<Transform>(e).unwrap().translation, hp))
+                })
+                .collect();
+            let mut q = guest
+                .world_mut()
+                .query::<(&Guid, &ObjectStore, Option<&client::Replica>)>();
+            let got: HashMap<u64, (Option<Vec3>, u32)> = q
+                .iter(guest.world())
+                .map(|(g, store, rep)| {
+                    let hp = store
+                        .0
+                        .raw_fields()
+                        .find(|(i, _)| *i == 22)
+                        .map_or(0, |(_, v)| v);
+                    (g.0, (rep.and_then(|r| r.newest()), hp))
+                })
+                .collect();
+            assert!(want.len() > 20, "seed {seed}: the field filled up");
+            assert_eq!(
+                got.keys().collect::<std::collections::BTreeSet<_>>(),
+                want.keys().collect::<std::collections::BTreeSet<_>>(),
+                "seed {seed}: the guest has the host's units, and no poisoned one"
+            );
+            for (g, (pos, hp)) in &want {
+                let (copy, copy_hp) = got[g];
+                let copy = copy.expect("a copy is drawn from the host's track");
+                assert!(
+                    copy.is_finite() && copy.distance(*pos) < 0.05,
+                    "seed {seed}: unit {g} at {copy} on the guest, {pos} on the host"
+                );
+                assert_eq!(copy_hp, *hp, "seed {seed}: unit {g}'s health");
+            }
+        }
+    }
+
+    #[test]
+    fn a_full_inbox_sheds_only_what_the_next_frame_restores() {
+        use survivors_net::game::Spawn;
+        let spawn = |g| {
+            Game::Spawn(Spawn {
+                guid: g,
+                kind: survivors_net::game::ObjectKind::Unit,
+                role: survivors_net::game::Role::Enemy,
+                display: None,
+                scale: 1.0,
+                fields: vec![],
+                pos: [0.0; 3],
+                yaw: 0.0,
+            })
+        };
+        let mut inbox: Vec<(u8, Game)> = Vec::new();
+        for g in 0..50u64 {
+            inbox.push((0, spawn(g)));
+            inbox.push((
+                0,
+                Game::Number {
+                    anchor: g,
+                    amount: 1.0,
+                    crit: false,
+                    color: 0,
+                },
+            ));
+            inbox.push((0, Game::Motions { t: g as f32, list: vec![] }));
+            inbox.push((0, Game::Despawn { guid: g, fade: false }));
+        }
+        trim_inbox(&mut inbox, 120);
+        assert_eq!(inbox.len(), 120);
+        // Every spawn and despawn is still there, in order; the oldest cosmetics went first.
+        let kept: Vec<u64> = inbox
+            .iter()
+            .filter_map(|(_, g)| match g {
+                Game::Spawn(s) => Some(s.guid),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(kept, (0..50).collect::<Vec<_>>());
+        assert_eq!(
+            inbox
+                .iter()
+                .filter(|(_, g)| matches!(g, Game::Despawn { .. }))
+                .count(),
+            50
+        );
+        assert!(matches!(inbox.last(), Some((_, Game::Despawn { guid: 49, .. }))));
+        let numbers = inbox
+            .iter()
+            .filter(|(_, g)| matches!(g, Game::Number { .. }))
+            .count();
+        assert!(numbers < 50);
+        // Nothing sheddable left and still over: nothing essential is dropped to fit.
+        let mut all_essential: Vec<(u8, Game)> = (0..30).map(|g| (0, spawn(g))).collect();
+        trim_inbox(&mut all_essential, 10);
+        assert_eq!(all_essential.len(), 30);
     }
 
     #[test]

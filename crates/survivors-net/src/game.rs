@@ -1082,7 +1082,7 @@ impl Wire for Game {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn motion() -> Motion {
@@ -1096,9 +1096,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_game_message_round_trips() {
-        let all = vec![
+    /// One of every game message, for the round trip and the fuzzer.
+    pub(crate) fn samples() -> Vec<Game> {
+        vec![
             Game::Spawn(Spawn {
                 guid: 7,
                 kind: ObjectKind::Unit,
@@ -1343,8 +1343,12 @@ mod tests {
                     secs: 4.0,
                 },
             },
-        ];
-        for m in all {
+        ]
+    }
+
+    #[test]
+    fn every_game_message_round_trips() {
+        for m in samples() {
             assert_eq!(Game::decode(&m.encode()).unwrap(), m, "{m:?}");
         }
     }

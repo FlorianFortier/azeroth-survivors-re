@@ -76,6 +76,29 @@ pub(super) struct Replica {
     track: Track,
 }
 
+impl Replica {
+    /// The newest position the host sent.
+    #[cfg(test)]
+    pub(super) fn newest(&self) -> Option<Vec3> {
+        self.track.at(f32::MAX).map(|(p, _)| p)
+    }
+}
+
+/// A point the host sent, if it is one: a corrupt or hostile frame's NaN or infinity never
+/// reaches a transform.
+fn finite(p: [f32; 3]) -> Option<Vec3> {
+    p.iter().all(|v| v.is_finite()).then(|| Vec3::from_array(p))
+}
+
+/// An angle the host sent, or none.
+fn finite_or(v: f32, or: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else {
+        or
+    }
+}
+
 fn object_type(kind: ObjectKind) -> ObjectType {
     match kind {
         ObjectKind::Unit => ObjectType::Unit,
@@ -301,7 +324,11 @@ pub(super) fn receive(
             continue;
         }
         match g {
-            Game::Spawn(s) => {
+            Game::Spawn(mut s) => {
+                if finite(s.pos).is_none() {
+                    continue;
+                }
+                s.yaw = finite_or(s.yaw, 0.0);
                 if let Some(old) = reps.by_guid.remove(&s.guid) {
                     commands.entity(old).try_despawn();
                 }
@@ -335,15 +362,18 @@ pub(super) fn receive(
                 });
             }
             Game::Motions { t, list } => {
+                if !t.is_finite() {
+                    continue;
+                }
                 reps.clock.sync(time.elapsed_secs(), t);
                 reps.host_t = t;
                 for m in list {
                     let Some(e) = get(&reps, m.guid) else {
                         continue;
                     };
+                    let Some(pos) = finite(m.pos) else { continue };
                     if let Ok((mut copy, mv)) = movers.get_mut(e) {
-                        copy.track
-                            .push(t, Vec3::from_array(m.pos), m.yaw, HOST_TICK);
+                        copy.track.push(t, pos, finite_or(m.yaw, 0.0), HOST_TICK);
                         if let Some(mut mv) = mv {
                             mv.speed = m.speed;
                             mv.flags = m.flags;
@@ -374,7 +404,7 @@ pub(super) fn receive(
                     continue;
                 };
                 let hits: Vec<Entity> = hits.iter().filter_map(|h| get(&reps, *h)).collect();
-                fx.cast(c, spell, &hits, dest.map(Vec3::from_array));
+                fx.cast(c, spell, &hits, dest.and_then(finite));
             }
             Game::Impact { target, spell } => {
                 if let Some(t) = get(&reps, target) {
@@ -396,7 +426,7 @@ pub(super) fn receive(
                 crit,
                 color,
             } => {
-                if let Some(a) = get(&reps, anchor) {
+                if let (Some(a), true) = (get(&reps, anchor), amount.is_finite()) {
                     fx.number(a, amount, crit, color);
                 }
             }
@@ -431,11 +461,13 @@ pub(super) fn receive(
                 run.leg = stage;
                 run.gates = gates
                     .into_iter()
-                    .map(|g| crate::survivors::legs::GateView {
-                        kind: crate::survivors::legs::Gate::from_wire(g.kind),
-                        pos: Vec3::from_array(g.pos),
-                        charge: g.charge,
-                        open: g.open,
+                    .filter_map(|g| {
+                        Some(crate::survivors::legs::GateView {
+                            kind: crate::survivors::legs::Gate::from_wire(g.kind),
+                            pos: finite(g.pos)?,
+                            charge: finite_or(g.charge, 0.0),
+                            open: g.open,
+                        })
                     })
                     .collect();
                 run.swarm = (swarm >= 0.0).then_some(swarm);
@@ -451,11 +483,13 @@ pub(super) fn receive(
                     .collect();
                 run.shrines = shrines
                     .into_iter()
-                    .map(|s| ShrineView {
-                        kind: usize::from(s.kind),
-                        pos: Vec3::from_array(s.pos),
-                        charge: s.charge,
-                        state: ShrineState::from_wire(s.state),
+                    .filter_map(|s| {
+                        Some(ShrineView {
+                            kind: usize::from(s.kind),
+                            pos: finite(s.pos)?,
+                            charge: finite_or(s.charge, 0.0),
+                            state: ShrineState::from_wire(s.state),
+                        })
                     })
                     .collect();
                 run.greed = greed;
@@ -463,13 +497,15 @@ pub(super) fn receive(
                 run.chest_cost = chest_cost;
                 run.posts = posts
                     .into_iter()
-                    .map(|p| PostView {
-                        kind: usize::from(p.kind),
-                        pos: Vec3::from_array(p.pos),
-                        wait: p.wait,
+                    .filter_map(|p| {
+                        Some(PostView {
+                            kind: usize::from(p.kind),
+                            pos: finite(p.pos)?,
+                            wait: finite_or(p.wait, 0.0),
+                        })
                     })
                     .collect();
-                run.elapsed = elapsed;
+                run.elapsed = finite_or(elapsed, run.elapsed);
                 run.bosses = bosses;
                 run.waiting = waiting;
                 if banner.is_some() {
