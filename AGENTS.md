@@ -52,7 +52,8 @@ it holds; read it before changing the file.
 | `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
 | `hero.rs` | the local hero: WoW's mouse and keys in the chase view (`MouseLook`: a left-drag swings the camera, a right-drag turns the hero, both run, a press let go in place is a click; `CamRig::facing` is the hero's heading, A/D turn it, Q/E strafe), movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
 | `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks; the local hero's target first for those that strike the nearest (`aimed_order`) |
-| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) races opened to every class (`data::RACE_POINTS`) and tabards (`data::TABARDS`, bought or earned by an achievement, one worn) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`), which leaves races and tabards; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
+| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`), races opened to every class (`data::RACE_POINTS`), tabards (`data::TABARDS`), head and back appearances (`data::APPEARANCES`) and companions (`data::COMPANIONS`, with their instinct and their training, `data::PET_TRAINING`), each bought or earned by an achievement (`data::Unlock`), on a draft kept with Confirm (`profile::Spend` sums it), and the perk reset (`data::MAX_PERK_RESETS`), which leaves the rest; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
+| `companion.rs` | the hero's companion: a vanity pet at its side in every run that runs for the pickups within its leash (its instinct's first) and sends each it comes near flying to its hero; spawned by `sync::begin_run` for every hero that brings one, the host's like everything the run does |
 | `sheet.rs` | the character sheet on `C`, over a paused run: the paper doll (gear worn, else the starting outfit; the neck, rings and trinkets are the run items), the live hero framed in its stage, the hero's numbers and its items' effects |
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
@@ -247,7 +248,16 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   bought is stored by key (`Profile::tabards`), one earned by an achievement is derived
   (`Profile::tabard_owned`); the one worn (`Profile::tabard`) is only a look: `outfit::body`
   puts its real 1.12.1 display in the tabard slot, and it reaches the host as `Brings::tabard`
-  and the lobby `Loadout::tabard`.
+  and the lobby `Loadout::tabard`. Appearances go the same way: bought by key
+  (`Profile::appearances`), worn one a slot (`Profile::looks`), only a look laid over the gear's
+  (`profile::cosmetics`, a display of 0 baring the slot) and carried as `Brings::looks` and
+  `Loadout::looks`; the gear's numbers stay. A companion bought is stored by key
+  (`Profile::pets`), the one at the hero's side as `Profile::pet` and its instinct as
+  `Profile::instinct`, both carried as `Brings::pet`/`instinct` and `Loadout::pet`/`instinct`;
+  its training is perks (`data::PET_TRAINING`, found by `data::perk`), so it is stored, reset
+  and carried with them, and `data::pet_stats` reads it. A companion is a plain unit
+  (`Role::Totem` on the wire) that only marks pickups with `Gem::send_to`; the hero's own
+  magnet brings them in.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

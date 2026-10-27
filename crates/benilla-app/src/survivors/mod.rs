@@ -10,11 +10,12 @@
 
 mod abilities;
 mod auto;
+mod balance;
 mod cards;
 mod character;
+mod companion;
 mod data;
 mod enemies;
-mod balance;
 mod feel;
 mod frames;
 mod grade;
@@ -134,6 +135,7 @@ impl Plugin for SurvivorsPlugin {
                     abilities::apply_hits,
                     enemies::tick_marks,
                     enemies::drop_loot,
+                    companion::fetch,
                     enemies::collect_gems,
                     treasure::tend_field,
                     market::tend_market,
@@ -303,6 +305,12 @@ pub(super) struct Brings {
     pub perks: Vec<(String, u8)>,
     /// The tabard worn, by [`data::TabardDef::key`]; empty for none.
     pub tabard: String,
+    /// The appearances worn, by [`data::AppearanceDef::key`].
+    pub looks: Vec<String>,
+    /// The companion at the hero's side, by [`data::CompanionDef::key`]; empty for none.
+    pub pet: String,
+    /// What it runs for first ([`data::Instinct::index`]).
+    pub instinct: u8,
 }
 
 /// Who plays the run on this machine.

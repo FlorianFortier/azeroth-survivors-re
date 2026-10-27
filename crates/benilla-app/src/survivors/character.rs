@@ -2061,7 +2061,7 @@ fn refresh_equipment(
             selection.appearance,
             0,
             &[],
-            None,
+            &[],
             catalog.as_deref().map(|c| &c.0),
             None,
         ) {

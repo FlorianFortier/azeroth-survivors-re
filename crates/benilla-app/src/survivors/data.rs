@@ -3902,6 +3902,11 @@ pub(crate) enum PerkEffect {
     Bonus(Bonus),
     /// Gold in hand when the run begins.
     StartGold(u32),
+    /// The companion's training: how far from the hero it runs (yd), how much quicker it runs
+    /// (a fraction of its pace), how close it must come to a pickup to send it flying (yd).
+    Leash(f32),
+    PetSpeed(f32),
+    Nose(f32),
 }
 
 impl PerkDef {
@@ -3913,6 +3918,8 @@ impl PerkDef {
                 (u32::from(n) * u32::from(k)).to_string()
             }
             PerkEffect::StartGold(n) | PerkEffect::SkipGold(n) => (n * u32::from(k)).to_string(),
+            PerkEffect::Leash(v) | PerkEffect::Nose(v) => format!("{}", v * f32::from(k)),
+            PerkEffect::PetSpeed(v) => format!("{}", (v * 100.0 * f32::from(k)).round()),
             PerkEffect::Bonus(b) => match b.amount {
                 Amount::Flat(v) | Amount::Percent(v) => {
                     format!("{}", (v * 100.0 * f32::from(k)).round())
@@ -3991,7 +3998,234 @@ pub(crate) static PERKS: &[PerkDef] = &[
 
 /// A perk by its key.
 pub(crate) fn perk(key: &str) -> Option<&'static PerkDef> {
-    PERKS.iter().find(|p| p.key == key)
+    PERKS.iter().chain(PET_TRAINING).find(|p| p.key == key)
+}
+
+/// The companion's training, bought rank by rank as the perks are, stored and reset with them.
+pub(crate) static PET_TRAINING: &[PerkDef] = &[
+    PerkDef {
+        key: "long_leash",
+        name: "Long Leash",
+        text: "Your companion runs {} yd farther from you.",
+        spell: 1515,
+        max_rank: 3,
+        cost: 10,
+        effect: PerkEffect::Leash(5.0),
+    },
+    PerkDef {
+        key: "quick_paws",
+        name: "Quick Paws",
+        text: "Your companion runs {}% faster.",
+        spell: 1850,
+        max_rank: 3,
+        cost: 10,
+        effect: PerkEffect::PetSpeed(0.2),
+    },
+    PerkDef {
+        key: "keen_nose",
+        name: "Keen Nose",
+        text: "Your companion sends what it comes within {} yd more of flying to you.",
+        spell: 1494,
+        max_rank: 2,
+        cost: 15,
+        effect: PerkEffect::Nose(1.0),
+    },
+];
+
+/// How far from its hero a companion runs for a pickup (yd), before training.
+pub(crate) const PET_LEASH: f32 = 10.0;
+/// How fast a companion runs (yd/s), before training: a little quicker than a hero.
+pub(crate) const PET_SPEED: f32 = 9.0;
+/// How close a companion comes to a pickup to send it flying to its hero (yd), before training.
+pub(crate) const PET_NOSE: f32 = 2.0;
+/// A companion this far from its hero (a portal, a blink) is put back at its side.
+pub(crate) const PET_TELEPORT: f32 = 40.0;
+
+/// What a companion runs for first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum Instinct {
+    /// The nearest pickup, whatever it is.
+    #[default]
+    Nearest,
+    /// Coins, keys and rewards before wisps.
+    Gold,
+    /// Experience wisps before anything else.
+    Wisps,
+}
+
+impl Instinct {
+    pub const ALL: [Instinct; 3] = [Instinct::Nearest, Instinct::Gold, Instinct::Wisps];
+
+    /// Its name, which the profile stores and the tab shows.
+    pub fn name(self) -> &'static str {
+        match self {
+            Instinct::Nearest => "Fetch Everything",
+            Instinct::Gold => "Gold Sniffer",
+            Instinct::Wisps => "Wisp Chaser",
+        }
+    }
+
+    pub fn text(self) -> &'static str {
+        match self {
+            Instinct::Nearest => "Runs for the nearest pickup.",
+            Instinct::Gold => "Runs for coins, keys and rewards first.",
+            Instinct::Wisps => "Runs for experience wisps first.",
+        }
+    }
+
+    /// Icon, a `Spell.dbc` row.
+    pub fn spell(self) -> u32 {
+        match self {
+            Instinct::Nearest => 883,
+            Instinct::Gold => 2481,
+            Instinct::Wisps => 20585,
+        }
+    }
+
+    /// The wire's byte.
+    pub fn index(self) -> u8 {
+        Self::ALL.iter().position(|i| *i == self).unwrap_or(0) as u8
+    }
+
+    pub fn from_index(i: u8) -> Self {
+        Self::ALL.get(usize::from(i)).copied().unwrap_or_default()
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|i| i.name() == name)
+            .unwrap_or_default()
+    }
+}
+
+/// A companion's look: a real 1.12.1 vanity pet, which runs at the hero's side in every run and
+/// fetches what drops. Owning any look is having a companion.
+#[derive(Debug)]
+pub(crate) struct CompanionDef {
+    /// What the profile stores.
+    pub key: &'static str,
+    pub name: &'static str,
+    /// `CreatureDisplayInfo.dbc` id (`creature_template.ModelId1`).
+    pub display: u32,
+    /// `ItemDisplayInfo.dbc` id of the item that summons it in 1.12.1, for its icon.
+    pub icon: u32,
+    pub unlock: Unlock,
+}
+
+/// The companions, the shop's first, then the feats'.
+pub(crate) const COMPANIONS: &[CompanionDef] = &[
+    CompanionDef {
+        key: "prairie_dog",
+        name: "Prairie Dog",
+        display: 1072,
+        icon: 15798,
+        unlock: Unlock::Points(50),
+    },
+    CompanionDef {
+        key: "mechanical_squirrel",
+        name: "Mechanical Squirrel",
+        display: 7937,
+        icon: 16536,
+        unlock: Unlock::Points(75),
+    },
+    CompanionDef {
+        key: "snowshoe_rabbit",
+        name: "Snowshoe Rabbit",
+        display: 328,
+        icon: 17284,
+        unlock: Unlock::Points(75),
+    },
+    CompanionDef {
+        key: "worg_pup",
+        name: "Worg Pup",
+        display: 9563,
+        icon: 20629,
+        unlock: Unlock::Points(100),
+    },
+    CompanionDef {
+        key: "sprite_darter",
+        name: "Sprite Darter Hatchling",
+        display: 6294,
+        icon: 18047,
+        unlock: Unlock::Points(100),
+    },
+    CompanionDef {
+        key: "dark_whelpling",
+        name: "Dark Whelpling",
+        display: 6288,
+        icon: 20655,
+        unlock: Unlock::Achievement("monster_hunter"),
+    },
+    CompanionDef {
+        key: "panda_cub",
+        name: "Panda Cub",
+        display: 10990,
+        icon: 24251,
+        unlock: Unlock::Achievement("collector"),
+    },
+    CompanionDef {
+        key: "zergling",
+        name: "Zergling",
+        display: 10993,
+        icon: 24252,
+        unlock: Unlock::Achievement("annihilator"),
+    },
+    CompanionDef {
+        key: "tranquil_mechanical_yeti",
+        name: "Tranquil Mechanical Yeti",
+        display: 10269,
+        icon: 34050,
+        unlock: Unlock::Achievement("talented"),
+    },
+    CompanionDef {
+        key: "mini_diablo",
+        name: "Mini Diablo",
+        display: 10992,
+        icon: 34364,
+        unlock: Unlock::Achievement("heroic"),
+    },
+    CompanionDef {
+        key: "murky",
+        name: "Murky",
+        display: 15369,
+        icon: 18050,
+        unlock: Unlock::Achievement("mythic"),
+    },
+];
+
+/// A companion by its key.
+pub(crate) fn companion(key: &str) -> Option<&'static CompanionDef> {
+    COMPANIONS.iter().find(|c| c.key == key)
+}
+
+/// A companion's numbers from its training ranks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PetStats {
+    pub leash: f32,
+    pub speed: f32,
+    pub nose: f32,
+}
+
+/// What `ranks` of training make of a companion; each rank held to its most.
+pub(crate) fn pet_stats<'a>(ranks: impl IntoIterator<Item = (&'a PerkDef, u8)>) -> PetStats {
+    let mut s = PetStats {
+        leash: PET_LEASH,
+        speed: PET_SPEED,
+        nose: PET_NOSE,
+    };
+    let mut quicker = 0.0;
+    for (p, r) in ranks {
+        let r = f32::from(r.min(p.max_rank));
+        match p.effect {
+            PerkEffect::Leash(v) => s.leash += v * r,
+            PerkEffect::PetSpeed(v) => quicker += v * r,
+            PerkEffect::Nose(v) => s.nose += v * r,
+            _ => {}
+        }
+    }
+    s.speed *= 1.0 + quicker;
+    s
 }
 
 /// How many times a save may take back every point spent on perks.
@@ -4001,9 +4235,10 @@ pub(crate) const MAX_PERK_RESETS: u8 = 2;
 /// perk reset leaves it.
 pub(crate) const RACE_POINTS: u32 = 100;
 
-/// How a tabard is earned: bought with reward points, or worn once an achievement is done.
+/// How a tabard or an appearance is earned: bought with reward points, or worn once an
+/// achievement is done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TabardUnlock {
+pub(crate) enum Unlock {
     Points(u32),
     Achievement(&'static str),
 }
@@ -4016,7 +4251,7 @@ pub(crate) struct TabardDef {
     pub name: &'static str,
     /// `ItemDisplayInfo.dbc` id, the real 1.12.1 tabard's (its `item_template.displayid`).
     pub display: u32,
-    pub unlock: TabardUnlock,
+    pub unlock: Unlock,
 }
 
 /// The tabards, as 1.12.1 has them: the battlegrounds', the factions', the Upper Deck's two.
@@ -4025,73 +4260,213 @@ pub(crate) const TABARDS: &[TabardDef] = &[
         key: "stormwind",
         name: "Tabard of Stormwind",
         display: 21338,
-        unlock: TabardUnlock::Points(50),
+        unlock: Unlock::Points(50),
     },
     TabardDef {
         key: "arathor",
         name: "Arathor Battle Tabard",
         display: 32695,
-        unlock: TabardUnlock::Points(75),
+        unlock: Unlock::Points(75),
     },
     TabardDef {
         key: "defilers",
         name: "Battle Tabard of the Defilers",
         display: 32694,
-        unlock: TabardUnlock::Points(75),
+        unlock: Unlock::Points(75),
     },
     TabardDef {
         key: "argent_dawn",
         name: "Tabard of the Argent Dawn",
         display: 35396,
-        unlock: TabardUnlock::Points(100),
+        unlock: Unlock::Points(100),
     },
     TabardDef {
         key: "scarlet_crusade",
         name: "Tabard of the Scarlet Crusade",
         display: 15817,
-        unlock: TabardUnlock::Points(100),
+        unlock: Unlock::Points(100),
     },
     TabardDef {
         key: "frostwolf",
         name: "Frostwolf Battle Tabard",
         display: 31527,
-        unlock: TabardUnlock::Achievement("victor"),
+        unlock: Unlock::Achievement("victor"),
     },
     TabardDef {
         key: "stormpike",
         name: "Stormpike Battle Tabard",
         display: 31528,
-        unlock: TabardUnlock::Achievement("slayer"),
+        unlock: Unlock::Achievement("slayer"),
     },
     TabardDef {
         key: "silverwing",
         name: "Silverwing Battle Tabard",
         display: 32026,
-        unlock: TabardUnlock::Achievement("seasoned"),
+        unlock: Unlock::Achievement("seasoned"),
     },
     TabardDef {
         key: "warsong",
         name: "Warsong Battle Tabard",
         display: 32031,
-        unlock: TabardUnlock::Achievement("exterminator"),
+        unlock: Unlock::Achievement("exterminator"),
     },
     TabardDef {
         key: "flame",
         name: "Tabard of Flame",
         display: 37060,
-        unlock: TabardUnlock::Achievement("heroic"),
+        unlock: Unlock::Achievement("heroic"),
     },
     TabardDef {
         key: "frost",
         name: "Tabard of Frost",
         display: 37061,
-        unlock: TabardUnlock::Achievement("mythic"),
+        unlock: Unlock::Achievement("mythic"),
     },
 ];
 
 /// A tabard by its key.
 pub(crate) fn tabard(key: &str) -> Option<&'static TabardDef> {
     TABARDS.iter().find(|t| t.key == key)
+}
+
+/// The slot an appearance dresses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum LookSlot {
+    Head,
+    Back,
+}
+
+impl LookSlot {
+    pub const ALL: [LookSlot; 2] = [LookSlot::Head, LookSlot::Back];
+
+    /// What the profile stores it by.
+    pub fn name(self) -> &'static str {
+        match self {
+            LookSlot::Head => "Head",
+            LookSlot::Back => "Back",
+        }
+    }
+}
+
+/// A look worn over the gear on the head or the back, the gear's numbers kept: a real 1.12.1
+/// piece's display, or none at all (the slot shown bare).
+#[derive(Debug)]
+pub(crate) struct AppearanceDef {
+    /// What the profile stores.
+    pub key: &'static str,
+    pub name: &'static str,
+    pub slot: LookSlot,
+    /// `ItemDisplayInfo.dbc` id (the 1.12.1 item's `item_template.displayid`); 0 hides the slot.
+    pub display: u32,
+    pub unlock: Unlock,
+}
+
+/// The appearances: a bare head and back for nothing, then 1.12.1's own hats and helms, cloaks
+/// and drapes, the fun ones for points and the raids' for the feats.
+pub(crate) const APPEARANCES: &[AppearanceDef] = &[
+    AppearanceDef {
+        key: "bare_head",
+        name: "Hide Helm",
+        slot: LookSlot::Head,
+        display: 0,
+        unlock: Unlock::Points(0),
+    },
+    AppearanceDef {
+        key: "lucky_fishing_hat",
+        name: "Lucky Fishing Hat",
+        slot: LookSlot::Head,
+        display: 16548,
+        unlock: Unlock::Points(50),
+    },
+    AppearanceDef {
+        key: "admirals_hat",
+        name: "Admiral's Hat",
+        slot: LookSlot::Head,
+        display: 18872,
+        unlock: Unlock::Points(75),
+    },
+    AppearanceDef {
+        key: "goblin_rocket_helmet",
+        name: "Goblin Rocket Helmet",
+        slot: LookSlot::Head,
+        display: 23166,
+        unlock: Unlock::Points(100),
+    },
+    AppearanceDef {
+        key: "helm_of_wrath",
+        name: "Helm of Wrath",
+        slot: LookSlot::Head,
+        display: 34215,
+        unlock: Unlock::Achievement("champion"),
+    },
+    AppearanceDef {
+        key: "judgement_crown",
+        name: "Judgement Crown",
+        slot: LookSlot::Head,
+        display: 34216,
+        unlock: Unlock::Achievement("ascendant"),
+    },
+    AppearanceDef {
+        key: "netherwind_crown",
+        name: "Netherwind Crown",
+        slot: LookSlot::Head,
+        display: 34218,
+        unlock: Unlock::Achievement("master"),
+    },
+    AppearanceDef {
+        key: "bare_back",
+        name: "Hide Cloak",
+        slot: LookSlot::Back,
+        display: 0,
+        unlock: Unlock::Points(0),
+    },
+    AppearanceDef {
+        key: "cape_of_the_black_baron",
+        name: "Cape of the Black Baron",
+        slot: LookSlot::Back,
+        display: 24013,
+        unlock: Unlock::Points(50),
+    },
+    AppearanceDef {
+        key: "cloak_of_firemaw",
+        name: "Cloak of Firemaw",
+        slot: LookSlot::Back,
+        display: 23422,
+        unlock: Unlock::Points(75),
+    },
+    AppearanceDef {
+        key: "onyxia_scale_cloak",
+        name: "Onyxia Scale Cloak",
+        slot: LookSlot::Back,
+        display: 25921,
+        unlock: Unlock::Points(100),
+    },
+    AppearanceDef {
+        key: "sapphiron_drape",
+        name: "Sapphiron Drape",
+        slot: LookSlot::Back,
+        display: 29719,
+        unlock: Unlock::Achievement("veteran"),
+    },
+    AppearanceDef {
+        key: "cloak_of_the_shrouded_mists",
+        name: "Cloak of the Shrouded Mists",
+        slot: LookSlot::Back,
+        display: 29824,
+        unlock: Unlock::Achievement("curator"),
+    },
+    AppearanceDef {
+        key: "cloak_of_the_fallen_god",
+        name: "Cloak of the Fallen God",
+        slot: LookSlot::Back,
+        display: 34337,
+        unlock: Unlock::Achievement("completionist"),
+    },
+];
+
+/// An appearance by its key.
+pub(crate) fn appearance(key: &str) -> Option<&'static AppearanceDef> {
+    APPEARANCES.iter().find(|a| a.key == key)
 }
 
 /// The playable races, `ChrRaces.dbc` ids.

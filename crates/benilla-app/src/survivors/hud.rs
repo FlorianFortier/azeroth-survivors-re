@@ -1174,7 +1174,7 @@ pub(super) fn menu_preview(
             super::outfit::Appearance,
             bool,
             Vec<String>,
-            Option<u32>,
+            Vec<(u8, u32)>,
         )>,
     >,
 ) {
@@ -1199,7 +1199,7 @@ pub(super) fn menu_preview(
                 .iter()
                 .map(|i| i.name.clone())
                 .collect(),
-            store.profile.worn_tabard().map(|t| t.display),
+            store.profile.cosmetics(),
         )
     });
     if key == *shown && (key.is_none() || !heroes.is_empty()) {
@@ -1225,7 +1225,7 @@ pub(super) fn menu_preview(
         selection.appearance,
         display,
         &store.profile.gear(),
-        store.profile.worn_tabard().map(|t| t.display),
+        &store.profile.cosmetics(),
         catalog.as_deref().map(|c| &c.0),
         displays.as_deref().map(|d| &d.catalog),
     );

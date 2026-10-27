@@ -198,6 +198,9 @@ pub(super) fn loadout(selection: &Selection) -> Loadout {
         gear: selection.brings.gear.clone(),
         perks: selection.brings.perks.clone(),
         tabard: selection.brings.tabard.clone(),
+        looks: selection.brings.looks.clone(),
+        pet: selection.brings.pet.clone(),
+        instinct: selection.brings.instinct,
     }
 }
 
@@ -519,6 +522,9 @@ fn start_session(
                 gear: m.loadout.gear.clone(),
                 perks: m.loadout.perks.clone(),
                 tabard: m.loadout.tabard.clone(),
+                looks: m.loadout.looks.clone(),
+                pet: m.loadout.pet.clone(),
+                instinct: m.loadout.instinct,
             },
         })
         .collect();
