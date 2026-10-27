@@ -205,6 +205,7 @@ pub(super) fn wire_vitals(v: &Vitals) -> WireVitals {
             })
             .collect(),
         boons: v.boons.iter().map(data::bonus_to_wire).collect(),
+        chest_offer: v.chest_offer.iter().map(|p| p.key()).collect(),
         keys: v.keys,
         damage_by: v.damage_by.iter().map(|&(s, d)| (s, d as f32)).collect(),
     }
@@ -288,6 +289,12 @@ pub(super) fn receive(
             Game::Buy { slot, item } => {
                 // The market checks it: the hero at the merchant, the gold, the ware still there.
                 buys.0.push((from, slot, item));
+            }
+            Game::ChestChoice(key) => {
+                // Only an item of the offer this host's chest made that hero.
+                if let Some((.., mut h)) = heroes.iter_mut().find(|(.., h)| h.slot == from) {
+                    crate::survivors::treasure::take_chest_item(&mut h.v, &key, &mut rng);
+                }
             }
             Game::ShrineChoice(bonus) => {
                 // Only a blessing of the offer this host made that hero.

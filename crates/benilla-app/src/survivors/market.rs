@@ -420,6 +420,7 @@ pub(super) fn shop_panel(
                         ShopButton(i as u8),
                         Button,
                         Interaction::default(),
+                        super::hud::TipFor::Ware(i),
                         Node {
                             width: Val::Px(160.0),
                             flex_direction: FlexDirection::Column,

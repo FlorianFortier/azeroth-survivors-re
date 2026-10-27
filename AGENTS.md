@@ -206,8 +206,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   Every item ever found is in the collection (`Profile::collected`), which adds
   `data::collection_bonus` (a `COLLECTION_SHARE` of its first bonus) to every run.
 - **The run's field is `survivors/treasure.rs`, in `SimSet`.** Gold is the run's (`Vitals::gold`,
-  coins from kills, a pile from bosses, a purse from elites); a chest opens for a hero who stands
-  at it with `data::chest_cost` gold. Elites hold fixed posts (`data::ELITES`, `Enemy::home`),
+  coins from kills, a pile from bosses, a purse from elites); a chest opens at once for a hero who comes
+  to it with `data::chest_cost` gold and offers it `data::CHEST_CHOICES` run items
+  (`treasure::deal_chest`, on `Vitals::chest_offer`, shown first on the level-up cards); a guest
+  answers with `Game::ChestChoice`, which `treasure::take_chest_item` takes only for an item of
+  that offer. Elites hold fixed posts (`data::ELITES`, `Enemy::home`),
   drop their kind's `data::Reward` and come back on its timer; run items (`data::RUN_ITEMS`) stack
   on `Vitals::run_items` and count in `Vitals::stats`, five kinds at most
   (`data::MAX_RUN_ITEM_KINDS`, the sheet's neck, rings and trinkets): once full, `treasure::grant`

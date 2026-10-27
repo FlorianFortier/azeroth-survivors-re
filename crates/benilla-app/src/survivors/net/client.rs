@@ -268,6 +268,12 @@ fn apply_me(run: &mut Run, v: WireVitals) {
         run.offer = v.offer.iter().filter_map(PostDealt::from_wire).collect();
         run.rerolls = v.rerolls;
         run.banishes = v.banishes;
+        // What a chest offers.
+        run.chest_offer = v
+            .chest_offer
+            .iter()
+            .filter_map(|k| data::ChestPick::from_key(k))
+            .collect();
         // The blessings offered, and what the shrines gave.
         run.shrine_offer = v
             .shrine_offer
@@ -567,6 +573,7 @@ pub(super) fn receive(
             | Game::Input { .. }
             | Game::Card(_)
             | Game::ShrineChoice(_)
+            | Game::ChestChoice(_)
             | Game::Buy { .. }
             | Game::Mobility { .. }
             | Game::Resync => {}
@@ -666,6 +673,7 @@ fn send(
     }
     out.extend(picks.0.drain(..).map(Game::Card));
     out.extend(picks.1.drain(..).map(Game::ShrineChoice));
+    out.extend(picks.2.drain(..).map(Game::ChestChoice));
     out.extend(
         buys.0
             .drain(..)

@@ -16,7 +16,12 @@ use super::{HeroState, LocalHero, Mode, Phase, Rng, Run, Selection, Session, Vit
 /// The local player's moves at the cards, and the blessings it took from a Shrine of Power (by
 /// their bonus, as the wire writes it), for the run to apply (solo, host) or to send (guest).
 #[derive(Resource, Default)]
-pub(super) struct LocalPicks(pub Vec<CardAction>, pub Vec<survivors_net::game::WireBonus>);
+pub(super) struct LocalPicks(
+    pub Vec<CardAction>,
+    pub Vec<survivors_net::game::WireBonus>,
+    /// The run items taken from a chest's offer, by key.
+    pub Vec<String>,
+);
 
 /// The run's first frame: the local hero takes up its numbers, and a host seats every guest's
 /// hero beside it. A guest's heroes all arrive from the host instead.

@@ -178,6 +178,8 @@ pub struct Vitals {
     pub keys: u8,
     /// The damage done this run by spell (`Spell.dbc` row, damage), for the damage meter.
     pub damage_by: Vec<(u32, f32)>,
+    /// The run items an opened chest offers this hero, by key: one may be taken.
+    pub chest_offer: Vec<String>,
 }
 
 /// A hero in the party frames.
@@ -339,6 +341,8 @@ pub enum Game {
     Card(CardAction),
     /// The blessing taken from a Shrine of Power's offer, by its bonus.
     ShrineChoice(WireBonus),
+    /// The run item taken from an opened chest's offer, by its key.
+    ChestChoice(String),
     /// A ware bought from the merchant, by its place and its item.
     Buy {
         slot: u8,
@@ -556,6 +560,10 @@ impl Wire for Vitals {
         for (s, d) in &self.damage_by {
             w.u32(*s).f32(*d);
         }
+        w.len(self.chest_offer.len());
+        for k in &self.chest_offer {
+            w.str(k);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         let level = r.u32()?;
@@ -649,6 +657,14 @@ impl Wire for Vitals {
                 let mut out = Vec::with_capacity(n);
                 for _ in 0..n {
                     out.push((r.u32()?, r.f32()?));
+                }
+                out
+            },
+            chest_offer: {
+                let n = r.len(2)?;
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push(r.str()?);
                 }
                 out
             },
@@ -912,6 +928,9 @@ impl Wire for Game {
             Game::Buy { slot, item } => {
                 w.u8(17).u8(*slot).str(item);
             }
+            Game::ChestChoice(key) => {
+                w.u8(18).str(key);
+            }
             Game::Mobility { spell, effect } => {
                 w.u8(15).u32(*spell);
                 effect.put(w);
@@ -1077,6 +1096,7 @@ impl Wire for Game {
                 slot: r.u8()?,
                 item: r.str()?,
             },
+            18 => Game::ChestChoice(r.str()?),
             15 => Game::Mobility {
                 spell: r.u32()?,
                 effect: MobilityEffect::get(r)?,
@@ -1290,6 +1310,7 @@ pub(crate) mod tests {
                 boons: vec![(11, 1, 2500), (7, 0, -1200)],
                 keys: 2,
                 damage_by: vec![(133, 1500.0), (0, 12.5)],
+                chest_offer: vec!["vampiric_fang".into(), "whetstone".into()],
                 ..Vitals::default()
             }),
             Game::Party(vec![PartyEntry {
@@ -1331,6 +1352,7 @@ pub(crate) mod tests {
             })),
             Game::Card(CardAction::Skip),
             Game::ShrineChoice((4, 0, 500)),
+            Game::ChestChoice("vampiric_fang".into()),
             Game::Buy {
                 slot: 2,
                 item: "vampiric_fang".into(),

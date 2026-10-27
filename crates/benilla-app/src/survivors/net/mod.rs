@@ -974,6 +974,65 @@ mod tests {
     }
 
     #[test]
+    fn a_guests_chest_offer_reaches_its_view_and_the_host_checks_its_choice() {
+        use crate::survivors::{treasure, Rng, Selection};
+        let mut host = world(Mode::Host, 0);
+        host.init_resource::<Rng>()
+            .init_resource::<Selection>()
+            .init_resource::<crate::loading_screen::LoadingScreen>()
+            .init_resource::<crate::survivors::mobility::MobilityQueue>()
+            .add_systems(Update, host::receive)
+            .add_systems(PostUpdate, host::stream);
+        let mut guest = world(Mode::Client, 1);
+        guest.add_systems(Update, client::receive);
+
+        // A chest opened by the guest's hero: the host offers it three items.
+        let mut v = Vitals::new(&data::CLASSES[7], 2);
+        v.chest_offer = treasure::deal_chest(&v, &mut Rng::seeded(5));
+        let hero = host
+            .world_mut()
+            .spawn((
+                unit(500, 100),
+                HeroState { slot: 1, v },
+                crate::survivors::hero::Hero::default(),
+            ))
+            .id();
+        host.world_mut().resource_mut::<host::Replicator>().due();
+        host.update();
+        deliver(&mut host, &mut guest);
+        guest.update();
+        let offered = host
+            .world()
+            .get::<HeroState>(hero)
+            .unwrap()
+            .chest_offer
+            .clone();
+        assert_eq!(offered.len(), data::CHEST_CHOICES);
+        assert_eq!(guest.world().resource::<Run>().chest_offer, offered);
+
+        // An item never offered is refused; one of the offer is taken.
+        let never = data::RUN_ITEMS
+            .iter()
+            .map(|i| data::ChestPick::Item(i))
+            .find(|p| !offered.contains(p))
+            .unwrap();
+        let picks = host.world().get::<HeroState>(hero).unwrap().picks;
+        for p in [never, offered[1]] {
+            host.world_mut()
+                .resource_mut::<Net>()
+                .inbox
+                .push((1, Game::ChestChoice(p.key())));
+        }
+        host.update();
+        let h = host.world().get::<HeroState>(hero).unwrap();
+        assert_eq!(h.picks, picks + 1, "one choice taken");
+        assert!(h.chest_offer.is_empty());
+        if let data::ChestPick::Item(item) = offered[1] {
+            assert_eq!(h.run_items, [(item, 1)]);
+        }
+    }
+
+    #[test]
     fn a_guests_purchase_goes_to_the_market_by_its_seat() {
         use crate::survivors::{market, Rng, Selection};
         let mut host = world(Mode::Host, 0);

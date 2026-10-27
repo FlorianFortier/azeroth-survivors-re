@@ -3,17 +3,19 @@
 //! for gear, a spell's rank, a run item, a purse), coming back a while after they fall.
 //!
 //! Only solo and the host tend the field (it runs in `SimSet`); chests are game objects and
-//! elites units, so guests see them as they see everything else. A chest opens for a hero who
-//! stands at it with the gold for it, which needs no input of its own over the wire.
+//! elites units, so guests see them as they see everything else. A chest opens at once for a hero
+//! who comes to it with the gold for it, and offers that hero three run items
+//! ([`Vitals::chest_offer`], shown on the level-up cards), one of which it takes
+//! ([`take_chest_item`]; a guest answers with `Game::ChestChoice`).
 
 use benilla_world::world_point::WorldPoint;
 use bevy::prelude::*;
 
 use super::data::{self, Reward, ShrineKind};
-use super::enemies::{self, Enemy, GemKind};
+use super::enemies::{self, Enemy};
 use super::hero::Hero;
 use super::units::{self, flat};
-use super::{HeroState, Owned, Rng, Run, Selection, Session};
+use super::{HeroState, Owned, Rng, Run, Selection, Session, Vitals};
 
 /// The game-object displays the client's tables have for a chest and a coin, found by model name.
 #[derive(Clone, Copy, Default)]
@@ -132,12 +134,13 @@ pub(super) fn crate_look() -> (u32, f32) {
         .map_or((1267, 2.0), |d| (d, 1.0))
 }
 
-/// A shrine's display and scale; a tall golden wisp when the tables have no shrine.
+/// A shrine's display and scale, small ([`data::SHRINE_SCALE`]); a golden wisp when the tables
+/// have no shrine.
 fn shrine_look() -> (u32, f32) {
     LOOKS
         .get()
         .and_then(|l| l.shrine)
-        .map_or((1307, 4.0), |d| (d, 1.0))
+        .map_or((1307, 2.0), |d| (d, data::SHRINE_SCALE))
 }
 
 /// Where a shrine stands in its life.
@@ -188,7 +191,6 @@ struct Shrine {
 pub(super) struct Chest {
     /// A Shrine of Challenge's prize: opens for nothing, and leaves the price where it was.
     free: bool,
-    hold: f32,
     /// The hero told it lacks the gold, so the banner says it once a visit.
     told: bool,
 }
@@ -228,11 +230,7 @@ fn spawn_chest(commands: &mut Commands, run: &mut Run, pos: Vec3, free: bool) {
     let (display, scale) = chest_look();
     let e = units::spawn_object(commands, run.guid(), display, scale, pos);
     commands.entity(e).insert((
-        Chest {
-            free,
-            hold: 0.0,
-            told: false,
-        },
+        Chest { free, told: false },
         super::Pickup,
         if free {
             FieldMark::FreeChest
@@ -263,16 +261,7 @@ pub(super) fn grant(hero: &mut HeroState, reward: Reward, rng: &mut Rng) -> Stri
             } else {
                 data::draw_run_item(rng.f32(), rng.f32())
             };
-            match hero.run_items.iter_mut().find(|(i, _)| *i == item) {
-                Some((_, n)) => *n = (*n + 1).min(data::MAX_RUN_ITEM_STACKS),
-                None => hero.run_items.push((item, 1)),
-            }
-            hero.version += 1;
-            let n = hero
-                .run_items
-                .iter()
-                .find(|(i, _)| *i == item)
-                .map_or(1, |(_, n)| *n);
+            let n = add_run_item(&mut hero.v, item);
             format!("{} ×{n}", item.name)
         }
         Reward::SpellRank => {
@@ -300,6 +289,76 @@ pub(super) fn grant(hero: &mut HeroState, reward: Reward, rng: &mut Rng) -> Stri
         }
         Reward::Gear { .. } => String::new(),
     }
+}
+
+/// A stack of `item` more on the hero, held to its most; returns the stacks it has now.
+pub(super) fn add_run_item(v: &mut Vitals, item: &'static data::RunItemDef) -> u8 {
+    let n = match v.run_items.iter_mut().find(|(i, _)| *i == item) {
+        Some((_, n)) => {
+            *n = (*n + 1).min(data::MAX_RUN_ITEM_STACKS);
+            *n
+        }
+        None => {
+            v.run_items.push((item, 1));
+            1
+        }
+    };
+    v.version += 1;
+    n
+}
+
+/// What an opened chest offers a hero: [`data::CHEST_CHOICES`] different choices, each a rank of
+/// one of its spells at [`data::CHEST_RANK_ODDS`], else a run item it can still take, drawn at
+/// its rarity's odds (among the kinds it holds once it holds five). Empty when it can take
+/// nothing.
+pub(super) fn deal_chest(v: &Vitals, rng: &mut Rng) -> Vec<data::ChestPick> {
+    let full = v.run_items.len() >= data::MAX_RUN_ITEM_KINDS;
+    let open = |item: &data::RunItemDef| match v.run_items.iter().find(|(i, _)| i.key == item.key) {
+        Some((_, n)) => *n < data::MAX_RUN_ITEM_STACKS,
+        None => !full,
+    };
+    let mut pool: Vec<&'static data::RunItemDef> =
+        data::RUN_ITEMS.iter().filter(|i| open(i)).collect();
+    let mut spells: Vec<&'static data::AbilityDef> = v.abilities.iter().map(|o| o.def).collect();
+    let mut out = Vec::with_capacity(data::CHEST_CHOICES);
+    while out.len() < data::CHEST_CHOICES && !(pool.is_empty() && spells.is_empty()) {
+        let rank = !spells.is_empty() && (pool.is_empty() || rng.f32() < data::CHEST_RANK_ODDS);
+        if rank {
+            let def = spells.swap_remove(rng.index(spells.len()));
+            out.push(data::ChestPick::Rank(def));
+            continue;
+        }
+        let Some(item) = data::draw_held_run_item(&pool, rng.f32()) else {
+            break;
+        };
+        pool.retain(|i| i.key != item.key);
+        out.push(data::ChestPick::Item(item));
+    }
+    out
+}
+
+/// Take the choice of the hero's chest offer that `key` names, if it is one: the offer goes, and
+/// a stack of the item, or the spell's rank with an Uncommon card's perks, stays for the run.
+pub(super) fn take_chest_item(v: &mut Vitals, key: &str, rng: &mut Rng) -> bool {
+    let Some(pick) = v.chest_offer.iter().find(|p| p.key() == key).copied() else {
+        return false;
+    };
+    v.chest_offer.clear();
+    match pick {
+        data::ChestPick::Item(item) => {
+            add_run_item(v, item);
+        }
+        data::ChestPick::Rank(def) => {
+            if let Some(k) = v.abilities.iter().position(|o| o.def.key == def.key) {
+                let perks = super::offer::draw_perks(def, false, data::CardRarity::Uncommon, rng);
+                v.abilities[k].rank_up(&perks);
+                v.version += 1;
+            }
+        }
+    }
+    // A move like a card's: a guest's view knows which of its moves the host has applied.
+    v.picks += 1;
+    true
 }
 
 /// Lay out the field at a run's start, bring elites and chests back on their timers, and open a
@@ -433,7 +492,8 @@ pub(super) fn tend_field(
         spawn_chest(&mut commands, &mut run, pos, false);
     }
 
-    // A hero standing at a chest with the gold opens it.
+    // A hero who comes to a chest with the gold opens it, at once; one still choosing from the
+    // last chest opens no other.
     let cost = data::chest_cost(field.opened);
     for (e, tf, mut chest) in &mut chests {
         let at = tf.translation;
@@ -446,15 +506,16 @@ pub(super) fn tend_field(
                     .total_cmp(&flat(b.0.translation - at).length())
             });
         let Some((_, mut hero)) = near else {
-            chest.hold = 0.0;
             chest.told = false;
             continue;
         };
+        if !hero.chest_offer.is_empty() {
+            continue;
+        }
         // A key opens it for nothing, and its price stays where it was.
         let keyed = !chest.free && hero.keys > 0;
         let cost = if chest.free || keyed { 0 } else { cost };
         if hero.gold + 1e-3 < cost as f32 {
-            chest.hold = 0.0;
             if !chest.told {
                 chest.told = true;
                 run.banner = Some((
@@ -465,10 +526,6 @@ pub(super) fn tend_field(
                     2.5,
                 ));
             }
-            continue;
-        }
-        chest.hold += dt;
-        if chest.hold < data::CHEST_OPEN_SECS {
             continue;
         }
         hero.gold -= cost as f32;
@@ -483,22 +540,22 @@ pub(super) fn tend_field(
             field.returning.push(data::CHEST_RESPAWN_SECS);
         }
         commands.entity(e).despawn();
-        let text = match data::chest_reward(rng.f32()) {
-            Reward::Gear { percent } => {
-                let gear = (rng.index(100) < usize::from(percent))
-                    .then(|| data::horde_item(zone, rng.f32() / data::HORDE_ITEM_ODDS as f32))
-                    .flatten();
-                match gear {
-                    Some(item) => {
-                        enemies::spawn_gem(&mut commands, run.guid(), at, GemKind::Item(item));
-                        format!("{} dropped!", item.name)
-                    }
-                    None => grant(&mut hero, Reward::Gold(cost.max(20)), &mut rng),
-                }
+        let offer = deal_chest(&hero.v, &mut rng);
+        if offer.is_empty() {
+            // Nothing left to take: the chest pays out instead.
+            let text = grant(
+                &mut hero,
+                Reward::Gold(data::FULL_RUN_ITEMS_GOLD.max(cost)),
+                &mut rng,
+            );
+            run.banner = Some((format!("Chest: {text}"), 4.0));
+        } else {
+            hero.v.chest_offer = offer;
+            hero.version += 1;
+            if hero.slot == session.slot {
+                run.banner = Some(("Chest: choose an item.".into(), 3.0));
             }
-            reward => grant(&mut hero, reward, &mut rng),
-        };
-        run.banner = Some((format!("Chest: {text}"), 4.0));
+        }
         // One chest a frame: the next one's price is the new one.
         break;
     }
@@ -598,9 +655,7 @@ fn tend_shrines(
                 let at = sh.view.pos;
                 let inside = heroes
                     .iter_mut()
-                    .filter(|(t, h)| {
-                        h.alive() && flat(t.translation - at).length() <= data::SHRINE_RADIUS
-                    })
+                    .filter(|(t, h)| h.alive() && flat(t.translation - at).length() <= def.radius)
                     .min_by(|a, b| {
                         flat(a.0.translation - at)
                             .length()
@@ -632,7 +687,7 @@ fn tend_shrines(
                             let kind = rng.index(data::ELITES.len());
                             let a =
                                 k as f32 / data::CHALLENGE_ELITES as f32 * std::f32::consts::TAU;
-                            let pos = at + Vec3::new(a.cos(), 0.0, a.sin()) * 7.0;
+                            let pos = at + Vec3::new(a.cos(), 0.0, a.sin()) * (def.radius + 3.0);
                             let e = enemies::spawn_enemy(
                                 commands,
                                 run,
@@ -752,6 +807,85 @@ mod tests {
         let gold = h.gold;
         grant(&mut h, Reward::RunItem, &mut rng);
         assert!(h.gold > gold);
+    }
+
+    #[test]
+    fn a_chest_offers_three_choices_and_one_is_taken() {
+        let mut rng = Rng::seeded(7);
+        let (mut items, mut ranks) = (0, 0);
+        for _ in 0..40 {
+            let mut h = hero();
+            let offer = deal_chest(&h.v, &mut rng);
+            assert_eq!(offer.len(), data::CHEST_CHOICES);
+            let mut keys: Vec<String> = offer.iter().map(|p| p.key()).collect();
+            keys.sort();
+            keys.dedup();
+            assert_eq!(keys.len(), data::CHEST_CHOICES, "three different choices");
+            h.v.chest_offer = offer.clone();
+            // Not of the offer: refused, and the offer stays.
+            let never = data::RUN_ITEMS
+                .iter()
+                .map(|i| data::ChestPick::Item(i))
+                .find(|p| !offer.contains(p))
+                .unwrap();
+            assert!(!take_chest_item(&mut h.v, &never.key(), &mut rng));
+            assert_eq!(h.chest_offer.len(), data::CHEST_CHOICES);
+            let level = h.abilities[0].level;
+            assert!(take_chest_item(&mut h.v, &offer[0].key(), &mut rng));
+            match offer[0] {
+                data::ChestPick::Item(item) => {
+                    items += 1;
+                    assert_eq!(h.run_items, [(item, 1)]);
+                }
+                data::ChestPick::Rank(def) => {
+                    ranks += 1;
+                    assert_eq!(def.key, h.abilities[0].def.key, "the spell it knows");
+                    assert_eq!(h.abilities[0].level, level + 1);
+                }
+            }
+            assert!(h.chest_offer.is_empty());
+            assert!(
+                !take_chest_item(&mut h.v, &offer[1].key(), &mut rng),
+                "one a chest"
+            );
+        }
+        // Mostly items, a rank now and then.
+        assert!(items > ranks && ranks > 0, "{items} items, {ranks} ranks");
+    }
+
+    #[test]
+    fn a_full_hero_is_offered_only_the_kinds_it_holds_then_nothing() {
+        let mut h = hero();
+        let mut rng = Rng::seeded(2);
+        let kinds: Vec<_> = data::RUN_ITEMS
+            .iter()
+            .take(data::MAX_RUN_ITEM_KINDS)
+            .collect();
+        for i in &kinds {
+            h.run_items.push((i, 1));
+        }
+        // One at its most is not offered.
+        h.run_items[0].1 = data::MAX_RUN_ITEM_STACKS;
+        for _ in 0..20 {
+            let offer = deal_chest(&h.v, &mut rng);
+            assert_eq!(offer.len(), data::CHEST_CHOICES);
+            assert!(
+                offer.iter().all(|p| match p {
+                    data::ChestPick::Item(i) => kinds[1..].contains(i),
+                    data::ChestPick::Rank(_) => true,
+                }),
+                "{offer:?}"
+            );
+        }
+        // Every kind at its most: only ranks; and nothing at all for a hero with no spell.
+        for (_, n) in &mut h.run_items {
+            *n = data::MAX_RUN_ITEM_STACKS;
+        }
+        let offer = deal_chest(&h.v, &mut rng);
+        assert!(!offer.is_empty());
+        assert!(offer.iter().all(|p| matches!(p, data::ChestPick::Rank(_))));
+        h.v.abilities.clear();
+        assert!(deal_chest(&h.v, &mut rng).is_empty());
     }
 
     #[test]

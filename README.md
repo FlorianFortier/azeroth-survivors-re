@@ -37,11 +37,11 @@ to the next, tougher zone, and after the third hold out against the final swarm 
 ### In this build
 
 - **A Megabonk-style field**: kills drop the run's gold; six chests stand around the battleground
-  and open for a hero who stands at one with the gold (20, then 40% dearer each time) for a run
-  item, a spell's rank or a roll for gear. Four elites hold fixed posts, each over a reward of its
+  and open at once for a hero who walks up to one with the gold (20, then 40% dearer each time),
+  offering three run items to choose from. Four elites hold fixed posts, each over a reward of its
   own (gear, a spell's rank, a run item, a purse), and come back a while after they fall. Run
   items stack for the run, five kinds at most (the neck, rings and trinkets of the character
-  sheet: once five are held, a chest gives more of one of them), Common to Legendary (the rarer,
+  sheet: once five are held, a chest offers more of them), Common to Legendary (the rarer,
   the less often drawn), shown with
   their stacks under your talents; besides a stat, some do more: a vampiric fang heals off your
   damage, a storm charm arcs lightning, thornmail strikes back, a volatile ember bursts on kills,
@@ -77,11 +77,12 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   click a ware or press 1, 2 or 3. Elites sometimes drop a **key**, which opens a chest for
   nothing, and **jars and crates** about the field break as you walk into them, for a few coins
   or a bite to eat. Co-op guests buy, break and open too, the host checking each.
-- **Shrines** across the field: stand in a **Shrine of Power** until it charges and choose one
+- **Shrines** across the field, small stones with a ring around them: stand within the wide ring
+  of a **Shrine of Power** until it charges and choose one
   blessing of three (a stat for the rest of the run, drawn Common to Legendary); wake the
   **Shrine of Challenge** and beat the elites it calls for a free chest; the **Shrine of Greed**
   gives every hero more gold and the foes more bite, the **Shrine of Curses** more experience
-  and more foes. Each shows its ring, its charge and what it does over the world and on the
+  and more foes; those three have a narrow ring, to be woken on purpose. Each shows its ring, its charge and what it does over the world and on the
   minimap, and co-op guests see and use them too.
 - **A main screen in tabs** (Character, Collection, Drop Tables, Codex, Talents, Achievements,
   Rewards). The Character tab shows the class on the left (its health, starting spell and spell

@@ -32,7 +32,7 @@ sheet, and **V** switches to the classic top-down views.
 | Any | **G** | toggle the picture polish (`?grade=0` starts it off) |
 | Playing | **Esc** | clear the target, or pause |
 | Playing | — | abilities cast themselves (no aim) |
-| Playing | stand at a **chest** for a second | open it with the run's gold (each one costs more), or with a key if you hold one |
+| Playing | walk up to a **chest** | open it with the run's gold (each one costs more), or with a key if you hold one, and choose one of its three items with **1 / 2 / 3** or a click |
 | Playing | at the **merchant**: **1 / 2 / 3** (or click a ware) | buy that ware with the run's gold |
 | Playing | walk into a **jar** or a **crate** | break it: gold, or a heal |
 | Playing | stand in a **portal** for three seconds | the boss portal calls the stage's final boss; the portal onward takes everyone to the next stage |
