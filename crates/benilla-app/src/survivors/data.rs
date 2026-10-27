@@ -4295,6 +4295,8 @@ pub(crate) const FINAL_BOSS_HEALTH: f32 = 1.5;
 /// a hero meets its final boss at that stage's strength, not the old run's end (the simulator
 /// left it standing at 11% after half an hour).
 pub(crate) const BOSS_HEALTH: f32 = 0.45;
+/// And its blows: the top rung's hit a second killed a fresh hero in two.
+pub(crate) const BOSS_DAMAGE: f32 = 0.6;
 
 static ROSTERS: std::sync::LazyLock<Vec<Roster>> = std::sync::LazyLock::new(|| {
     MAPS.iter()
@@ -4302,6 +4304,7 @@ static ROSTERS: std::sync::LazyLock<Vec<Roster>> = std::sync::LazyLock::new(|| {
             let mut bosses = ladder(m.bosses, BOSSES, m.might);
             for b in &mut bosses {
                 b.hp = (b.hp * BOSS_HEALTH).round();
+                b.damage = (b.damage * BOSS_DAMAGE).round();
             }
             if let Some(last) = bosses.last_mut() {
                 last.hp = (last.hp * FINAL_BOSS_HEALTH).round();

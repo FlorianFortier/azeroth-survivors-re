@@ -241,8 +241,7 @@ fn pilot(app: &mut App, t: f32) {
         let speed = v.stats().speed;
         let engage = (data::ability(v.class.start).range * 0.7).max(2.5);
         // A fighter in melee brawls; a caster keeps its distance.
-        let melee = engage < 6.0;
-        let (caution, pull) = if melee { (12.0, 1.2) } else { (40.0, 0.3) };
+        let (caution, pull) = if engage < 6.0 { (25.0, 1.5) } else { (40.0, 0.3) };
         // A player looks ahead: of sixteen headings, the one whose point a second and a half on
         // is clearest of foes, kept near the field's middle, and toward the goal if there is one.
         let near: Vec<Vec3> = foes
@@ -250,13 +249,18 @@ fn pilot(app: &mut App, t: f32) {
             .copied()
             .filter(|f| super::units::flat(*f - at).length() < LOOK_REACH)
             .collect();
+        // A fighter in melee takes on a couple at once: the two nearest do not count against it.
+        let melee = engage < 6.0;
         let danger = |p: Vec3| -> f32 {
-            near.iter()
-                .map(|f| {
-                    let d = super::units::flat(p - *f).length().max(0.5);
-                    1.0 / (d * d)
-                })
-                .sum()
+            let mut d: Vec<f32> = near
+                .iter()
+                .map(|f| super::units::flat(p - *f).length().max(0.5))
+                .collect();
+            if melee {
+                d.sort_by(f32::total_cmp);
+                d.drain(..d.len().min(2));
+            }
+            d.iter().map(|d| 1.0 / (d * d)).sum()
         };
         // In a portal, standing is the point: the crowd matters less than the charge.
         let caution = if gate.is_some() { caution * 0.5 } else { caution };
