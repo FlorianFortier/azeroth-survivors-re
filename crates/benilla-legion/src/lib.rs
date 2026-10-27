@@ -1,6 +1,6 @@
 //! Legion's M2 models (7.3.5, MD20 version 274), read far enough to draw one in its bind pose: a
-//! spike toward later clients' data beside the 1.12.1 base (`docs/EXPANSIONS.md`). Nothing in the
-//! client reads it yet.
+//! spike toward later clients' data beside the 1.12.1 base (`docs/EXPANSIONS.md`). The client reads
+//! it natively when `WOW_LEGION` names an install (`benilla-app`'s `entities::legion`).
 //!
 //! From Legion an `.m2` is a chunked file ([`md21`]): `MD21` wraps the MD20 model, whose offsets
 //! count from its own start, and the chunks after it name the files the model needs by file data
@@ -15,11 +15,13 @@
 //! `CreatureModelData` give a display's model, replaceable textures and geosets ([`display`]).
 //!
 //! [`transcode`] rewrites a Legion model as a 1.12.1 one (MD20 version 256, its skin inside), the
-//! form the client's renderer already draws.
+//! form the client's renderer already draws; [`library`] answers the client's `legion/` paths
+//! from an install with them.
 
 pub mod db2;
 pub mod dbd;
 pub mod display;
+pub mod library;
 pub mod md21;
 pub mod model;
 pub mod skin;
@@ -31,6 +33,8 @@ use std::fmt;
 pub enum Error {
     Truncated(&'static str),
     Format(String),
+    /// The install, or a file beside it, could not be read.
+    Source(String),
 }
 
 impl fmt::Display for Error {
@@ -38,11 +42,18 @@ impl fmt::Display for Error {
         match self {
             Error::Truncated(w) => write!(f, "truncated: {w}"),
             Error::Format(w) => write!(f, "format: {w}"),
+            Error::Source(w) => write!(f, "source: {w}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+impl From<benilla_casc::Error> for Error {
+    fn from(e: benilla_casc::Error) -> Self {
+        Error::Source(e.to_string())
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 

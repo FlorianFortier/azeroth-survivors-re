@@ -15,7 +15,12 @@ pub struct CreatureDisplay {
     pub textures: [u32; 3],
     /// `CreatureGeosetData`: four bits a geoset group, groups 1 to 8.
     pub geosets: u32,
+    /// `CreatureModelScale`, the display's own.
     pub scale: f32,
+    /// `CreatureModelData`'s `ModelScale`, the model's.
+    pub model_scale: f32,
+    /// `CreatureModelData`'s `CollisionHeight`.
+    pub collision_height: f32,
 }
 
 impl CreatureDisplay {
@@ -45,7 +50,8 @@ impl CreatureDisplay {
 pub fn creature_display(info: &Table, models: &Table, id: u32) -> Option<CreatureDisplay> {
     let row = info.get(id)?;
     let model = row.int("ModelID")? as u32;
-    let model_file = models.get(model)?.int("FileDataID")? as u32;
+    let model_row = models.get(model)?;
+    let model_file = model_row.int("FileDataID")? as u32;
     let tex = row.ints("TextureVariationFileDataID");
     let at = |i: usize| tex.get(i).copied().unwrap_or(0) as u32;
     Some(CreatureDisplay {
@@ -55,6 +61,8 @@ pub fn creature_display(info: &Table, models: &Table, id: u32) -> Option<Creatur
         textures: [at(0), at(1), at(2)],
         geosets: row.int("CreatureGeosetData").unwrap_or(0) as u32,
         scale: row.float("CreatureModelScale").unwrap_or(1.0),
+        model_scale: model_row.float("ModelScale").unwrap_or(1.0),
+        collision_height: model_row.float("CollisionHeight").unwrap_or(0.0),
     })
 }
 
@@ -90,6 +98,8 @@ mod tests {
             // Group 1 variant 3, group 2 none (its first).
             geosets: 0x03,
             scale: 1.0,
+            model_scale: 1.0,
+            collision_height: 0.0,
         };
         assert!(d.shows(0) && d.shows(5));
         assert!(d.shows(103) && !d.shows(101));

@@ -22,6 +22,10 @@ pub mod trace;
 
 mod anim_rng;
 pub use anim_rng::AnimRng;
+#[cfg(not(target_arch = "wasm32"))]
+mod extra_source;
+#[cfg(not(target_arch = "wasm32"))]
+pub use extra_source::{set_extra_source, ExtraReader};
 pub use spatial_cache::SpatialCache;
 mod world_assets;
 pub use world_assets::*;
@@ -92,6 +96,11 @@ impl AssetReader for MpqAssetReader {
         // The sampler-mode marker (`texture_url`) names the asset, not the archive file.
         let stripped = strip_sampler_marker(raw);
         let internal = stripped.as_deref().unwrap_or(raw);
+        if let Some(extra) = extra_source::read(internal) {
+            return Ok(VecReader::new(
+                extra.map_err(|e| AssetReaderError::Io(Arc::new(e)))?,
+            ));
+        }
         if !self.chain.contains(internal) {
             return Err(AssetReaderError::NotFound(path.to_path_buf()));
         }

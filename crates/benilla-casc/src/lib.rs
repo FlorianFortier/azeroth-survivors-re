@@ -1,7 +1,8 @@
 //! A read-only CASC reader for a local World of Warcraft Legion install (7.3.5, build 26972): the
 //! storage every client since Warlords of Draenor keeps its files in, in place of 1.12.1's MPQs.
 //! It is a spike toward reading a later client's data beside the 1.12.1 base
-//! (`docs/EXPANSIONS.md`): native only, and no part of the client reads it yet.
+//! (`docs/EXPANSIONS.md`): native only, read through `benilla-legion` when `WOW_LEGION` names an
+//! install.
 //!
 //! A file is found in four steps, each a table of the install:
 //! - `.build.info` names the active build's config (`Data/config/xx/yy/<key>`), which names the
@@ -68,6 +69,21 @@ pub trait Source {
     fn read_at(&self, path: &str, offset: u64, len: u64) -> Result<Vec<u8>>;
     /// The file names in a folder.
     fn list(&self, dir: &str) -> Result<Vec<String>>;
+}
+
+/// A boxed source, so one reader type serves an install on disk or a remote copy.
+impl<T: Source + ?Sized> Source for Box<T> {
+    fn read_all(&self, path: &str) -> Result<Vec<u8>> {
+        (**self).read_all(path)
+    }
+
+    fn read_at(&self, path: &str, offset: u64, len: u64) -> Result<Vec<u8>> {
+        (**self).read_at(path, offset, len)
+    }
+
+    fn list(&self, dir: &str) -> Result<Vec<String>> {
+        (**self).list(dir)
+    }
 }
 
 /// An install on disk.

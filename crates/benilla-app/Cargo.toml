@@ -83,6 +83,9 @@ rand = "0.8"
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x. Native-only:
 # arboard has no wasm32 backend (`textinput/clipboard.rs` falls back to no pasteboard there).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# A Legion install's models and creature displays beside the 1.12.1 data (`entities::legion`).
+benilla-casc = { path = "../benilla-casc", features = ["remote"] }
+benilla-legion = { path = "../benilla-legion" }
 # The survivors lobby's WebSocket on the desktop: blocking, on its own thread (`survivors::net::socket`).
 # Plain `ws://` only; the browser build uses the page's own `WebSocket`, `wss://` included.
 tungstenite = "0.30"

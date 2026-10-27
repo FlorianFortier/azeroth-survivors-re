@@ -10,6 +10,10 @@ use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::dbc::{f32_at, parse, str_at, u32_at};
 
+// Displays a later client's data adds (`benilla-legion`, native only): ours, in a file of its own.
+#[cfg(not(target_arch = "wasm32"))]
+mod added;
+
 const CREATURE_MODEL_DATA: &str = "DBFilesClient\\CreatureModelData.dbc";
 const CREATURE_DISPLAY_INFO: &str = "DBFilesClient\\CreatureDisplayInfo.dbc";
 const CREATURE_DISPLAY_INFO_EXTRA: &str = "DBFilesClient\\CreatureDisplayInfoExtra.dbc";
