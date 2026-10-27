@@ -45,7 +45,9 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   the less often drawn), shown with
   their stacks under your talents; besides a stat, some do more: a vampiric fang heals off your
   damage, a storm charm arcs lightning, thornmail strikes back, a volatile ember bursts on kills,
-  a soul shard heals on them. Half the gold left unspent goes to your profile. A ring on the ground
+  a soul shard heals on them; a brand sets foes burning, a locket chills them, a headsman's axe
+  finishes the weakened, a shadowstep charm dodges blows, a sigil shields you on kills, a
+  reliquary and a frost wyrm's scale pulse novas around you, and a goblin's purse pays out. Half the gold left unspent goes to your profile. A ring on the ground
   and a label over each chest give its price, each elite shows what it guards, and a fallen
   elite's post counts down to its return; the minimap marks them all, the far elites at its
   edge. Co-op guests see the same.

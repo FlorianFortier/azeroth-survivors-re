@@ -855,6 +855,10 @@ pub(super) fn apply_hits(
                 dmg = dmg.max(en.hp);
             }
         }
+        // A run item's execute finishes what the hit leaves under its share.
+        if !en.boss && dmg > 0.0 && (en.hp - dmg) / en.max_hp <= execute_share(&effects) {
+            dmg = dmg.max(en.hp);
+        }
         if dmg > 0.0 {
             en.hp -= dmg;
             units::set_health(&mut store, en.hp / en.max_hp);
@@ -878,6 +882,12 @@ pub(super) fn apply_hits(
                     &mut rng,
                     &mut procs,
                 );
+                if en.hp > 0.0 {
+                    let might = o.stats().might;
+                    if let Some(spell) = afflict(&mut en, h.owner, &effects, might, &mut rng) {
+                        fx.impact(e, spell);
+                    }
+                }
             }
         }
         if h.dot > 0.0 && h.dot_dur > 0.0 {
@@ -1080,6 +1090,115 @@ fn on_hit(
     }
 }
 
+/// The share of its health under which the hero's items finish a foe; 0 for none.
+fn execute_share(effects: &[ItemEffect]) -> f32 {
+    effects
+        .iter()
+        .map(|e| match *e {
+            ItemEffect::Execute(t) => t,
+            _ => 0.0,
+        })
+        .fold(0.0, f32::max)
+}
+
+/// What a hit lays on its foe of the striker's items: a burn and a chill, each on its chance.
+/// Returns the burn's spell, for its visual, when one caught.
+fn afflict(
+    en: &mut Enemy,
+    owner: Entity,
+    effects: &[ItemEffect],
+    might: f32,
+    rng: &mut Rng,
+) -> Option<u32> {
+    let mut lit = None;
+    for e in effects {
+        match *e {
+            ItemEffect::Ignite {
+                chance,
+                dps,
+                secs,
+                spell,
+            } if rng.f32() < chance => {
+                // One burn per item: a new one starts it over.
+                en.dots.retain(|d| !(d.owner == owner && d.spell == spell));
+                if en.dots.len() >= 6 {
+                    en.dots.remove(0);
+                }
+                en.dots.push(enemies::Dot {
+                    owner,
+                    spell,
+                    dps: dps * might,
+                    left: secs,
+                    tick: 1.0,
+                });
+                lit = Some(spell);
+            }
+            ItemEffect::Chill { chance, slow, secs } if rng.f32() < chance => {
+                en.slow = en.slow.min(slow);
+                en.slow_t = en.slow_t.max(if en.boss { secs * 0.3 } else { secs });
+            }
+            _ => {}
+        }
+    }
+    lit
+}
+
+/// Every hero's novas: each `Nova` item strikes everything near the hero on its own clock.
+pub(super) fn item_novas(
+    time: Res<Time>,
+    mut heroes: Query<(Entity, &Transform, &mut HeroState), With<Hero>>,
+    enemies: Query<(Entity, &Transform, &Enemy)>,
+    mut hits: MessageWriter<Hit>,
+    mut fx: Fx,
+) {
+    let dt = time.delta_secs();
+    for (he, tf, mut h) in &mut heroes {
+        let nova = h.item_effects().find_map(|e| match e {
+            ItemEffect::Nova {
+                every,
+                damage,
+                radius,
+                spell,
+            } => Some((every, damage, radius, spell)),
+            _ => None,
+        });
+        let Some((every, damage, radius, spell)) = nova else {
+            continue;
+        };
+        if !h.alive() {
+            continue;
+        }
+        h.nova_t -= dt;
+        if h.nova_t > 0.0 {
+            continue;
+        }
+        h.nova_t = every.max(0.5);
+        let at = tf.translation;
+        let mut struck: Vec<(Entity, f32)> = enemies
+            .iter()
+            .filter(|(.., en)| !en.dead)
+            .map(|(e, t, _)| (e, flat(t.translation - at).length()))
+            .filter(|(_, d)| *d <= radius)
+            .collect();
+        struck.sort_by(|a, b| a.1.total_cmp(&b.1));
+        struck.truncate(data::MAX_NOVA_HITS);
+        if struck.is_empty() {
+            continue;
+        }
+        let might = h.stats().might;
+        for &(e, _) in &struck {
+            hits.write(Hit {
+                color: COLOR_SPELL,
+                proc: true,
+                spell,
+                ..Hit::direct(he, e, damage * might, false)
+            });
+        }
+        let shown: Vec<Entity> = struck.iter().map(|(e, _)| *e).collect();
+        fx.cast(he, spell, &shown, None);
+    }
+}
+
 /// What a kill sets off of the killer's items: the heal at once, a burst on its chance.
 fn on_kill(
     o: &mut HeroState,
@@ -1094,6 +1213,14 @@ fn on_kill(
             ItemEffect::KillHeal(hp) if o.alive() => {
                 let max = o.stats().max_hp;
                 o.hp = (o.hp + hp).min(max);
+            }
+            ItemEffect::KillShield { amount, max } if o.alive() => {
+                o.shield = (o.shield + amount).min(max.max(o.shield));
+                o.shield_t = o.shield_t.max(data::KILL_SHIELD_SECS);
+            }
+            ItemEffect::Bounty { chance, gold } if rng.f32() < chance => {
+                let gain = gold * o.stats().gold;
+                o.gold += gain;
             }
             ItemEffect::Burst {
                 chance,
@@ -1250,6 +1377,93 @@ mod tests {
             "{} bursts at 15%",
             procs.len()
         );
+    }
+
+    fn enemy(boss: bool) -> Enemy {
+        let def = &data::roster(0).enemies[0];
+        Enemy {
+            def,
+            hp: 100.0,
+            max_hp: 100.0,
+            speed: 5.0,
+            damage: 5.0,
+            radius: 0.5,
+            xp: 1,
+            boss,
+            boss_slot: None,
+            final_boss: false,
+            elite: None,
+            home: None,
+            attack_cd: 0.0,
+            slow: 1.0,
+            slow_t: 0.0,
+            root_t: 0.0,
+            stun_t: 0.0,
+            fear_t: 0.0,
+            weaken: 1.0,
+            weaken_t: 0.0,
+            dots: Vec::new(),
+            dead: false,
+        }
+    }
+
+    #[test]
+    fn the_new_items_burn_chill_finish_shield_and_pay() {
+        let mut rng = Rng::seeded(7);
+        // A burn and a chill catch about as often as their chance, one burn per item at once.
+        let h = hero_with("smoldering_brand", 5);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        let mut burns = 0;
+        for _ in 0..1000 {
+            let mut en = enemy(false);
+            if afflict(&mut en, e(9), &fx, 1.0, &mut rng).is_some() {
+                burns += 1;
+                assert_eq!(en.dots.len(), 1);
+                assert_eq!((en.dots[0].dps, en.dots[0].spell), (25.0, 348));
+            }
+        }
+        assert!((320..=480).contains(&burns), "{burns} burns at 40%");
+        let mut en = enemy(false);
+        for _ in 0..50 {
+            afflict(&mut en, e(9), &fx, 1.0, &mut rng);
+        }
+        assert_eq!(en.dots.len(), 1, "a new burn starts the old one over");
+        let h = hero_with("frostbite_locket", 9);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        let mut en = enemy(false);
+        for _ in 0..50 {
+            afflict(&mut en, e(9), &fx, 1.0, &mut rng);
+        }
+        assert_eq!((en.slow, en.slow_t), (0.5, 2.0));
+        // An execute finishes under its share, capped.
+        let h = hero_with("headsmans_axe", 2);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        assert!((execute_share(&fx) - 0.12).abs() < 1e-6);
+        let h = hero_with("headsmans_axe", data::MAX_RUN_ITEM_STACKS);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        assert_eq!(execute_share(&fx), data::MAX_EXECUTE);
+        assert_eq!(execute_share(&[]), 0.0);
+        // A kill's shield grows up to its most; a bounty pays.
+        let mut h = hero_with("barrier_sigil", 1);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        let mut procs = Vec::new();
+        for _ in 0..100 {
+            on_kill(&mut h, e(9), &fx, Vec3::ZERO, &mut rng, &mut procs);
+        }
+        assert_eq!(h.shield, 25.0);
+        assert_eq!(h.shield_t, data::KILL_SHIELD_SECS);
+        let mut h = hero_with("goblin_purse", 5);
+        let fx: Vec<ItemEffect> = h.item_effects().collect();
+        let before = h.gold;
+        for _ in 0..1000 {
+            on_kill(&mut h, e(9), &fx, Vec3::ZERO, &mut rng, &mut procs);
+        }
+        assert!(h.gold > before + 100.0, "{}", h.gold);
+        // Dodges add up, to a cap.
+        let mut h = hero_with("evasion_charm", 3);
+        assert!((enemies::dodge_chance(&h) - 0.12).abs() < 1e-6);
+        h.run_items[0].1 = data::MAX_RUN_ITEM_STACKS;
+        assert_eq!(enemies::dodge_chance(&h), data::MAX_DODGE);
     }
 
     #[test]

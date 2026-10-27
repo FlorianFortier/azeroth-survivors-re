@@ -203,8 +203,10 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   draws among the kinds held, and gold once each is at `MAX_RUN_ITEM_STACKS`. Half the unspent gold goes to the profile.
   A run item has a rarity (`data::CardRarity`, drawn by `item_odds` in `data::draw_run_item`)
   and may have a `data::ItemEffect` beyond its stat (lifesteal, an arc, thorns, a burst, a
-  heal on kills), each number per stack (`ItemEffect::at`). Only the simulation fires them, in
-  `abilities::apply_hits` and `enemies::move_enemies`, their visuals through `units::Fx`; an
+  heal on kills, a burn, a chill, an execute, a dodge, a shield on kills, a nova, a bounty),
+  each number per stack (`ItemEffect::at`, the execute and the dodge capped). Only the
+  simulation fires them, in `abilities::apply_hits` (`afflict`, `on_hit`, `on_kill`),
+  `abilities::item_novas` and `enemies::move_enemies`, their visuals through `units::Fx`; an
   item's own hits carry `Hit::proc` and set nothing more off. Guests see items through
   `Vitals::run_items` on `Game::Me` alone.
   Chests and elites carry a `treasure::FieldMark` on every machine (the host sets it; a guest
