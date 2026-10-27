@@ -277,8 +277,8 @@ pub(super) fn spawn_enemies(
         let room = data::HARD_CROWD_CAP.saturating_sub(alive) / anchors.len();
         let n = n.min(room);
         for &hpos in &anchors {
-            for i in 0..n {
-                let a = i as f32 / n as f32 * std::f32::consts::TAU;
+            let turn = rng.range(0.0, std::f32::consts::TAU);
+            for a in data::ring_angles(n, turn) {
                 let pos = ground(
                     &world,
                     hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 26.0,

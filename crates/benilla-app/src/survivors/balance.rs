@@ -61,6 +61,8 @@ pub(super) struct RunLog {
     pub lost: bool,
     /// Seconds of play in all.
     pub secs: f32,
+    /// The spells that did the most damage, most first.
+    pub top: Vec<(String, f64)>,
     /// Every [`TRACE_EVERY`] seconds, what the hero faced.
     pub trace: Vec<TracePoint>,
 }
@@ -233,6 +235,9 @@ fn pilot(app: &mut App, t: f32) {
         });
         let speed = v.stats().speed;
         let engage = (data::ability(v.class.start).range * 0.7).max(2.5);
+        // A fighter in melee brawls; a caster keeps its distance.
+        let melee = engage < 6.0;
+        let (caution, pull) = if melee { (10.0, 1.0) } else { (40.0, 0.3) };
         // A player looks ahead: of sixteen headings, the one whose point a second and a half on
         // is clearest of foes, kept near the field's middle, and toward the goal if there is one.
         let near: Vec<Vec3> = foes
@@ -248,12 +253,19 @@ fn pilot(app: &mut App, t: f32) {
                 })
                 .sum()
         };
+        // In a portal, standing is the point: the crowd matters less than the charge.
+        let caution = if gate.is_some() { caution * 0.25 } else { caution };
         let mut best = (f32::INFINITY, Vec3::ZERO);
-        for k in 0..16 {
+        for k in 0..=16 {
+            // Sixteen headings, and standing still.
             let a = k as f32 / 16.0 * std::f32::consts::TAU;
-            let dir = Vec3::new(a.cos(), 0.0, a.sin());
+            let dir = if k == 16 {
+                Vec3::ZERO
+            } else {
+                Vec3::new(a.cos(), 0.0, a.sin())
+            };
             let ahead = at + dir * speed * LOOK_SECS;
-            let mut score = danger(ahead) * 40.0 + danger(at + dir * speed * 0.5) * 40.0;
+            let mut score = (danger(ahead) + danger(at + dir * speed * 0.5)) * caution;
             let off = super::units::flat(ahead - center).length();
             score += ((off - KITE_RADIUS).max(0.0) / 10.0).powi(2);
             match (gate, goal) {
@@ -272,7 +284,7 @@ fn pilot(app: &mut App, t: f32) {
                         .map(|f| super::units::flat(ahead - *f).length())
                         .fold(f32::INFINITY, f32::min);
                     if d.is_finite() {
-                        score += (d - engage).max(0.0) * 0.3;
+                        score += (d - engage).max(0.0) * pull;
                     }
                 }
             }
@@ -389,6 +401,30 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
     }
     log.stages.push(stage);
     log.secs = t;
+    let world = app.world_mut();
+    let mut q = world.query::<&HeroState>();
+    if let Some(h) = q.iter(world).next() {
+        let mut by = h.damage_by.clone();
+        by.sort_by(|a, b| b.1.total_cmp(&a.1));
+        log.top = by
+            .into_iter()
+            .take(3)
+            .map(|(spell, d)| {
+                let name = data::ABILITIES
+                    .iter()
+                    .find(|a| a.spell == spell)
+                    .map(|a| a.key.to_string())
+                    .or_else(|| {
+                        data::RUN_ITEMS
+                            .iter()
+                            .find(|i| i.spell == spell)
+                            .map(|i| i.key.to_string())
+                    })
+                    .unwrap_or_else(|| spell.to_string());
+                (name, d)
+            })
+            .collect();
+    }
     log
 }
 
@@ -431,8 +467,13 @@ fn row(log: &RunLog) -> String {
             )
         })
         .collect();
+    let top: Vec<String> = log
+        .top
+        .iter()
+        .map(|(n, d)| format!("{n} {:.0}k", d / 1000.0))
+        .collect();
     format!(
-        "{:<8} {:<5} {}",
+        "{:<8} {:<5} {}  [{}]",
         log.class,
         if log.won {
             "won"
@@ -441,7 +482,8 @@ fn row(log: &RunLog) -> String {
         } else {
             "-"
         },
-        stages.join(" | ")
+        stages.join(" | "),
+        top.join(", ")
     )
 }
 

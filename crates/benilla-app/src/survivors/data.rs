@@ -1791,8 +1791,27 @@ pub(crate) const HARD_CROWD_CAP: usize = 400;
 /// surges it thins to [`LULL_CROWD`].
 pub(crate) const WAVE_EVERY: f32 = 45.0;
 pub(crate) const SURGE_SECS: f32 = 12.0;
-pub(crate) const SURGE_CROWD: f32 = 1.6;
-pub(crate) const LULL_CROWD: f32 = 0.85;
+pub(crate) const SURGE_CROWD: f32 = 1.35;
+pub(crate) const LULL_CROWD: f32 = 0.9;
+/// An ambush ring leaves this many openings, each this wide (radians), turned at random: a
+/// closed ring is a death no player can see coming or get out of.
+pub(crate) const RING_GAPS: usize = 2;
+pub(crate) const RING_GAP: f32 = 0.7;
+
+/// The angles of an ambush ring of `n` foes turned by `turn`: [`RING_GAPS`] arcs, evenly
+/// filled, with a [`RING_GAP`] opening after each.
+pub(crate) fn ring_angles(n: usize, turn: f32) -> Vec<f32> {
+    let arc = std::f32::consts::TAU / RING_GAPS as f32;
+    let filled = arc - RING_GAP;
+    let per = n.div_ceil(RING_GAPS).max(1);
+    (0..n)
+        .map(|i| {
+            let (seg, k) = (i / per, i % per);
+            turn + seg as f32 * arc + filled * (k as f32 + 0.5) / per as f32
+        })
+        .collect()
+}
+
 /// A surge's spawns come this many together, from one side of a hero.
 pub(crate) const PACK_SIZE: usize = 8;
 /// The crowd a stage keeps: from [`CROWD_START`] to [`CROWD_PEAK`] over its clock, before the
@@ -4836,6 +4855,18 @@ mod tests {
             assert!(n >= *prev, "t={t}");
             *prev = n;
         }
+    }
+
+    #[test]
+    fn an_ambush_ring_leaves_its_openings() {
+        let a = ring_angles(60, 0.0);
+        assert_eq!(a.len(), 60);
+        let mut sorted: Vec<f32> = a.iter().map(|x| x.rem_euclid(std::f32::consts::TAU)).collect();
+        sorted.sort_by(f32::total_cmp);
+        let mut gaps: Vec<f32> = sorted.windows(2).map(|w| w[1] - w[0]).collect();
+        gaps.push(sorted[0] + std::f32::consts::TAU - sorted[59]);
+        let wide = gaps.iter().filter(|g| **g >= RING_GAP).count();
+        assert_eq!(wide, RING_GAPS, "{gaps:?}");
     }
 
     #[test]
