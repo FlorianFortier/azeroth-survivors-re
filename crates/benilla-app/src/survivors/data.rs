@@ -1773,6 +1773,12 @@ pub(crate) fn stage_zone(first: usize, stage: u8) -> usize {
 }
 /// A closing ring of the horde every two and a quarter minutes, half way into each interval.
 pub(crate) const AMBUSH_EVERY_SECS: f32 = 135.0;
+/// A gem caught by a magnet flies off at this speed (yd/s) and gains this much a second.
+pub(crate) const GEM_SPEED: f32 = 10.0;
+pub(crate) const GEM_ACCEL: f32 = 60.0;
+/// Seconds a stage's fall pulls every gem on the field to the nearest hero.
+pub(crate) const VACUUM_SECS: f32 = 2.5;
+
 /// Experience per gem: every level of the curve comes at the run's pace.
 pub(crate) const XP_RATE: f32 = 2.0;
 
@@ -1948,8 +1954,11 @@ pub(crate) fn damage_scale(elapsed: f32) -> f32 {
 /// The experience to go from `level` to the next: Vampire Survivors' curve, cheap early.
 pub(crate) fn xp_to_next(level: u32) -> f32 {
     let l = level as f32;
-    if level < 20 {
-        5.0 + (l - 1.0) * 10.0
+    // The first levels come quick, so a run opens on choices; from 10 on the curve is as before.
+    if level < 10 {
+        5.0 + (l - 1.0) * 8.0
+    } else if level < 20 {
+        77.0 + (l - 10.0) * 12.0
     } else if level < 40 {
         195.0 + (l - 20.0) * 13.0
     } else {
@@ -4951,6 +4960,10 @@ mod tests {
     #[test]
     fn xp_curve_is_positive_and_never_drops() {
         assert_eq!(xp_to_next(1), 5.0);
+        // Quicker early, as before from 19 on.
+        assert_eq!(xp_to_next(2), 13.0);
+        assert_eq!(xp_to_next(9), 69.0);
+        assert_eq!(xp_to_next(10), 77.0);
         let mut prev = 0.0;
         for level in 1..=100 {
             let xp = xp_to_next(level);
