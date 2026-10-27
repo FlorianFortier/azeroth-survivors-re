@@ -9,7 +9,14 @@
 //! profiles out of the file), and its records shrink with the tracks: an `M2Track` is 20 bytes
 //! from version 264, its keys an array per sequence ([`model`]). A skin profile is its own `.skin`
 //! file ([`skin`]).
+//!
+//! Which look a creature wears is Legion's DB2 tables' ([`db2`], format WDC1), typed by
+//! WoWDBDefs' definitions ([`dbd`], read from a local folder): `CreatureDisplayInfo` and
+//! `CreatureModelData` give a display's model, replaceable textures and geosets ([`display`]).
 
+pub mod db2;
+pub mod dbd;
+pub mod display;
 pub mod md21;
 pub mod model;
 pub mod skin;

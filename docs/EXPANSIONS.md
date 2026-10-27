@@ -147,3 +147,60 @@ What it leaves for later:
   versions above 263; its records' strides and its version gate stop it.
 - Then characters (HD bodies, the new races), item models, maps (split ADTs), WMO with file data
   ids, and the data download (a fetch script for the 74 GB, or each player's own install).
+
+## The Legion route, step by step
+
+One choice runs through it: **a Legion asset is transcoded into a 1.12.1 one as it loads** (a
+Legion M2 rewritten as an MD20 version 256 file with its skin inside and 1.12.1's tracks), so the
+client's renderer, animation, attachments and particles draw it unchanged and upstream's crates
+are barely touched. Teaching the renderer Legion's formats instead would conflict with every
+upstream merge. Each step is one pull request or a few.
+
+1. **Legion's DB2 tables.** A reader for WDC1 (build 26972's format), driven by WoWDBDefs'
+   definitions (`.dbd`) rather than hand-written schemas. The definitions are WoWDBDefs' data,
+   licensed CC BY-SA 4.0: they are read from a local folder, never copied into this repository.
+   First `CreatureDisplayInfo`, `CreatureModelData`, `CreatureDisplayInfoExtra`,
+   `ItemDisplayInfo`, `ModelFileData`, `TextureFileData`, `AnimationData`. Done when the spike
+   draws a creature with its own skins and geosets, nothing guessed from the listfile.
+   **Done**: `benilla-legion`'s `dbd` (a definition's layout by the DB2's layout hash, else by
+   build) and `db2` (WDC1: plain, bit-packed, common, pallet and pallet-array fields, the id list,
+   the copy table, the relationship map; sparse tables refused) and `display` (a display's model,
+   replaceable textures, `CreatureGeosetData` geosets and scale; 7.3.5 has no
+   `CreatureDisplayInfoGeosetData`). All seven tables read from build 26972 (`legion_tables`):
+   66,165 creature displays, 91,634 item displays with copies. With `LEGION_DBD`,
+   `legion_model` draws the Fel Lord in its own skins (display 61830), the Fel Bat in its body and
+   wings (65202), Illidan at his display's scale (21135).
+2. **The M2 transcoder, still.** A Legion M2 to a valid MD20 v256: vertices, the skin inside,
+   textures named by virtual paths, materials, bones in their bind pose, the geosets its display
+   picks, Legion's shader combos brought to the nearest 1.12.1 blend. Done when `benilla-m2`
+   reads the result, and a test holds Illidan's counts.
+3. **The Legion source in the asset chain.** `WOW_LEGION=<folder>` (native only) opens the install
+   through `benilla-casc`; virtual paths (`Legion\<file data id>.m2`, `.blp`) are answered by our
+   layer, which transcodes models and passes textures through. One hook into upstream's asset
+   chain, kept small or in a file of our own. Done when a Legion model stands in a test scene.
+4. **Animation.** Legion's tracks (an array of keys per sequence) laid onto 1.12.1's timeline and
+   its ranges; the sequences kept in `.anim` files; Legion's animation ids mapped to 1.12.1's
+   (stand, walk, run, attacks, death, casts), the nearest one where 1.12.1 has none. Done when
+   Illidan walks, strikes and dies in the test scene.
+5. **The first Legion content in a run.** Legion creature displays in `data.rs`'s rosters and
+   bosses, in an id range of their own (on the wire too); an Illidan bonus boss, the Legion's
+   demons in a zone. In a lobby every player needs the Legion data: the lobby checks it, and
+   refuses or falls back to a 1.12.1 display. **The first milestone players see.**
+6. **Particles, ribbons, effects.** Legion's emitters and ribbons transcoded (their records
+   differ): fel fire, glowing weapons.
+7. **Items.** Weapons first (plain M2s, `ItemDisplayInfo` → `ModelFileData` with its race and sex
+   variants), as loot in `data::ITEMS` and on the hero; armour after step 8, which composites it.
+8. **Characters, races, classes.** The races' HD bodies (another texture layout, Legion's
+   `CharSections` and geosets); then the new races (Pandaren, Worgen, Goblin, Draenei, Blood Elf,
+   the first allied races) and classes (Demon Hunter, Monk, Death Knight) in `data.rs`, with
+   Legion's spell icons and visuals. A choice to make then: every hero in HD, or 1.12.1's bodies
+   kept and only the new races added.
+9. **Maps.** Legion's split ADTs (`_tex0`, `_obj0`, `_obj1`), WDT and WMO by file data id, `MH2O`
+   liquids, lighting and skies; Broken Isles zones in `data::MAPS`. The biggest step.
+10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's
+    SHA256) or each player's own install; the menu shows Legion content only when the data is
+    there; `make dist` for the native executable.
+
+The order: 1 to 5 for the first milestone (a Legion boss, animated, in a run), then 6 and 7, then
+8, and 9 last. Unit tests run on synthetic data; tests on real data read a local `LEGION_DATA`
+and are `#[ignore]`d, as the balance simulator is, so CI needs no data.
