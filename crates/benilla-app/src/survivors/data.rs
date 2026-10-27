@@ -3666,6 +3666,11 @@ impl Default for Perks {
 
 /// The least of its cooldown a spell keeps, however many cards cut it.
 pub(crate) const MIN_COOLDOWN_SHARE: f32 = 0.25;
+/// The most cards add to a spell's area, duration and targets: its damage grows without end, but
+/// a ground spell past these covers the field and stays forever (the simulator's runaway).
+pub(crate) const MAX_PERK_AREA: f32 = 1.5;
+pub(crate) const MAX_PERK_DURATION: f32 = 2.0;
+pub(crate) const MAX_PERK_TARGETS: u8 = 10;
 
 impl Perks {
     /// These with `perk` added: shares add up, a cooldown is cut by its share of what is left.
@@ -3675,9 +3680,11 @@ impl Perks {
             Perk::Cooldown(v) => {
                 self.cooldown = (self.cooldown * (1.0 - v)).max(MIN_COOLDOWN_SHARE);
             }
-            Perk::Targets(n) => self.targets = self.targets.saturating_add(n),
-            Perk::Area(v) => self.area += v,
-            Perk::Duration(v) => self.duration += v,
+            Perk::Targets(n) => {
+                self.targets = self.targets.saturating_add(n).min(MAX_PERK_TARGETS)
+            }
+            Perk::Area(v) => self.area = (self.area + v).min(MAX_PERK_AREA),
+            Perk::Duration(v) => self.duration = (self.duration + v).min(MAX_PERK_DURATION),
         }
         self
     }
@@ -4855,6 +4862,22 @@ mod tests {
             assert!(n >= *prev, "t={t}");
             *prev = n;
         }
+    }
+
+    #[test]
+    fn a_spells_area_duration_and_targets_stop_but_its_damage_does_not() {
+        let mut p = Perks::default();
+        for _ in 0..100 {
+            p = p
+                .with(Perk::Area(0.3))
+                .with(Perk::Duration(0.3))
+                .with(Perk::Targets(2))
+                .with(Perk::Damage(0.3));
+        }
+        assert_eq!(p.area, MAX_PERK_AREA);
+        assert_eq!(p.duration, MAX_PERK_DURATION);
+        assert_eq!(p.targets, MAX_PERK_TARGETS);
+        assert!(p.damage > 29.0);
     }
 
     #[test]

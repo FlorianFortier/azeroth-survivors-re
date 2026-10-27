@@ -237,7 +237,7 @@ fn pilot(app: &mut App, t: f32) {
         let engage = (data::ability(v.class.start).range * 0.7).max(2.5);
         // A fighter in melee brawls; a caster keeps its distance.
         let melee = engage < 6.0;
-        let (caution, pull) = if melee { (10.0, 1.0) } else { (40.0, 0.3) };
+        let (caution, pull) = if melee { (4.0, 2.0) } else { (40.0, 0.3) };
         // A player looks ahead: of sixteen headings, the one whose point a second and a half on
         // is clearest of foes, kept near the field's middle, and toward the goal if there is one.
         let near: Vec<Vec3> = foes
@@ -254,7 +254,7 @@ fn pilot(app: &mut App, t: f32) {
                 .sum()
         };
         // In a portal, standing is the point: the crowd matters less than the charge.
-        let caution = if gate.is_some() { caution * 0.25 } else { caution };
+        let caution = if gate.is_some() { caution * 0.5 } else { caution };
         let mut best = (f32::INFINITY, Vec3::ZERO);
         for k in 0..=16 {
             // Sixteen headings, and standing still.
