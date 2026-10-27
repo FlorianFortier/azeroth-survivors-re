@@ -716,6 +716,8 @@ version = "0.2.0"
 dependencies = [
  "benilla-blp",
  "benilla-casc",
+ "benilla-formats",
+ "benilla-m2",
  "image",
 ]
 

@@ -1,6 +1,7 @@
 //! Read one Legion model from a remote Legion install and draw it: its MD21 chunks, its MD20
 //! model, its first skin profile and its textures, written to `<out>` as an `.obj` with its
 //! textures, and drawn in its bind pose by a small software rasterizer to `<out>/preview.png`.
+//! It also writes the model transcoded to 1.12.1 (`vanilla.m2`), as the client's loader reads it.
 //! No GPU needed; nothing it writes belongs in git.
 //!
 //! ```text
@@ -23,7 +24,7 @@ use benilla_casc::Casc;
 use benilla_legion::db2::{Raw, Table};
 use benilla_legion::dbd::Definition;
 use benilla_legion::display::{self, CreatureDisplay};
-use benilla_legion::{md21, model, skin};
+use benilla_legion::{md21, model, skin, transcode};
 
 type Res<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -209,6 +210,24 @@ fn main() -> Res<()> {
         None => id == 0 || id % 100 == 1,
     };
     write_obj(&out, &m, &s, &shown)?;
+
+    // The model as 1.12.1 reads it, its textures by their virtual paths.
+    let names: Vec<Option<String>> =
+        transcode::texture_files(&m, &chunks.textures, shown_display.as_ref(), |p| {
+            casc.id_of(p)
+        })
+        .into_iter()
+        .map(|f| f.map(transcode::virtual_path))
+        .collect();
+    let vanilla = transcode::to_vanilla(&chunks.md20, &casc.read_id(skin_id)?, &names, shown)?;
+    std::fs::write(out.join("vanilla.m2"), &vanilla)?;
+    let draws = benilla_formats::parse_m2_render_submeshes(&vanilla, "", &[])?;
+    println!(
+        "vanilla.m2: {} bytes, {} draws, textures {:?}",
+        vanilla.len(),
+        draws.len(),
+        names
+    );
     let picture = render(&m, &s, &images, &shown, 900);
     image::save_buffer(
         out.join("preview.png"),

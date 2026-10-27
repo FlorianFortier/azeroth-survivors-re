@@ -13,6 +13,9 @@
 //! Which look a creature wears is Legion's DB2 tables' ([`db2`], format WDC1), typed by
 //! WoWDBDefs' definitions ([`dbd`], read from a local folder): `CreatureDisplayInfo` and
 //! `CreatureModelData` give a display's model, replaceable textures and geosets ([`display`]).
+//!
+//! [`transcode`] rewrites a Legion model as a 1.12.1 one (MD20 version 256, its skin inside), the
+//! form the client's renderer already draws.
 
 pub mod db2;
 pub mod dbd;
@@ -20,6 +23,7 @@ pub mod display;
 pub mod md21;
 pub mod model;
 pub mod skin;
+pub mod transcode;
 
 use std::fmt;
 
