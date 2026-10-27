@@ -862,6 +862,8 @@ pub(super) fn apply_hits(
         if dmg > 0.0 {
             en.hp -= dmg;
             units::set_health(&mut store, en.hp / en.max_hp);
+            let shove = data::knock_impulse(dmg, en.max_hp, en.boss, en.elite.is_some());
+            en.knock = (en.knock + shove).min(data::KNOCK_MAX);
             fx.number(e, dmg, h.crit, h.color);
             if let Some(o) = owner.as_deref_mut() {
                 o.damage_done += f64::from(dmg);

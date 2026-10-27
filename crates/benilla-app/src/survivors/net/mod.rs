@@ -503,6 +503,7 @@ mod tests {
             .add_message::<SpellGoTargets>()
             .add_message::<SwingMessage>()
             .add_message::<crate::combat_text::CombatTextSpawn>()
+            .add_message::<crate::survivors::feel::Struck>()
             .add_message::<FieldChanged>()
             .insert_resource(Session {
                 mode,

@@ -125,6 +125,16 @@ pub(super) struct Profile {
     pub perks: BTreeMap<String, u8>,
     /// How many times every perk point has been taken back ([`data::MAX_PERK_RESETS`]).
     pub perk_resets: u8,
+    /// The races opened to every class with reward points, by name
+    /// (`char_select::race_name`). A perk reset keeps them.
+    pub races: BTreeSet<String>,
+}
+
+/// The race a stored name stands for.
+fn race_id(name: &str) -> Option<u8> {
+    data::RACES
+        .into_iter()
+        .find(|&r| crate::char_select::race_name(r) == name)
 }
 
 /// Sound, mouse, picture and language, as the Options page sets them.
@@ -141,6 +151,8 @@ pub(super) struct Options {
     pub polish: bool,
     /// [`super::lang::Lang::code`].
     pub language: String,
+    /// The camera shakes at heavy blows, crits and bosses (`feel.rs`).
+    pub shake: bool,
 }
 
 impl Default for Options {
@@ -152,6 +164,7 @@ impl Default for Options {
             mouse_sens: 1.0,
             polish: true,
             language: "en".into(),
+            shake: true,
         }
     }
 }
@@ -165,6 +178,7 @@ impl Options {
             sfx: self.sfx.clamp(0.0, 1.0),
             mouse_sens: self.mouse_sens.clamp(0.2, 3.0),
             polish: self.polish,
+            shake: self.shake,
             language: super::lang::Lang::from_code(&self.language).code().into(),
         }
     }
@@ -196,6 +210,7 @@ impl Default for Profile {
             options: Options::default(),
             perks: BTreeMap::new(),
             perk_resets: 0,
+            races: BTreeSet::new(),
         }
     }
 }
@@ -379,9 +394,39 @@ impl Profile {
             .sum()
     }
 
+    /// The reward points `races` cost; a name no race has costs nothing.
+    pub fn races_cost(races: &BTreeSet<String>) -> u32 {
+        races.iter().filter(|r| race_id(r).is_some()).count() as u32 * data::RACE_POINTS
+    }
+
     /// The reward points spent.
     pub fn points_spent(&self) -> u32 {
-        Self::perks_cost(&self.perks)
+        Self::perks_cost(&self.perks) + Self::races_cost(&self.races)
+    }
+
+    /// Whether `race` has been opened to every class.
+    pub fn race_open(&self, race: u8) -> bool {
+        self.races.contains(crate::char_select::race_name(race))
+    }
+
+    /// The races opened to every class, by id.
+    pub fn opened_races(&self) -> Vec<u8> {
+        data::RACES
+            .into_iter()
+            .filter(|&r| self.race_open(r))
+            .collect()
+    }
+
+    /// Take `races` as the races opened, if it keeps every one already open, names only races,
+    /// and the points earned pay for it with the perks; false and nothing changed otherwise.
+    pub fn open_races(&mut self, races: BTreeSet<String>) -> bool {
+        let fits = self.races.is_subset(&races) && races.iter().all(|r| race_id(r).is_some());
+        if !fits || Self::perks_cost(&self.perks) + Self::races_cost(&races) > self.points_earned()
+        {
+            return false;
+        }
+        self.races = races;
+        true
     }
 
     /// The reward points left to spend.
@@ -410,7 +455,8 @@ impl Profile {
         let fits = perks
             .iter()
             .all(|(k, r)| data::perk(k).is_some_and(|p| *r <= p.max_rank));
-        if !fits || Self::perks_cost(&perks) > self.points_earned() {
+        if !fits || Self::perks_cost(&perks) + Self::races_cost(&self.races) > self.points_earned()
+        {
             return false;
         }
         self.perks = perks.into_iter().filter(|(_, r)| *r > 0).collect();

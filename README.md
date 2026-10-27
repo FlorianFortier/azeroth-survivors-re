@@ -57,6 +57,10 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   gryphons at the bottom, the movement spell on its last slot and the experience bar on top.
   Gold, kills, the chest's price and keys stay spelled out under the clock. Co-op guests see
   their own damage and their target's health too.
+- **Hits you feel**: every blow shoves its foe back (the heavier the hit, the further; elites
+  and bosses hardly budge), a struck model brightens for a moment, and the camera shakes at a
+  heavy blow to you, a run of critical strikes and a boss's coming (Options turns the shake off).
+  Co-op guests see and feel the same.
 - **A shady merchant** stands somewhere on the field with three run items for the run's gold
   (Common to Legendary, dearer with each bought, restocked every two minutes): walk up to it and
   click a ware or press 1, 2 or 3. Elites sometimes drop a **key**, which opens a chest for
@@ -107,10 +111,11 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   once claimed from the **Achievements (N)** tab, and reward points once done. The **Rewards
   (N)** tab spends the points on perks every hero of every class brings into a run: more
   rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and gold, gold in hand at the
-  start. Ranks are bought on a draft kept with **Confirm**; **Reset** takes every perk point
-  back, twice a save.
+  start; and on races, each opened to every class for 100 points (an Orc paladin, a Tauren
+  mage), kept through resets. Both are bought on a draft kept with **Confirm**; **Reset** takes
+  every perk point back, twice a save.
 - **Options and French**: the **Options** page (bottom left) sets the master, music and effects
-  volumes, the mouse sensitivity, the picture polish and the language, English or French, and
+  volumes, the mouse sensitivity, the picture polish, the screen shake and the language, English or French, and
   lists the controls. The run's headings follow the language from the next start.
 - **Three racials per race**, after vanilla's: Troll Berserking every 35 s, Undead Will of the
   Forsaken, Tauren Endurance, Gnome Expansive Mind… Each is a stat bonus held all run or an

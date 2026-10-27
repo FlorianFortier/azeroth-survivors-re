@@ -14,6 +14,7 @@ mod cards;
 mod character;
 mod data;
 mod enemies;
+mod feel;
 mod frames;
 mod grade;
 mod hero;
@@ -85,6 +86,9 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<mobility::MobilityQueue>()
             .add_message::<abilities::Hit>()
             .add_message::<enemies::Loot>()
+            .add_message::<feel::Struck>()
+            .init_resource::<feel::Feel>()
+            .add_systems(Last, feel::flash_models)
             .add_plugins(bevy::ui_render::UiMaterialPlugin::<hud::SweepUiMaterial>::default())
             .add_plugins(net::plugin)
             .add_plugins(profile::plugin)
@@ -186,6 +190,8 @@ impl Plugin for SurvivorsPlugin {
                     hud::icon_tooltip,
                     hud::hero_plate,
                     frames::refresh_frames,
+                    feel::gather,
+                    feel::shake_camera,
                     frames::refresh_next_boss,
                     marks::place_labels,
                     market::shop_panel,

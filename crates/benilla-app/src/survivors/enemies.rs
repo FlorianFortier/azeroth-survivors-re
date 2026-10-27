@@ -44,6 +44,8 @@ pub(super) struct Enemy {
     pub weaken_t: f32,
     pub dots: Vec<Dot>,
     pub dead: bool,
+    /// The shove the hits gave it, yd/s backward from the hero it chases; it dies away.
+    pub knock: f32,
 }
 
 pub(super) struct Dot {
@@ -181,6 +183,7 @@ pub(super) fn spawn_enemy(
             weaken_t: 0.0,
             dots: Vec::new(),
             dead: false,
+            knock: 0.0,
         },
         Marks::debuffs(),
         Hostile,
@@ -461,6 +464,16 @@ pub(super) fn move_enemies(
             if dir != Vec3::ZERO {
                 let target = Quat::from_rotation_y(yaw_toward(dir));
                 tf.rotation = tf.rotation.slerp(target, (dt * 10.0).min(1.0));
+            }
+        }
+        // A hit's shove, backward from the hero it chases; a rooted foe stands.
+        if e.knock > 0.0 {
+            if e.root_t <= 0.0 && to_hero != Vec3::ZERO {
+                step -= to_hero.normalize_or_zero() * e.knock;
+            }
+            e.knock *= (-data::KNOCK_DECAY * dt).exp();
+            if e.knock < 0.05 {
+                e.knock = 0.0;
             }
         }
         let shove = push.get(&ent).copied().unwrap_or_default();

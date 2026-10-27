@@ -52,7 +52,7 @@ it holds; read it before changing the file.
 | `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
 | `hero.rs` | the local hero: WoW's mouse and keys in the chase view (`MouseLook`: a left-drag swings the camera, a right-drag turns the hero, both run, a press let go in place is a click; `CamRig::facing` is the hero's heading, A/D turn it, Q/E strafe), movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
 | `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks; the local hero's target first for those that strike the nearest (`aimed_order`) |
-| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`); `apply_perks` puts the non-bonus ranks on a hero at its run's start |
+| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) and races opened to every class (`data::RACE_POINTS`) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`), which leaves the races; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
 | `sheet.rs` | the character sheet on `C`, over a paused run: the paper doll (gear worn, else the starting outfit; the neck, rings and trinkets are the run items), the live hero framed in its stage, the hero's numbers and its items' effects |
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
@@ -70,6 +70,7 @@ it holds; read it before changing the file.
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
 | `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`) |
+| `feel.rs` | how a hit feels on every machine: the struck model's brighten (the client's highlight bit, in `Last`) and the camera's shake (`Options::shake`), both read off `Struck`, which `units::Fx::number` writes; the shove itself is the simulation's (`data::knock_impulse`, `Enemy::knock`) |
 | `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls, the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |
 | `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |
 | `marks.rs` | the field's marks over the world: rings on the ground under chests and elites, a fallen elite's post filling as it comes back, a chest's price and an elite's reward over them; all read off `treasure::FieldMark` and `Run::posts`, so guests see them too |
@@ -230,7 +231,10 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   ranks bought (`Profile::perks`) and the resets used. A perk's bonus rides
   `Profile::meta_bonuses`; its other ranks ride `Brings::perks` and the lobby `Loadout`, and land
   on the hero through `rewards::apply_perks` (the host's for a guest, through `seat_perks`,
-  each rank held to its perk's most).
+  each rank held to its perk's most). A race opened is stored by name (`Profile::races`) and
+  only adds looks: `menu::all_looks` gives every class a look of it in both sexes, and
+  `outfit::body` dresses a pair vanilla never had in the class's outfit from another race. The
+  lobby `Loadout` already carries class and race, so it needs nothing on the wire.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it
