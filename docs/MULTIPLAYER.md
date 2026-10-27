@@ -135,6 +135,27 @@ ware still at the merchant, by a hero standing at it with the gold; a mobility
 cast must be the hero's own and learned. It is a co-op game
 among friends, not an anti-cheat: a guest's hero position is trusted within the battleground.
 
+## What a bad connection does
+
+The stream runs over WebSockets, so it arrives in order and complete, but a slow or jittery
+connection delivers it late and in bursts. That is tested, with no game data:
+
+- **The codec** (`survivors-net/src/fuzz.rs`): random bytes, and every message with bits flipped,
+  cut short, padded or given forged lengths, never panic a decoder; what decodes encodes back to
+  itself; a bad message in a tick's batch costs only itself.
+- **The lobby server** (the same file): random sequences of every message from seven connections
+  that come and go, across forty seeds, never break its rules: no seat taken twice, no table
+  without its host, no frame for a connection that is gone, no relay crossing to another lobby.
+- **The game** (`net/mod.rs`, `the_guest_converges_through_a_bad_link`): the host's horde comes,
+  moves, is hurt and goes while its frames reach the guest up to 400 ms late and in bursts, mixed
+  with another guest's frames (only the host speaks for the run), frames that decode to nothing,
+  and NaN positions in well-formed messages; once the link has caught up, the guest's copy is the
+  host's, unit for unit, place for place, field for field.
+
+A guest ignores any non-finite position, angle or number the host sends. When a machine falls so
+far behind that its inbox fills, it sheds the oldest effects and motions first (the next motion
+supersedes them) and never a unit's coming, fields or going, which would leave a copy wrong.
+
 ## Limits
 
 - Four players. No joining a run already in progress, and no reconnecting to one.

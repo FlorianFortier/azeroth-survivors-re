@@ -310,6 +310,7 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
 | wasm-bindgen glue errors at load | version drift: rerun `scripts/web-setup.sh` |
 | an upstream merge broke only the wasm build | `cargo check --target wasm32…`; the `cvars.rs` struct-vs-tuple case is the pattern |
 | a guest sees nothing move, or units pile up | `net/host.rs`'s `stream` and `net/client.rs`'s `receive`; `GET /lobby/health` for the server |
+| a guest's copy drifts from the host's (a unit where it came in, one missing) | `net/mod.rs`'s `the_guest_converges_through_a_bad_link` plays the case; a message for a copy spawned the same frame goes through the command queue (`client::receive`), never a query that cannot see it yet |
 | other players move in jerks | `net/smooth.rs`: copies are drawn `DELAY` behind the sender's clock (`Game::Motions::t` from the host, `Game::Input::t` from a guest); a `DELAY` under the sender's tick, or a position written straight to a `Transform`, brings the jerks back |
 | `make build` fails at the download | the archive.org item moved: `make build WOW_DATA_URL=…`, see the README |
 | no sound in the browser | the page resumes the AudioContext on the first gesture; the per-target mixer backend is the carry in `sound/mixer.rs` |

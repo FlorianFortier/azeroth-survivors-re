@@ -16,3 +16,6 @@ pub mod settings;
 pub mod wire;
 
 pub use wire::Wire;
+
+#[cfg(test)]
+mod fuzz;

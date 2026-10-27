@@ -591,7 +591,7 @@ impl Wire for Down {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn loadout() -> Loadout {
@@ -611,9 +611,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_up_round_trips() {
-        let all = vec![
+    /// One of every lobby message each way, for the round trip and the fuzzer.
+    pub(crate) fn up_samples() -> Vec<Up> {
+        vec![
             Up::Hello {
                 version: PROTOCOL_VERSION,
                 name: "Rexxar".into(),
@@ -643,14 +643,17 @@ mod tests {
                 data: vec![],
             },
             Up::Ping(42),
-        ];
-        for m in all {
+        ]
+    }
+
+    #[test]
+    fn every_up_round_trips() {
+        for m in up_samples() {
             assert_eq!(Up::decode(&m.encode()).unwrap(), m);
         }
     }
 
-    #[test]
-    fn every_down_round_trips() {
+    pub(crate) fn down_samples() -> Vec<Down> {
         let view = LobbyView {
             code: "XK7QP".into(),
             settings: Settings::default(),
@@ -693,7 +696,12 @@ mod tests {
             Down::Pong(5),
         ];
         all.extend(ErrorCode::ALL.iter().map(|&c| Down::Error(c)));
-        for m in all {
+        all
+    }
+
+    #[test]
+    fn every_down_round_trips() {
+        for m in down_samples() {
             assert_eq!(Down::decode(&m.encode()).unwrap(), m);
         }
     }
