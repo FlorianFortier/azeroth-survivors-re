@@ -2730,7 +2730,44 @@ pub(crate) enum ItemEffect {
     },
     /// A kill heals the hero this much.
     KillHeal(f32),
+    /// Every hit may set its foe burning for `dps` (times might) a second over `secs`, at
+    /// `chance`; `spell` names the burn on the damage meter and its visual.
+    Ignite {
+        chance: f32,
+        dps: f32,
+        secs: f32,
+        spell: u32,
+    },
+    /// Every hit may chill its foe to `slow` of its speed for `secs`, at `chance`.
+    Chill { chance: f32, slow: f32, secs: f32 },
+    /// A hit that leaves a foe that is no boss under this share of its health finishes it, up
+    /// to [`MAX_EXECUTE`].
+    Execute(f32),
+    /// A blow taken is dodged at this chance, all items together up to [`MAX_DODGE`].
+    Dodge(f32),
+    /// A kill wraps the hero in an absorb of `amount`, up to `max` at once, for
+    /// [`KILL_SHIELD_SECS`].
+    KillShield { amount: f32, max: f32 },
+    /// Every `every` seconds a nova strikes everything within `radius` of the hero for `damage`
+    /// (times might); `spell` names its visual.
+    Nova {
+        every: f32,
+        damage: f32,
+        radius: f32,
+        spell: u32,
+    },
+    /// A kill may pay `gold` more (times the gold stat), at `chance`.
+    Bounty { chance: f32, gold: f32 },
 }
+
+/// The most of its health a hit may leave a foe with and still finish it.
+pub(crate) const MAX_EXECUTE: f32 = 0.25;
+/// The most likely a blow is dodged, however many items.
+pub(crate) const MAX_DODGE: f32 = 0.35;
+/// How long a kill's absorb lasts.
+pub(crate) const KILL_SHIELD_SECS: f32 = 6.0;
+/// The most foes one nova strikes.
+pub(crate) const MAX_NOVA_HITS: usize = 40;
 
 /// The most likely an item's chance grows to, however many stacks.
 pub(crate) const MAX_PROC_CHANCE: f32 = 0.6;
@@ -2768,6 +2805,48 @@ impl ItemEffect {
                 spell,
             },
             ItemEffect::KillHeal(h) => ItemEffect::KillHeal(h * k),
+            ItemEffect::Ignite {
+                chance: c,
+                dps,
+                secs,
+                spell,
+            } => ItemEffect::Ignite {
+                chance: chance(c),
+                dps: dps * k,
+                secs,
+                spell,
+            },
+            ItemEffect::Chill {
+                chance: c,
+                slow,
+                secs,
+            } => ItemEffect::Chill {
+                chance: chance(c),
+                slow,
+                secs,
+            },
+            ItemEffect::Execute(t) => ItemEffect::Execute((t * k).min(MAX_EXECUTE)),
+            ItemEffect::Dodge(c) => ItemEffect::Dodge((c * k).min(MAX_DODGE)),
+            ItemEffect::KillShield { amount, max } => ItemEffect::KillShield {
+                amount: amount * k,
+                max: max * k,
+            },
+            // A nova grows harder with each stack, and a little quicker.
+            ItemEffect::Nova {
+                every,
+                damage,
+                radius,
+                spell,
+            } => ItemEffect::Nova {
+                every: every / k.powf(0.3),
+                damage: damage * k,
+                radius,
+                spell,
+            },
+            ItemEffect::Bounty { chance: c, gold } => ItemEffect::Bounty {
+                chance: chance(c),
+                gold: gold * k,
+            },
         }
     }
 }
@@ -2938,6 +3017,109 @@ pub(crate) static RUN_ITEMS: &[RunItemDef] = &[
             damage: 22.0,
             jumps: 4,
             spell: 930,
+        }),
+    },
+    // M8: more ways to build a run.
+    RunItemDef {
+        key: "smoldering_brand",
+        name: "Smoldering Brand",
+        spell: 348,
+        bonus: Bonus::flat(Stat::Might, 0.02),
+        rarity: CardRarity::Uncommon,
+        effect: Some(ItemEffect::Ignite {
+            chance: 0.08,
+            dps: 5.0,
+            secs: 4.0,
+            spell: 348,
+        }),
+    },
+    RunItemDef {
+        key: "frostbite_locket",
+        name: "Frostbite Locket",
+        spell: 116,
+        bonus: Bonus::flat(Stat::Area, 0.02),
+        rarity: CardRarity::Uncommon,
+        effect: Some(ItemEffect::Chill {
+            chance: 0.12,
+            slow: 0.5,
+            secs: 2.0,
+        }),
+    },
+    RunItemDef {
+        key: "headsmans_axe",
+        name: "Headsman's Axe",
+        spell: 5308,
+        bonus: Bonus::flat(Stat::Crit, 0.01),
+        rarity: CardRarity::Rare,
+        effect: Some(ItemEffect::Execute(0.06)),
+    },
+    RunItemDef {
+        key: "evasion_charm",
+        name: "Shadowstep Charm",
+        spell: 5277,
+        bonus: Bonus::pct(Stat::Speed, 0.03),
+        rarity: CardRarity::Rare,
+        effect: Some(ItemEffect::Dodge(0.04)),
+    },
+    RunItemDef {
+        key: "barrier_sigil",
+        name: "Sigil of Warding",
+        spell: 17,
+        bonus: Bonus::flat(Stat::Armor, 1.0),
+        rarity: CardRarity::Uncommon,
+        effect: Some(ItemEffect::KillShield {
+            amount: 1.5,
+            max: 25.0,
+        }),
+    },
+    RunItemDef {
+        key: "holy_relic",
+        name: "Reliquary of Light",
+        spell: 15237,
+        bonus: Bonus::flat(Stat::Regen, 0.3),
+        rarity: CardRarity::Epic,
+        effect: Some(ItemEffect::Nova {
+            every: 5.0,
+            damage: 16.0,
+            radius: 6.0,
+            spell: 15237,
+        }),
+    },
+    RunItemDef {
+        key: "goblin_purse",
+        name: "Goblin's Purse",
+        spell: 1804,
+        bonus: Bonus::pct(Stat::Gold, 0.05),
+        rarity: CardRarity::Common,
+        effect: Some(ItemEffect::Bounty {
+            chance: 0.08,
+            gold: 1.0,
+        }),
+    },
+    RunItemDef {
+        key: "ashbringer_fragment",
+        name: "Ashbringer Fragment",
+        spell: 26573,
+        bonus: Bonus::flat(Stat::Might, 0.05),
+        rarity: CardRarity::Legendary,
+        effect: Some(ItemEffect::Ignite {
+            chance: 0.25,
+            dps: 14.0,
+            secs: 5.0,
+            spell: 26573,
+        }),
+    },
+    RunItemDef {
+        key: "frost_wyrm_scale",
+        name: "Frost Wyrm Scale",
+        spell: 10230,
+        bonus: Bonus::flat(Stat::Armor, 3.0),
+        rarity: CardRarity::Legendary,
+        effect: Some(ItemEffect::Nova {
+            every: 3.0,
+            damage: 26.0,
+            radius: 8.0,
+            spell: 10230,
         }),
     },
 ];
@@ -4351,6 +4533,38 @@ mod tests {
                 assert_ne!(e.at(1), e.at(3), "{} grows", i.key);
             }
         }
+        // A nova strikes harder and a little sooner with each stack.
+        let relic = run_item("holy_relic").unwrap().effect.unwrap();
+        match (relic.at(1), relic.at(4)) {
+            (
+                ItemEffect::Nova {
+                    every: a,
+                    damage: d1,
+                    ..
+                },
+                ItemEffect::Nova {
+                    every: b,
+                    damage: d4,
+                    ..
+                },
+            ) => {
+                assert!(b < a && b > a / 2.0);
+                assert_eq!(d4, d1 * 4.0);
+            }
+            e => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    fn every_run_item_has_its_own_key_and_every_rarity_some() {
+        let mut keys: Vec<&str> = RUN_ITEMS.iter().map(|i| i.key).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), RUN_ITEMS.len());
+        for r in CardRarity::ALL {
+            assert!(RUN_ITEMS.iter().any(|i| i.rarity == r), "{r:?}");
+        }
+        assert!(RUN_ITEMS.len() >= 27);
     }
 
     #[test]

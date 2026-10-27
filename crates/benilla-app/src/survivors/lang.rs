@@ -435,6 +435,25 @@ fn french(s: &str) -> Option<&'static str> {
             "{} de chances, à chaque victime, d'exploser pour {} points de dégâts à {} m."
         }
         "Each kill heals you for {}." => "Chaque victime vous rend {} points de vie.",
+        "{} chance on a hit to burn the foe for {} damage a second over {} sec." => {
+            "{} de chances qu'un coup embrase l'ennemi : {} dégâts par seconde pendant {} s."
+        }
+        "{} chance on a hit to slow the foe by {} for {} sec." => {
+            "{} de chances qu'un coup ralentisse l'ennemi de {} pendant {} s."
+        }
+        "Your hits finish any foe but a boss they leave under {} health." => {
+            "Vos coups achèvent tout ennemi, sauf un boss, qu'ils laissent sous {} de vie."
+        }
+        "{} chance to dodge a blow." => "{} de chances d'esquiver un coup.",
+        "Each kill shields you for {}, up to {}." => {
+            "Chaque victime vous protège de {} points, jusqu'à {}."
+        }
+        "Every {} sec, a nova strikes everything within {} yd for {} damage." => {
+            "Toutes les {} s, une nova frappe tout dans un rayon de {} m pour {} dégâts."
+        }
+        "{} chance on a kill to find {} more gold." => {
+            "{} de chances qu'une victime rapporte {} pièces d'or de plus."
+        }
         "Victory!" => "Victoire !",
         "You have fallen" => "Vous êtes tombé",
         "The horde was too much this time." => "La horde était trop forte cette fois.",
@@ -468,6 +487,13 @@ fn french(s: &str) -> Option<&'static str> {
         "Thorns" => "Épines",
         "Chain" => "Rebond",
         "Burst" => "Explosion",
+        "Ignite" => "Embrasement",
+        "Chill" => "Gel",
+        "Execute" => "Exécution",
+        "Dodge" => "Esquive",
+        "Kill Shield" => "Bouclier de victime",
+        "Nova" => "Nova",
+        "Bounty" => "Prime",
         "Run items" => "Objets de partie",
         "Gear" => "Équipement porté",
         // The Rewards tab.

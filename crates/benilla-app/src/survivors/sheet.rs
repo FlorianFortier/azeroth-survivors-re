@@ -409,6 +409,13 @@ struct Effects {
     thorns: f32,
     chain: f32,
     burst: f32,
+    ignite: f32,
+    chill: f32,
+    execute: f32,
+    dodge: f32,
+    kill_shield: f32,
+    nova: f32,
+    bounty: f32,
 }
 
 fn effects(all: impl Iterator<Item = ItemEffect>) -> Effects {
@@ -420,6 +427,13 @@ fn effects(all: impl Iterator<Item = ItemEffect>) -> Effects {
             ItemEffect::Thorns(v) => e.thorns += v,
             ItemEffect::Chain { chance, .. } => e.chain = e.chain.max(chance),
             ItemEffect::Burst { chance, .. } => e.burst = e.burst.max(chance),
+            ItemEffect::Ignite { chance, .. } => e.ignite = e.ignite.max(chance),
+            ItemEffect::Chill { chance, .. } => e.chill = e.chill.max(chance),
+            ItemEffect::Execute(t) => e.execute = e.execute.max(t),
+            ItemEffect::Dodge(c) => e.dodge = (e.dodge + c).min(data::MAX_DODGE),
+            ItemEffect::KillShield { amount, .. } => e.kill_shield += amount,
+            ItemEffect::Nova { damage, .. } => e.nova = e.nova.max(damage),
+            ItemEffect::Bounty { chance, .. } => e.bounty = e.bounty.max(chance),
         }
     }
     e
@@ -644,6 +658,21 @@ fn refresh_sheet(
         stat_line(p, f, tr("Thorns"), num(fx.thorns * stats.might));
         stat_line(p, f, tr("Chain"), pct(fx.chain));
         stat_line(p, f, tr("Burst"), pct(fx.burst));
+        // The rarer effects, only once an item brings them.
+        let more = [
+            ("Ignite", fx.ignite, pct(fx.ignite)),
+            ("Chill", fx.chill, pct(fx.chill)),
+            ("Execute", fx.execute, pct(fx.execute)),
+            ("Dodge", fx.dodge, pct(fx.dodge)),
+            ("Kill Shield", fx.kill_shield, num(fx.kill_shield)),
+            ("Nova", fx.nova, num(fx.nova * stats.might)),
+            ("Bounty", fx.bounty, pct(fx.bounty)),
+        ];
+        for (label, v, shown) in more {
+            if v > 0.0 {
+                stat_line(p, f, tr(label), shown);
+            }
+        }
         stat_line(
             p,
             f,
@@ -696,9 +725,15 @@ mod tests {
                 ItemEffect::Lifesteal(0.03),
                 ItemEffect::KillHeal(2.0),
                 ItemEffect::Thorns(4.0),
+                ItemEffect::Dodge(0.3),
+                ItemEffect::Dodge(0.3),
+                ItemEffect::Execute(0.05),
+                ItemEffect::Execute(0.1),
             ]
             .into_iter(),
         );
+        assert_eq!(e.dodge, data::MAX_DODGE);
+        assert_eq!(e.execute, 0.1);
         assert!((e.lifesteal - 0.05).abs() < 1e-6);
         assert_eq!(e.kill_heal, 2.0);
         assert_eq!(e.thorns, 4.0);

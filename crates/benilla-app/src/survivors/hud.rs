@@ -2444,6 +2444,38 @@ pub(super) fn item_effect_text(e: data::ItemEffect) -> String {
             &[&pct(chance), &num(damage), &num(radius)],
         ),
         data::ItemEffect::KillHeal(hp) => trf("Each kill heals you for {}.", &[&num(hp)]),
+        data::ItemEffect::Ignite {
+            chance, dps, secs, ..
+        } => trf(
+            "{} chance on a hit to burn the foe for {} damage a second over {} sec.",
+            &[&pct(chance), &num(dps), &num(secs)],
+        ),
+        data::ItemEffect::Chill { chance, slow, secs } => trf(
+            "{} chance on a hit to slow the foe by {} for {} sec.",
+            &[&pct(chance), &pct(1.0 - slow), &num(secs)],
+        ),
+        data::ItemEffect::Execute(t) => trf(
+            "Your hits finish any foe but a boss they leave under {} health.",
+            &[&pct(t)],
+        ),
+        data::ItemEffect::Dodge(c) => trf("{} chance to dodge a blow.", &[&pct(c)]),
+        data::ItemEffect::KillShield { amount, max } => trf(
+            "Each kill shields you for {}, up to {}.",
+            &[&num(amount), &num(max)],
+        ),
+        data::ItemEffect::Nova {
+            every,
+            damage,
+            radius,
+            ..
+        } => trf(
+            "Every {} sec, a nova strikes everything within {} yd for {} damage.",
+            &[&num(every), &num(radius), &num(damage)],
+        ),
+        data::ItemEffect::Bounty { chance, gold } => trf(
+            "{} chance on a kill to find {} more gold.",
+            &[&pct(chance), &num(gold)],
+        ),
     }
 }
 

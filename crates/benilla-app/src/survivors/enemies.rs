@@ -321,6 +321,7 @@ pub(super) fn move_enemies(
     mut enemies: Query<(Entity, &mut Transform, &mut Enemy, &mut MovementState), Without<Hero>>,
     mut fx: Fx,
     mut hits: MessageWriter<Hit>,
+    mut rng: ResMut<Rng>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -493,6 +494,11 @@ pub(super) fn move_enemies(
                 continue;
             };
             e.attack_cd = if e.boss { 1.0 } else { 1.3 };
+            // A run item's dodge: the swing comes, the blow does not.
+            if rng.f32() < dodge_chance(&hero) {
+                fx.swing(ent, hero_e, 0.0);
+                continue;
+            }
             let raw = e.damage * e.weaken;
             let taken = hero::hurt_hero(&mut hero.v, raw);
             fx.swing(ent, hero_e, taken);
@@ -528,6 +534,17 @@ pub(super) fn move_enemies(
             }
         }
     }
+}
+
+/// The chance a hero's items dodge a blow, all of them together, up to [`data::MAX_DODGE`].
+pub(super) fn dodge_chance(hero: &HeroState) -> f32 {
+    hero.item_effects()
+        .map(|e| match e {
+            data::ItemEffect::Dodge(c) => c,
+            _ => 0.0,
+        })
+        .sum::<f32>()
+        .min(data::MAX_DODGE)
 }
 
 /// Mark timers run down; the state kits reap with them.
