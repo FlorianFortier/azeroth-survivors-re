@@ -20,6 +20,8 @@ pub mod config;
 pub mod encoding;
 pub mod idx;
 pub mod jenkins;
+#[cfg(feature = "remote")]
+pub mod remote;
 pub mod root;
 
 use std::collections::HashMap;

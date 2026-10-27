@@ -82,3 +82,68 @@ TBC items would mostly need the DBC schemas: a halfway step toward Wrath.
 **The first concrete move, when the time comes**: a spike that loads one 3.3.5a creature model in
 the current renderer through a v264 reader, to measure what M2 v264 really costs before committing
 to the rest.
+
+## Since: native only, and Legion
+
+Two things changed the choice after this study was first written.
+
+- **The game ships as a native executable to a handful of players**, not in the browser. The
+  browser's limits (WebGPU, memory, data streamed over `/data/*`) no longer weigh, and a later
+  client's heavier art and storage become affordable. What reads that data is native only; the
+  wasm build keeps compiling as it does.
+- **Which clients can be found.** On archive.org:
+
+  | client | item | size |
+  |---|---|---|
+  | Wrath 3.3.5a (12340) | `lrdpsychochains-wotlk-3.3.5a-12340-client` (one zip), `WoW_3.3.5-12340` (multi-language) | 17.7 GB, 41 GB |
+  | Cataclysm 4.3.4 (15595) | `WoW_4.3.4-15595_Multi` | 31 GB |
+  | **Legion 7.3.5 (26972)** | `lrdpsychochains-legion-7.3.5.26972-client`, a CASC install file by file | 74 GB |
+  | Battle for Azeroth 8.3.7 | none found | — |
+
+  BfA's formats are Legion's (CASC, file data ids, chunked M2, DB2 WDC), and BfA cannot be found;
+  Legion can, its build 26972 is the one community tools cover (WoWDBDefs, CascLib, wow.export,
+  TrinityCore's 7.3.5 extractors), and it brings nearly everything up to it: the Demon Hunter, Monk
+  and Death Knight, the Pandaren, Worgen, Goblins and the first allied races, the Broken Isles,
+  Pandaria, Draenor, Northrend and Outland. **Legion 7.3.5 is the target.**
+
+## The Legion spike
+
+Two native crates, read by nothing in the client yet:
+
+- **`benilla-casc`**: a read-only CASC reader for a Legion install: `.build.info` and the build
+  config, the local `.idx` indices, BLTE (plain and zlib; encrypted chunks refused), the encoding
+  and root tables, a file by its file data id or by its path (the root's Jenkins hash, checked on
+  lookup3's own test vectors). Its `remote` feature reads a copy by byte ranges through `curl`, with
+  a cache, so the 74 GB install on archive.org is read a few megabytes at a time; its
+  `legion_probe` example writes the files asked for.
+- **`benilla-legion`**: Legion's chunked `.m2` (`MD21` around the MD20 model, `SFID`, `TXID`,
+  `AFID`…), the MD20 model at versions 264 to 274 far enough to draw it in its bind pose (vertices,
+  texture records and the paths type 0 ones name, materials, 88-byte bones, the texture lookup,
+  bounds), and the external `.skin` (48-byte sections whose `level` carries the high bits, 24-byte
+  batches). Its `legion_model` example reads a model, its first skin and its textures, writes an
+  `.obj` with the textures, and draws a bind-pose preview with a small software rasterizer, no GPU
+  needed.
+
+What it showed, from archive.org's copy, with some 130 MB read of the 74 GB:
+
+- the install opens: 732,305 files in root; a path finds its file through the Jenkins hash;
+- `creature/illidan2/illidan2.m2` (Legion's Illidan, MD20 v272): 6,005 vertices, 127 bones, 54
+  sequences (4 in `.anim` files), 4 skin profiles, 7,509 triangles in its first; its three
+  textures, two named by the model's own records and one replaceable, drawn right;
+- `creature/fellord/fellord.m2` and `creature/felbat2/felbat2.m2` read the same way.
+
+What it leaves for later:
+
+- **A creature's replaceable textures** (types 11 to 13) come from `CreatureDisplayInfo`, a DB2
+  (WDC1) table: a DB2 reader, best driven by WoWDBDefs' definitions for build 26972. The spike
+  guesses them from the community listfile, which is wrong whenever no texture bears the model's
+  name (the Fel Lord's body draws grey).
+- **Geosets**: which sections a creature shows is `CreatureDisplayInfo`'s too; the spike draws the
+  body and each group's first variant.
+- **Animation**: Legion's tracks (an array of keys per sequence) and the `.anim` files; 1.12.1's
+  pipeline (`benilla-formats/src/models`) reads 1.12.1's tracks from the raw bytes.
+- **Into the client**: turning a Legion model into the `benilla_m2::M2Model` the renderer draws,
+  without editing upstream's files: `benilla-m2`'s header walk already places the fields for
+  versions above 263; its records' strides and its version gate stop it.
+- Then characters (HD bodies, the new races), item models, maps (split ADTs), WMO with file data
+  ids, and the data download (a fetch script for the 74 GB, or each player's own install).

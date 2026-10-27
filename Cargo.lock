@@ -711,6 +711,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "benilla-legion"
+version = "0.2.0"
+dependencies = [
+ "benilla-blp",
+ "benilla-casc",
+ "image",
+]
+
+[[package]]
 name = "benilla-m2"
 version = "0.2.0"
 dependencies = [

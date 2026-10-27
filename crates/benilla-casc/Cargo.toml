@@ -8,5 +8,13 @@ description = "A read-only CASC reader for a local WoW Legion (7.3.5, build 2697
 [dependencies]
 flate2 = "1.1"
 
+[features]
+# A remote install read by byte ranges through `curl`, for probes (`remote.rs`).
+remote = []
+
+[[example]]
+name = "legion_probe"
+required-features = ["remote"]
+
 [lints]
 workspace = true

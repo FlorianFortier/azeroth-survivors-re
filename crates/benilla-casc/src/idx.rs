@@ -65,7 +65,7 @@ pub fn parse(data: &[u8], into: &mut HashMap<[u8; 9], Entry>) -> Result<()> {
     let body = data
         .get(start..start + entries_size)
         .ok_or_else(|| bad("idx entries truncated"))?;
-    for e in body.chunks_exact(18) {
+    for e in body.as_chunks::<18>().0 {
         let mut key = [0u8; 9];
         key.copy_from_slice(&e[..9]);
         let packed = e[9..14].iter().fold(0u64, |a, &b| a << 8 | u64::from(b));
