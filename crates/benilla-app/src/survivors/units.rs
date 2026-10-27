@@ -423,6 +423,7 @@ pub(super) struct Fx<'w> {
     gos: MessageWriter<'w, SpellGoTargets>,
     swings: MessageWriter<'w, SwingMessage>,
     text: MessageWriter<'w, CombatTextSpawn>,
+    struck: MessageWriter<'w, super::feel::Struck>,
     log: Option<ResMut<'w, FxLog>>,
 }
 
@@ -505,6 +506,12 @@ impl Fx<'_> {
                 color,
             });
         }
+        self.struck.write(super::feel::Struck {
+            anchor,
+            amount,
+            crit,
+            color,
+        });
         let shown = amount.round().max(1.0) as i64;
         self.text.write(CombatTextSpawn {
             anchor,

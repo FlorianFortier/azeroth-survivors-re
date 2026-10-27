@@ -241,6 +241,7 @@ fn french(s: &str) -> Option<&'static str> {
         "Run items: {}" => "Objets de la partie : {}",
         // The unit frames, the damage meter and the line under the clock.
         "Damage Done" => "Dégâts infligés",
+        "Screen shake" => "Tremblement de l'écran",
         "Other" => "Autre",
         "{} ({}%)" => "{} ({} %)",
         "Next boss in {}" => "Prochain boss dans {}",

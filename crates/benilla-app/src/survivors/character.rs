@@ -173,6 +173,7 @@ enum Setting {
     Sfx,
     Sens,
     Polish,
+    Shake,
 }
 
 /// The class column's body, rebuilt when the pick changes.
@@ -618,6 +619,7 @@ fn clicks(
                     Setting::Sfx => o.sfx = (o.sfx + 0.1 * step).clamp(0.0, 1.0),
                     Setting::Sens => o.mouse_sens = (o.mouse_sens + 0.1 * step).clamp(0.2, 3.0),
                     Setting::Polish => o.polish = !o.polish,
+                    Setting::Shake => o.shake = !o.shake,
                 }
                 // Tenths stay tenths, however many steps.
                 for v in [&mut o.master, &mut o.music, &mut o.sfx, &mut o.mouse_sens] {
@@ -3182,7 +3184,7 @@ fn refresh_options(
             kit::ButtonLook::PLAIN,
             ScreenAction::Back,
         );
-        let rows: [(&str, String, Setting); 5] = [
+        let rows: [(&str, String, Setting); 6] = [
             ("Master volume", percent(o.master), Setting::Master),
             ("Music", percent(o.music), Setting::Music),
             ("Sound effects", percent(o.sfx), Setting::Sfx),
@@ -3195,6 +3197,11 @@ fn refresh_options(
                 "Picture polish",
                 tr(if o.polish { "On" } else { "Off" }).to_string(),
                 Setting::Polish,
+            ),
+            (
+                "Screen shake",
+                tr(if o.shake { "On" } else { "Off" }).to_string(),
+                Setting::Shake,
             ),
         ];
         for (label, value, setting) in rows {
@@ -3211,7 +3218,7 @@ fn refresh_options(
                 .with_children(|c| {
                     c.spawn(kit::text(&f.body, tr(label), 14.0, theme::TEXT));
                 });
-                if setting == Setting::Polish {
+                if matches!(setting, Setting::Polish | Setting::Shake) {
                     kit::button(
                         row,
                         f,

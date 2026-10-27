@@ -141,6 +141,8 @@ pub(super) struct Options {
     pub polish: bool,
     /// [`super::lang::Lang::code`].
     pub language: String,
+    /// The camera shakes at heavy blows, crits and bosses (`feel.rs`).
+    pub shake: bool,
 }
 
 impl Default for Options {
@@ -152,6 +154,7 @@ impl Default for Options {
             mouse_sens: 1.0,
             polish: true,
             language: "en".into(),
+            shake: true,
         }
     }
 }
@@ -165,6 +168,7 @@ impl Options {
             sfx: self.sfx.clamp(0.0, 1.0),
             mouse_sens: self.mouse_sens.clamp(0.2, 3.0),
             polish: self.polish,
+            shake: self.shake,
             language: super::lang::Lang::from_code(&self.language).code().into(),
         }
     }

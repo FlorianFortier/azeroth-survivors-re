@@ -3229,6 +3229,51 @@ pub(crate) const BANISHES_PER_RUN: u8 = 3;
 pub(crate) const SKIP_GOLD: u32 = 10;
 /// Every this many levels, the hero earns one more banish or reroll, in turn.
 pub(crate) const CARD_TOKEN_LEVELS: u32 = 5;
+
+// --- How a hit feels (`feel.rs`). ---
+
+/// The shove every hit gives a foe, in yd/s, backward from the hero it chases.
+pub(crate) const KNOCK_MIN: f32 = 1.5;
+/// What more a heavy hit adds, at its fullest for a hit of [`KNOCK_SHARE`] of the foe's health.
+pub(crate) const KNOCK_SPEED: f32 = 7.0;
+pub(crate) const KNOCK_SHARE: f32 = 0.2;
+/// The most a foe is shoved at once, however many hits land.
+pub(crate) const KNOCK_MAX: f32 = 10.0;
+/// How fast a shove dies, per second: a foe slides `speed / KNOCK_DECAY` yards.
+pub(crate) const KNOCK_DECAY: f32 = 9.0;
+/// Bosses and elites hold their ground better.
+pub(crate) const KNOCK_BOSS: f32 = 0.1;
+pub(crate) const KNOCK_ELITE: f32 = 0.35;
+
+/// The shove a hit of `damage` gives a foe of `max_hp`.
+pub(crate) fn knock_impulse(damage: f32, max_hp: f32, boss: bool, elite: bool) -> f32 {
+    if damage <= 0.0 {
+        return 0.0;
+    }
+    let heavy = (damage / (max_hp.max(1.0) * KNOCK_SHARE)).min(1.0);
+    let hold = if boss {
+        KNOCK_BOSS
+    } else if elite {
+        KNOCK_ELITE
+    } else {
+        1.0
+    };
+    (KNOCK_MIN + KNOCK_SPEED * heavy) * hold
+}
+
+/// Seconds a struck model stays brightened.
+pub(crate) const FLASH_SECS: f32 = 0.12;
+/// The screen's shake: trauma (0..1) a blow to the hero adds per share of its health taken, and
+/// what a critical strike adds, crits alone shaking it at most [`SHAKE_CRIT_MAX`].
+pub(crate) const SHAKE_PER_HURT: f32 = 2.5;
+pub(crate) const SHAKE_CRIT: f32 = 0.04;
+pub(crate) const SHAKE_CRIT_MAX: f32 = 0.2;
+/// A boss's coming shakes it this hard.
+pub(crate) const SHAKE_BOSS: f32 = 0.6;
+/// Trauma lost per second, and the most it moves the camera (yards) and turns it (radians).
+pub(crate) const SHAKE_DECAY: f32 = 1.6;
+pub(crate) const SHAKE_OFFSET: f32 = 0.3;
+pub(crate) const SHAKE_TURN: f32 = 0.02;
 /// The most of each a hero can hold.
 pub(crate) const MAX_CARD_TOKENS: u8 = 9;
 /// Cards on offer at a level-up.
