@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 15;
+pub const PROTOCOL_VERSION: u16 = 16;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -91,6 +91,11 @@ pub enum Up {
         data: Vec<u8>,
     },
     Ping(u32),
+    /// Back to a run this connection's seat dropped out of, by the token [`Down::Started`] gave it.
+    Rejoin {
+        code: String,
+        token: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +110,8 @@ pub struct Member {
     pub name: String,
     pub loadout: Loadout,
     pub ready: bool,
+    /// The seat's connection dropped during the run: it is kept for its player to rejoin.
+    pub away: bool,
 }
 
 /// A lobby as one member sees it.
@@ -164,6 +171,8 @@ pub enum ErrorCode {
     BadState,
     /// A frame the server could not read, or too large.
     BadFrame,
+    /// No seat of that run waits for that token: the run ended, or the seat was given up.
+    CannotRejoin,
 }
 
 impl ErrorCode {
@@ -180,6 +189,7 @@ impl ErrorCode {
             ErrorCode::ServerFull => "The server is full; try again later.",
             ErrorCode::BadState => "That cannot be done right now.",
             ErrorCode::BadFrame => "The server could not read a message.",
+            ErrorCode::CannotRejoin => "The run could not be rejoined: it ended, or the seat was given up.",
         }
     }
 }
@@ -201,9 +211,11 @@ pub enum Down {
     /// The lobby you are in, after any change to it.
     Lobby(LobbyView),
     Lobbies(Vec<LobbySummary>),
-    /// The run begins; every seat plays it with this seed.
+    /// The run begins; every seat plays it with this seed. The token is this seat's own: if its
+    /// connection drops, [`Up::Rejoin`] with it takes the seat back.
     Started {
         seed: u64,
+        token: u64,
     },
     /// The run ended; the lobby is open again.
     Ended,
@@ -214,6 +226,8 @@ pub enum Down {
     Left(LeftReason),
     Error(ErrorCode),
     Pong(u32),
+    /// This connection has its seat back in the run; the host sends it the world again.
+    Rejoined,
 }
 
 /// Normalize a typed code: uppercase, separators and spaces dropped, look-alikes folded.
@@ -364,6 +378,9 @@ impl Wire for Up {
             Up::Ping(n) => {
                 w.u8(12).u32(*n);
             }
+            Up::Rejoin { code, token } => {
+                w.u8(13).str(code).u64(*token);
+            }
         }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -393,6 +410,10 @@ impl Wire for Up {
                 data: r.bytes()?,
             },
             12 => Up::Ping(r.u32()?),
+            13 => Up::Rejoin {
+                code: r.str()?,
+                token: r.u64()?,
+            },
             t => return Err(WireError::BadTag(t)),
         })
     }
@@ -402,7 +423,7 @@ impl Wire for Member {
     fn put(&self, w: &mut Writer) {
         w.u8(self.slot).str(&self.name);
         self.loadout.put(w);
-        w.bool(self.ready);
+        w.bool(self.ready).bool(self.away);
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -410,6 +431,7 @@ impl Wire for Member {
             name: r.str()?,
             loadout: Loadout::get(r)?,
             ready: r.bool()?,
+            away: r.bool()?,
         })
     }
 }
@@ -476,7 +498,7 @@ impl Wire for LobbySummary {
 }
 
 impl ErrorCode {
-    const ALL: [ErrorCode; 11] = [
+    const ALL: [ErrorCode; 12] = [
         ErrorCode::Version,
         ErrorCode::NoHello,
         ErrorCode::NoSuchLobby,
@@ -488,6 +510,7 @@ impl ErrorCode {
         ErrorCode::ServerFull,
         ErrorCode::BadState,
         ErrorCode::BadFrame,
+        ErrorCode::CannotRejoin,
     ];
 }
 
@@ -507,8 +530,8 @@ impl Wire for Down {
                     l.put(w);
                 }
             }
-            Down::Started { seed } => {
-                w.u8(3).u64(*seed);
+            Down::Started { seed, token } => {
+                w.u8(3).u64(*seed).u64(*token);
             }
             Down::Ended => {
                 w.u8(4);
@@ -530,6 +553,9 @@ impl Wire for Down {
             Down::Pong(n) => {
                 w.u8(8).u32(*n);
             }
+            Down::Rejoined => {
+                w.u8(9);
+            }
         }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -544,7 +570,10 @@ impl Wire for Down {
                 }
                 Down::Lobbies(list)
             }
-            3 => Down::Started { seed: r.u64()? },
+            3 => Down::Started {
+                seed: r.u64()?,
+                token: r.u64()?,
+            },
             4 => Down::Ended,
             5 => Down::Relay {
                 from: r.u8()?,
@@ -561,6 +590,7 @@ impl Wire for Down {
                 Down::Error(*ErrorCode::ALL.get(i as usize).ok_or(WireError::BadTag(i))?)
             }
             8 => Down::Pong(r.u32()?),
+            9 => Down::Rejoined,
             t => return Err(WireError::BadTag(t)),
         })
     }
@@ -616,6 +646,10 @@ pub(crate) mod tests {
                 data: vec![],
             },
             Up::Ping(42),
+            Up::Rejoin {
+                code: "XK7QP".into(),
+                token: 0xDEAD_BEEF_0042,
+            },
         ]
     }
 
@@ -638,12 +672,14 @@ pub(crate) mod tests {
                     name: "Host".into(),
                     loadout: loadout(),
                     ready: false,
+                    away: false,
                 },
                 Member {
                     slot: 1,
                     name: "Guest".into(),
                     loadout: loadout(),
                     ready: true,
+                    away: true,
                 },
             ],
         };
@@ -659,7 +695,11 @@ pub(crate) mod tests {
                 max_players: 4,
                 difficulty: "Hard".into(),
             }]),
-            Down::Started { seed: 77 },
+            Down::Started {
+                seed: 77,
+                token: u64::MAX - 3,
+            },
+            Down::Rejoined,
             Down::Ended,
             Down::Relay {
                 from: 0,
