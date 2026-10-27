@@ -32,6 +32,8 @@ use super::{
 const DT: f32 = 0.1;
 /// How far from the field's middle the pilot circles.
 const KITE_RADIUS: f32 = 18.0;
+/// Foes nearer than this push the pilot away.
+const FLEE_REACH: f32 = 7.0;
 
 /// One stage of a run, as the pilot played it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -159,6 +161,12 @@ fn pilot(app: &mut App, t: f32) {
         .map(|g| g.pos)
         .collect();
     let chest_cost = world.resource::<Run>().chest_cost;
+    let foes: Vec<Vec3> = world
+        .query::<(&Transform, &enemies::Enemy)>()
+        .iter(world)
+        .filter(|(_, e)| !e.dead)
+        .map(|(t, _)| t.translation)
+        .collect();
     let chests: Vec<Vec3> = world
         .query_filtered::<&Transform, With<Chest>>()
         .iter(world)
@@ -204,13 +212,22 @@ fn pilot(app: &mut App, t: f32) {
                 .flatten()
         });
         let speed = v.stats().speed;
-        let step = match goal {
+        // Away from the foes close by, the nearest the most, as a player sidesteps the crowd.
+        let mut flee = Vec3::ZERO;
+        for f in &foes {
+            let away = super::units::flat(at - *f);
+            let d = away.length();
+            if d < FLEE_REACH && d > 1e-3 {
+                flee += away / d * (1.0 - d / FLEE_REACH).powi(2);
+            }
+        }
+        let want = match goal {
             Some(g) => {
                 let to = super::units::flat(g - at);
                 if to.length() < 0.5 {
                     Vec3::ZERO
                 } else {
-                    to.normalize() * (speed * DT).min(to.length())
+                    to.normalize() + flee * 0.5
                 }
             }
             None => {
@@ -219,10 +236,10 @@ fn pilot(app: &mut App, t: f32) {
                 let r = from.length().max(0.1);
                 let around = Vec3::new(-from.z, 0.0, from.x) / r;
                 let back = -from / r * (r - KITE_RADIUS).clamp(-1.0, 1.0);
-                (around + back * 0.6).normalize_or_zero() * speed * DT
+                around + back * 0.6 + flee * 2.0
             }
         };
-        tf.translation += step;
+        tf.translation += want.normalize_or_zero() * speed * DT;
     }
 }
 
