@@ -32,8 +32,9 @@ use super::{
 const DT: f32 = 0.1;
 /// How far from the field's middle the pilot circles.
 const KITE_RADIUS: f32 = 18.0;
-/// Foes nearer than this push the pilot away.
-const FLEE_REACH: f32 = 7.0;
+/// Foes the pilot minds, and how far ahead it looks.
+const LOOK_REACH: f32 = 20.0;
+const LOOK_SECS: f32 = 1.5;
 
 /// One stage of a run, as the pilot played it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -60,6 +61,24 @@ pub(super) struct RunLog {
     pub lost: bool,
     /// Seconds of play in all.
     pub secs: f32,
+    /// Every [`TRACE_EVERY`] seconds, what the hero faced.
+    pub trace: Vec<TracePoint>,
+}
+
+const TRACE_EVERY: f32 = 10.0;
+
+/// The run at one moment of the trace.
+#[derive(Clone, Debug, Default)]
+pub(super) struct TracePoint {
+    pub clock: f32,
+    pub hp: f32,
+    pub alive: usize,
+    /// The most foes within 4 yd of the hero at once since the last point.
+    pub near: usize,
+    /// Health lost since the last point, and how much of it in reach of a boss.
+    pub taken: f32,
+    pub by_boss: f32,
+    pub surge: bool,
 }
 
 /// A headless world that plays `SimSet` and nothing else.
@@ -206,40 +225,66 @@ fn pilot(app: &mut App, t: f32) {
                 .copied()
                 .min_by(|a, b| (*a - at).length().total_cmp(&(*b - at).length()))
         };
-        let goal = near(&gates).or_else(|| {
+        let gate = near(&gates);
+        let goal = gate.or_else(|| {
             (v.gold >= chest_cost as f32 || v.keys > 0)
                 .then(|| near(&chests))
                 .flatten()
         });
         let speed = v.stats().speed;
-        // Away from the foes close by, the nearest the most, as a player sidesteps the crowd.
-        let mut flee = Vec3::ZERO;
-        for f in &foes {
-            let away = super::units::flat(at - *f);
-            let d = away.length();
-            if d < FLEE_REACH && d > 1e-3 {
-                flee += away / d * (1.0 - d / FLEE_REACH).powi(2);
-            }
-        }
-        let want = match goal {
-            Some(g) => {
-                let to = super::units::flat(g - at);
-                if to.length() < 0.5 {
-                    Vec3::ZERO
-                } else {
-                    to.normalize() + flee * 0.5
+        let engage = (data::ability(v.class.start).range * 0.7).max(2.5);
+        // A player looks ahead: of sixteen headings, the one whose point a second and a half on
+        // is clearest of foes, kept near the field's middle, and toward the goal if there is one.
+        let near: Vec<Vec3> = foes
+            .iter()
+            .copied()
+            .filter(|f| super::units::flat(*f - at).length() < LOOK_REACH)
+            .collect();
+        let danger = |p: Vec3| -> f32 {
+            near.iter()
+                .map(|f| {
+                    let d = super::units::flat(p - *f).length().max(0.5);
+                    1.0 / (d * d)
+                })
+                .sum()
+        };
+        let mut best = (f32::INFINITY, Vec3::ZERO);
+        for k in 0..16 {
+            let a = k as f32 / 16.0 * std::f32::consts::TAU;
+            let dir = Vec3::new(a.cos(), 0.0, a.sin());
+            let ahead = at + dir * speed * LOOK_SECS;
+            let mut score = danger(ahead) * 40.0 + danger(at + dir * speed * 0.5) * 40.0;
+            let off = super::units::flat(ahead - center).length();
+            score += ((off - KITE_RADIUS).max(0.0) / 10.0).powi(2);
+            match (gate, goal) {
+                // A portal wants the hero inside it while it charges, moving or not.
+                (Some(g), _) => {
+                    let out = (super::units::flat(at + dir * speed * 0.5 - g).length()
+                        - data::PORTAL_RADIUS * 0.6)
+                        .max(0.0);
+                    score += out * out * 4.0;
+                }
+                (None, Some(g)) => score += super::units::flat(ahead - g).length() * 0.05,
+                // With nothing to go to, it keeps its spells' reach of the horde.
+                (None, None) => {
+                    let d = near
+                        .iter()
+                        .map(|f| super::units::flat(ahead - *f).length())
+                        .fold(f32::INFINITY, f32::min);
+                    if d.is_finite() {
+                        score += (d - engage).max(0.0) * 0.3;
+                    }
                 }
             }
-            None => {
-                // Round the middle, a little outward or inward to keep to the circle.
-                let from = super::units::flat(at - center);
-                let r = from.length().max(0.1);
-                let around = Vec3::new(-from.z, 0.0, from.x) / r;
-                let back = -from / r * (r - KITE_RADIUS).clamp(-1.0, 1.0);
-                around + back * 0.6 + flee * 2.0
+            if score < best.0 {
+                best = (score, dir);
             }
-        };
-        tf.translation += want.normalize_or_zero() * speed * DT;
+        }
+        // At the goal and in no danger, it stands (a chest wants the hero still).
+        let at_goal = goal.is_some_and(|g| super::units::flat(g - at).length() < 0.8);
+        if !(at_goal && danger(at) < 0.05) {
+            tf.translation += best.1 * speed * DT;
+        }
     }
 }
 
@@ -256,6 +301,7 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
     };
     let mut leg = 0u8;
     let mut last_hp: Option<f32> = None;
+    let mut window = TracePoint::default();
     let mut t = 0.0;
     // A first update seats the clock.
     app.update();
@@ -269,9 +315,36 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
             let h = q.iter(world).next().expect("the hero");
             (h.hp, h.stats().max_hp, h.level, h.kills)
         };
+        let at = {
+            let mut q = world.query_filtered::<&Transform, With<Hero>>();
+            q.iter(world).next().map_or(Vec3::ZERO, |t| t.translation)
+        };
+        let (near, boss_near) = {
+            let mut q = world.query::<(&Transform, &enemies::Enemy)>();
+            let mut n = 0;
+            let mut b = false;
+            for (t, e) in q.iter(world) {
+                if e.dead {
+                    continue;
+                }
+                let d = super::units::flat(t.translation - at).length();
+                if d < 4.0 {
+                    n += 1;
+                }
+                if e.boss && d < 6.0 {
+                    b = true;
+                }
+            }
+            (n, b)
+        };
+        window.near = window.near.max(near);
         if let Some(prev) = last_hp {
             if hp < prev {
                 stage.taken += prev - hp;
+                window.taken += prev - hp;
+                if boss_near {
+                    window.by_boss += prev - hp;
+                }
             }
         }
         last_hp = Some(hp);
@@ -279,6 +352,18 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
         stage.level = level;
         stage.kills = kills;
         stage.secs += DT;
+        if (t / TRACE_EVERY).floor() != ((t - DT) / TRACE_EVERY).floor() || hp <= 0.0 {
+            let mut q = world.query::<&enemies::Enemy>();
+            let alive = q.iter(world).filter(|e| !e.dead).count();
+            let clock = world.resource::<Run>().elapsed;
+            log.trace.push(TracePoint {
+                clock,
+                hp,
+                alive,
+                surge: data::surging(clock),
+                ..std::mem::take(&mut window)
+            });
+        }
         let run = world.resource::<Run>();
         if run.leg_done {
             stage.cleared = true;
@@ -386,6 +471,26 @@ mod tests {
             assert!(s.secs <= BANDS[0].max_secs, "{}: {s:?}", log.class);
             let (lo, hi) = BANDS[0].levels;
             assert!((lo..=hi).contains(&s.level), "{}: {s:?}", log.class);
+        }
+    }
+
+    /// One run's trace, to see what the pilot dies of.
+    #[test]
+    #[ignore = "a diagnosis: run with --ignored --nocapture"]
+    fn trace_a_run() {
+        let log = play(0, 0, 2, 900.0);
+        println!("{}", row(&log));
+        for p in &log.trace {
+            println!(
+                "{:>5.0}s hp {:>5.0} foes {:>3} near {:>2} took {:>4.0} (boss {:>4.0}){}",
+                p.clock,
+                p.hp,
+                p.alive,
+                p.near,
+                p.taken,
+                p.by_boss,
+                if p.surge { " surge" } else { "" }
+            );
         }
     }
 
