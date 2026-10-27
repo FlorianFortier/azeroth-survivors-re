@@ -133,6 +133,52 @@ pub(super) struct Profile {
     pub tabards: BTreeSet<String>,
     /// The tabard worn, by key; empty for none.
     pub tabard: String,
+    /// The appearances bought with reward points, by [`data::AppearanceDef::key`]; free ones and
+    /// those an achievement earns are not stored.
+    pub appearances: BTreeSet<String>,
+    /// The appearance worn on each slot, by [`data::LookSlot::name`]: its key.
+    pub looks: BTreeMap<String, String>,
+}
+
+/// What has been bought with reward points, the profile's or a draft's: what it costs together.
+#[derive(Clone, Copy)]
+pub(super) struct Spend<'a> {
+    pub perks: &'a BTreeMap<String, u8>,
+    pub races: &'a BTreeSet<String>,
+    pub tabards: &'a BTreeSet<String>,
+    pub appearances: &'a BTreeSet<String>,
+}
+
+impl Spend<'_> {
+    pub fn cost(&self) -> u32 {
+        Profile::perks_cost(self.perks)
+            + Profile::races_cost(self.races)
+            + Profile::tabards_cost(self.tabards)
+            + Profile::appearances_cost(self.appearances)
+    }
+}
+
+/// The looks over a hero's gear from the keys of its appearances and tabard, as its loadout
+/// carries them: `(equipment slot, display)`, a display of 0 baring the slot. Unknown keys are
+/// dropped, and one appearance a slot at most is kept.
+pub(super) fn cosmetics<'a>(
+    appearances: impl IntoIterator<Item = &'a str>,
+    tabard: Option<&str>,
+) -> Vec<(u8, u32)> {
+    let mut out: Vec<(u8, u32)> = Vec::new();
+    for a in appearances.into_iter().filter_map(data::appearance) {
+        let slot = match a.slot {
+            data::LookSlot::Head => super::outfit::slot::HEAD,
+            data::LookSlot::Back => super::outfit::slot::BACK,
+        };
+        if !out.iter().any(|(s, _)| *s == slot) {
+            out.push((slot, a.display));
+        }
+    }
+    if let Some(t) = tabard.and_then(data::tabard) {
+        out.push((super::outfit::slot::TABARD, t.display));
+    }
+    out
 }
 
 /// The race a stored name stands for.
@@ -218,6 +264,8 @@ impl Default for Profile {
             races: BTreeSet::new(),
             tabards: BTreeSet::new(),
             tabard: String::new(),
+            appearances: BTreeSet::new(),
+            looks: BTreeMap::new(),
         }
     }
 }
@@ -412,24 +460,50 @@ impl Profile {
         tabards
             .iter()
             .filter_map(|k| match data::tabard(k)?.unlock {
-                data::TabardUnlock::Points(n) => Some(n),
-                data::TabardUnlock::Achievement(_) => None,
+                data::Unlock::Points(n) => Some(n),
+                data::Unlock::Achievement(_) => None,
             })
             .sum()
     }
 
-    /// What perks, races and tabards cost together.
-    pub fn cost(
-        perks: &BTreeMap<String, u8>,
-        races: &BTreeSet<String>,
-        tabards: &BTreeSet<String>,
-    ) -> u32 {
-        Self::perks_cost(perks) + Self::races_cost(races) + Self::tabards_cost(tabards)
+    /// The reward points `appearances` cost; one an achievement earns, or the tables no longer
+    /// have, costs nothing.
+    pub fn appearances_cost(appearances: &BTreeSet<String>) -> u32 {
+        appearances
+            .iter()
+            .filter_map(|k| match data::appearance(k)?.unlock {
+                data::Unlock::Points(n) => Some(n),
+                data::Unlock::Achievement(_) => None,
+            })
+            .sum()
+    }
+
+    /// What the profile has bought with reward points.
+    pub fn spend(&self) -> Spend<'_> {
+        Spend {
+            perks: &self.perks,
+            races: &self.races,
+            tabards: &self.tabards,
+            appearances: &self.appearances,
+        }
     }
 
     /// The reward points spent.
     pub fn points_spent(&self) -> u32 {
-        Self::cost(&self.perks, &self.races, &self.tabards)
+        self.spend().cost()
+    }
+
+    /// Whether what `unlock` earns, bought by `key` among `bought`, is the profile's: free,
+    /// bought, or its achievement done.
+    fn unlocked(&self, unlock: data::Unlock, bought: &BTreeSet<String>, key: &str) -> bool {
+        match unlock {
+            data::Unlock::Points(0) => true,
+            data::Unlock::Points(_) => bought.contains(key),
+            data::Unlock::Achievement(a) => data::ACHIEVEMENTS
+                .iter()
+                .find(|x| x.key == a)
+                .is_some_and(|x| self.achieved(x)),
+        }
     }
 
     /// Whether `race` has been opened to every class.
@@ -449,7 +523,12 @@ impl Profile {
     /// and the points earned pay for it with the perks; false and nothing changed otherwise.
     pub fn open_races(&mut self, races: BTreeSet<String>) -> bool {
         let fits = self.races.is_subset(&races) && races.iter().all(|r| race_id(r).is_some());
-        if !fits || Self::cost(&self.perks, &races, &self.tabards) > self.points_earned() {
+        let cost = Spend {
+            races: &races,
+            ..self.spend()
+        }
+        .cost();
+        if !fits || cost > self.points_earned() {
             return false;
         }
         self.races = races;
@@ -458,13 +537,7 @@ impl Profile {
 
     /// Whether the tabard is the profile's: bought, or its achievement done.
     pub fn tabard_owned(&self, t: &data::TabardDef) -> bool {
-        match t.unlock {
-            data::TabardUnlock::Points(_) => self.tabards.contains(t.key),
-            data::TabardUnlock::Achievement(key) => data::ACHIEVEMENTS
-                .iter()
-                .find(|a| a.key == key)
-                .is_some_and(|a| self.achieved(a)),
-        }
+        self.unlocked(t.unlock, &self.tabards, t.key)
     }
 
     /// Take `tabards` as the tabards bought, if it keeps every one already bought, names only
@@ -473,9 +546,14 @@ impl Profile {
     pub fn buy_tabards(&mut self, tabards: BTreeSet<String>) -> bool {
         let fits = self.tabards.is_subset(&tabards)
             && tabards.iter().all(|k| {
-                data::tabard(k).is_some_and(|t| matches!(t.unlock, data::TabardUnlock::Points(_)))
+                data::tabard(k).is_some_and(|t| matches!(t.unlock, data::Unlock::Points(_)))
             });
-        if !fits || Self::cost(&self.perks, &self.races, &tabards) > self.points_earned() {
+        let cost = Spend {
+            tabards: &tabards,
+            ..self.spend()
+        }
+        .cost();
+        if !fits || cost > self.points_earned() {
             return false;
         }
         self.tabards = tabards;
@@ -499,6 +577,70 @@ impl Profile {
     /// The tabard worn, if the profile still owns it.
     pub fn worn_tabard(&self) -> Option<&'static data::TabardDef> {
         data::tabard(&self.tabard).filter(|t| self.tabard_owned(t))
+    }
+
+    /// Whether the appearance is the profile's: free, bought, or its achievement done.
+    pub fn appearance_owned(&self, a: &data::AppearanceDef) -> bool {
+        self.unlocked(a.unlock, &self.appearances, a.key)
+    }
+
+    /// Take `appearances` as the appearances bought, if it keeps every one already bought,
+    /// names only appearances sold for points, and the points earned pay for it; false and
+    /// nothing changed otherwise.
+    pub fn buy_appearances(&mut self, appearances: BTreeSet<String>) -> bool {
+        let fits = self.appearances.is_subset(&appearances)
+            && appearances.iter().all(|k| {
+                data::appearance(k).is_some_and(|a| matches!(a.unlock, data::Unlock::Points(_)))
+            });
+        let cost = Spend {
+            appearances: &appearances,
+            ..self.spend()
+        }
+        .cost();
+        if !fits || cost > self.points_earned() {
+            return false;
+        }
+        self.appearances = appearances;
+        true
+    }
+
+    /// Wear an appearance the profile owns on its slot, or take the slot's off (`None`); false
+    /// and nothing changed for one it does not own.
+    pub fn wear_appearance(&mut self, slot: data::LookSlot, key: Option<&str>) -> bool {
+        match key {
+            None => {
+                self.looks.remove(slot.name());
+            }
+            Some(k) => {
+                let fits =
+                    data::appearance(k).is_some_and(|a| a.slot == slot && self.appearance_owned(a));
+                if !fits {
+                    return false;
+                }
+                self.looks.insert(slot.name().to_string(), k.to_string());
+            }
+        }
+        true
+    }
+
+    /// The appearances worn, one a slot at most, those the profile still owns.
+    pub fn worn_appearances(&self) -> Vec<&'static data::AppearanceDef> {
+        data::LookSlot::ALL
+            .iter()
+            .filter_map(|s| {
+                let a = data::appearance(self.looks.get(s.name())?)?;
+                (a.slot == *s && self.appearance_owned(a)).then_some(a)
+            })
+            .collect()
+    }
+
+    /// What the hero wears over its gear, `(equipment slot, display)`, a display of 0 baring
+    /// the slot: the appearances, then the tabard.
+    pub fn cosmetics(&self) -> Vec<(u8, u32)> {
+        cosmetics(
+            self.worn_appearances().iter().map(|a| a.key),
+            self.worn_tabard().map(|t| t.key),
+        )
     }
 
     /// The reward points left to spend.
@@ -527,7 +669,12 @@ impl Profile {
         let fits = perks
             .iter()
             .all(|(k, r)| data::perk(k).is_some_and(|p| *r <= p.max_rank));
-        if !fits || Self::cost(&perks, &self.races, &self.tabards) > self.points_earned() {
+        let cost = Spend {
+            perks: &perks,
+            ..self.spend()
+        }
+        .cost();
+        if !fits || cost > self.points_earned() {
             return false;
         }
         self.perks = perks.into_iter().filter(|(_, r)| *r > 0).collect();
@@ -897,6 +1044,12 @@ fn refresh_brings(
             .worn_tabard()
             .map(|t| t.key.to_string())
             .unwrap_or_default(),
+        looks: store
+            .profile
+            .worn_appearances()
+            .iter()
+            .map(|a| a.key.to_string())
+            .collect(),
     };
     if selection.brings != brings {
         selection.brings = brings;

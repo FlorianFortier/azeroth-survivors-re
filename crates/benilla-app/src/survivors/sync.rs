@@ -96,7 +96,10 @@ pub(super) fn begin_run(
                 seat.appearance,
                 seat.display,
                 &seat_gear(seat),
-                data::tabard(&seat.brings.tabard).map(|t| t.display),
+                &super::profile::cosmetics(
+                    seat.brings.looks.iter().map(String::as_str),
+                    Some(&seat.brings.tabard),
+                ),
                 catalog.as_deref().map(|c| &c.0),
                 displays.as_deref().map(|d| &d.catalog),
             );
@@ -224,6 +227,7 @@ mod tests {
                 ],
                 perks: vec![("second_thoughts".into(), 9), ("no_such_perk".into(), 1)],
                 tabard: "flame".into(),
+                looks: vec!["helm_of_wrath".into()],
             },
         };
         let (meta, procs) = seat_bonuses(&seat);

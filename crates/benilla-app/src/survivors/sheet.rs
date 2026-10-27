@@ -519,7 +519,7 @@ fn refresh_sheet(
             selection.appearance,
             0,
             &[],
-            store.profile.worn_tabard().map(|t| t.display),
+            &store.profile.cosmetics(),
             catalog.as_deref().map(|c| &c.0),
             None,
         ) {
