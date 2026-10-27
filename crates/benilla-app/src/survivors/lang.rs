@@ -242,6 +242,9 @@ fn french(s: &str) -> Option<&'static str> {
         // The unit frames, the damage meter and the line under the clock.
         "Damage Done" => "Dégâts infligés",
         "A wave is coming!" => "Une vague arrive !",
+        "Connection lost: rejoining…" => "Connexion perdue : retour dans la partie…",
+        "You are back in the run." => "Vous êtes de retour dans la partie.",
+        "Away" => "Absent",
         "They're surrounding you!" => "Ils vous encerclent !",
         "The final swarm comes: hold out!" => "La nuée finale arrive : tenez bon !",
         "Stage cleared! A portal onward has opened." => {

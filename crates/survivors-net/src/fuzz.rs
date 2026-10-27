@@ -187,15 +187,16 @@ fn check_view(to: ConnId, v: &LobbyView, seen: &mut std::collections::HashMap<Co
 
 #[test]
 fn the_hub_keeps_its_rules_whatever_comes_in_whatever_order() {
-    let (mut runs, mut relays) = (0, 0);
+    let (mut runs, mut relays, mut rejoins) = (0, 0, 0);
 
-    for seed in 1..=40u64 {
+    for seed in 1..=200u64 {
         let mut rng = Rng(0xC0FFEE ^ seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let mut hub = Hub::new(seed, Limits::default());
         let conns: Vec<ConnId> = (1..=7).collect();
         let mut online: Vec<ConnId> = Vec::new();
         let mut codes: Vec<String> = Vec::new();
         let mut in_lobby: std::collections::HashMap<ConnId, String> = Default::default();
+        let mut tokens: Vec<(String, u64)> = Vec::new();
         for step in 0..1500 {
             let c = conns[rng.below(conns.len())];
             if !online.contains(&c) {
@@ -216,7 +217,7 @@ fn the_hub_keeps_its_rules_whatever_comes_in_whatever_order() {
             }
             // Mostly the moves of a table at play, now and then a drop: joins, readies and
             // relays weigh most, so whole tables form, start and talk.
-            const WEIGHTS: [usize; 16] = [1, 2, 6, 6, 1, 6, 3, 1, 1, 1, 8, 8, 1, 1, 1, 1];
+            const WEIGHTS: [usize; 17] = [1, 2, 6, 6, 1, 6, 3, 1, 1, 1, 8, 8, 1, 1, 1, 12, 3];
             let pick = {
                 let mut at = rng.below(WEIGHTS.iter().sum());
                 WEIGHTS
@@ -226,7 +227,7 @@ fn the_hub_keeps_its_rules_whatever_comes_in_whatever_order() {
                         at = at.saturating_sub(w);
                         hit
                     })
-                    .unwrap_or(15)
+                    .unwrap_or(16)
             };
             let msg = match pick {
                 0 => Up::Hello {
@@ -272,6 +273,17 @@ fn the_hub_keeps_its_rules_whatever_comes_in_whatever_order() {
                 12 => Up::List,
                 13 => Up::Ping(step),
                 14 => Up::SetLoadout(Default::default()),
+                // Back to a run, by a token some start gave (now and then a wrong one).
+                15 => {
+                    let (code, token) = tokens
+                        .get(rng.below(tokens.len() + 1))
+                        .cloned()
+                        .unwrap_or_else(|| ("ZZZZZ".into(), rng.next()));
+                    Up::Rejoin {
+                        code,
+                        token: if rng.below(4) == 0 { token ^ 1 } else { token },
+                    }
+                }
                 _ => {
                     // The connection drops.
                     let out = hub.disconnect(c);
@@ -304,7 +316,13 @@ fn the_hub_keeps_its_rules_whatever_comes_in_whatever_order() {
                     Down::Left(_) => {
                         in_lobby.remove(&s.to);
                     }
-                    Down::Started { .. } => runs += 1,
+                    Down::Started { token, .. } => {
+                        runs += 1;
+                        if let Some(code) = in_lobby.get(&s.to) {
+                            tokens.push((code.clone(), *token));
+                        }
+                    }
+                    Down::Rejoined => rejoins += 1,
                     Down::Relay { .. } => {
                         relays += 1;
                         // A relay reaches only the sender's own table.
@@ -323,6 +341,9 @@ fn the_hub_keeps_its_rules_whatever_comes_in_whatever_order() {
         assert!(hub.connection_count() <= conns.len());
     }
     // The fuzz reached the deep states, not only the refusals.
-    assert!(runs > 0 && relays > 0, "{runs} runs, {relays} relays");
-    println!("{runs} runs started, {relays} relays delivered");
+    assert!(
+        runs > 0 && relays > 0 && rejoins > 0,
+        "{runs} runs, {relays} relays, {rejoins} rejoins"
+    );
+    println!("{runs} runs started, {relays} relays delivered, {rejoins} seats rejoined");
 }

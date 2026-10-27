@@ -20,7 +20,8 @@ mod ui;
 use bevy::prelude::*;
 use survivors_net::game::{decode_batch, encode_batch, Game};
 use survivors_net::protocol::{
-    Down, LeftReason, Loadout, LobbySummary, LobbyView, Target, Up, LOBBY_PATH, PROTOCOL_VERSION,
+    Down, ErrorCode, LeftReason, Loadout, LobbySummary, LobbyView, Target, Up, LOBBY_PATH,
+    PROTOCOL_VERSION,
 };
 use survivors_net::settings::{clean_name, Settings, MAX_PLAYER_NAME};
 use survivors_net::Wire;
@@ -34,7 +35,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<client::Replicas>()
         .init_resource::<host::Replicator>()
         .init_resource::<Party>()
-        .add_systems(PreUpdate, pump)
+        .add_systems(PreUpdate, (pump, retry_rejoin).chain())
         .add_systems(Last, flush)
         .add_systems(Update, start_session.before(super::sync::begin_run))
         .add_systems(OnEnter(Phase::Menu), left_run)
@@ -74,6 +75,30 @@ pub(super) struct Net {
     started: Option<u64>,
     /// Relay frames this frame produced, sent once at its end ([`flush`]).
     pub outbox: Vec<Up>,
+    /// This seat's token for the run in play ([`Down::Started`]), to take it back by.
+    token: Option<u64>,
+    /// The connection dropped during a run: trying to get back to it.
+    pub rejoin: Option<Rejoin>,
+    /// The seat is back ([`Down::Rejoined`]): the copies are cleared and the world asked for.
+    pub resync: bool,
+}
+
+/// A guest on its way back to a run it dropped out of.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Rejoin {
+    pub code: String,
+    token: u64,
+    /// Tries made, from 0.
+    pub attempt: u32,
+    /// Seconds to the next.
+    wait: f32,
+}
+
+/// Tries before a guest gives up on its run, and the wait before each: a second, doubling, at
+/// most eight; about a minute in all.
+pub(super) const REJOIN_TRIES: u32 = 10;
+pub(super) fn rejoin_wait(attempt: u32) -> f32 {
+    (2f32.powi(attempt.min(3) as i32)).min(8.0)
 }
 
 impl Net {
@@ -95,6 +120,9 @@ impl Net {
             queued: Vec::new(),
             started: None,
             outbox: Vec::new(),
+            token: None,
+            rejoin: None,
+            resync: false,
         }
     }
 
@@ -245,7 +273,32 @@ fn pump(
                 handle(down, &mut net, &mut session, *phase.get(), &mut next);
             }
             SocketEvent::Closed(why) => {
-                let was_in = net.lobby.is_some();
+                // A guest in a run keeps playing its copy and tries to get back to its seat.
+                let in_run = session.mode == Mode::Client
+                    && matches!(phase.get(), Phase::Playing | Phase::LevelUp | Phase::Paused);
+                let code = net
+                    .rejoin
+                    .as_ref()
+                    .map(|r| r.code.clone())
+                    .or_else(|| net.lobby.as_ref().map(|l| l.code.clone()));
+                if let (true, Some(token), Some(code)) = (in_run, net.token, code) {
+                    let attempt = net.rejoin.as_ref().map_or(0, |r| r.attempt + 1);
+                    if attempt < REJOIN_TRIES {
+                        net.disconnect();
+                        net.token = Some(token);
+                        net.rejoin = Some(Rejoin {
+                            code,
+                            token,
+                            attempt,
+                            wait: rejoin_wait(attempt),
+                        });
+                        net.notice = Some(format!("Connection lost ({why}): rejoining…"));
+                        break;
+                    }
+                }
+                let was_in = net.lobby.is_some() || net.rejoin.is_some();
+                net.rejoin = None;
+                net.token = None;
                 net.disconnect();
                 net.notice = Some(if was_in {
                     format!("Disconnected from the lobby: {why}")
@@ -258,6 +311,23 @@ fn pump(
         }
     }
     session.in_lobby = net.lobby.is_some();
+}
+
+/// A guest on its way back to its run connects again when its wait is up.
+fn retry_rejoin(time: Res<Time<Real>>, mut net: ResMut<Net>) {
+    let dt = time.delta_secs();
+    let due = match net.rejoin.as_mut() {
+        Some(r) if r.wait > 0.0 => {
+            r.wait -= dt;
+            r.wait <= 0.0
+        }
+        _ => false,
+    };
+    if due && net.status == Status::Offline {
+        let notice = net.notice.clone();
+        net.connect();
+        net.notice = notice;
+    }
 }
 
 /// The frame's relay frames go out; with no connection they are dropped.
@@ -328,6 +398,16 @@ fn handle(
     match down {
         Down::Welcome { .. } => {
             net.status = Status::Online;
+            // Back to the seat first, by its token.
+            if let (Some(r), Some(s)) = (&net.rejoin, &net.socket) {
+                s.send(
+                    Up::Rejoin {
+                        code: r.code.clone(),
+                        token: r.token,
+                    }
+                    .encode(),
+                );
+            }
             let queued: Vec<Up> = std::mem::take(&mut net.queued);
             if let Some(s) = &net.socket {
                 for up in queued {
@@ -343,13 +423,28 @@ fn handle(
             }
         }
         Down::Lobbies(list) => net.lobbies = list,
-        Down::Started { seed } => {
+        Down::Started { seed, token } => {
+            net.token = Some(token);
             // Whatever came before belongs to no run; what follows in this same read is the new
             // run's first stream, and must survive until the run begins.
             net.inbox.clear();
             net.started = Some(seed);
         }
+        Down::Rejoined => {
+            net.rejoin = None;
+            net.notice = None;
+            net.resync = true;
+        }
+        Down::Error(ErrorCode::CannotRejoin) if net.rejoin.is_some() => {
+            // The run ended, or the host gave the seat up: back to the menu.
+            net.rejoin = None;
+            net.token = None;
+            net.disconnect();
+            net.notice = Some(ErrorCode::CannotRejoin.message().to_string());
+            drop_out(session, phase, next);
+        }
         Down::Ended => {
+            net.token = None;
             if matches!(
                 phase,
                 Phase::Playing | Phase::LevelUp | Phase::Paused | Phase::GameOver
@@ -366,6 +461,7 @@ fn handle(
         }
         Down::Left(reason) => {
             net.lobby = None;
+            net.token = None;
             net.notice = match reason {
                 LeftReason::Left => None,
                 LeftReason::Kicked => Some("The host removed you from the lobby.".into()),
@@ -1160,6 +1256,200 @@ mod tests {
                 assert_eq!(copy_hp, *hp, "seed {seed}: unit {g}'s health");
             }
         }
+    }
+
+    /// The host's units, by guid: where each stands and its health.
+    fn host_units(
+        host: &App,
+        alive: &[(Entity, u64)],
+    ) -> std::collections::HashMap<u64, (Vec3, u32)> {
+        alive
+            .iter()
+            .map(|&(e, g)| {
+                let w = host.world();
+                let hp = w
+                    .get::<ObjectStore>(e)
+                    .unwrap()
+                    .0
+                    .raw_fields()
+                    .find(|(i, _)| *i == 22)
+                    .map_or(0, |(_, v)| v);
+                (g, (w.get::<Transform>(e).unwrap().translation, hp))
+            })
+            .collect()
+    }
+
+    /// The guest's copies, by guid: the newest place the host sent and the health.
+    fn guest_units(guest: &mut App) -> std::collections::HashMap<u64, (Option<Vec3>, u32)> {
+        let mut q = guest
+            .world_mut()
+            .query::<(&Guid, &ObjectStore, Option<&client::Replica>)>();
+        q.iter(guest.world())
+            .map(|(g, store, rep)| {
+                let hp = store
+                    .0
+                    .raw_fields()
+                    .find(|(i, _)| *i == 22)
+                    .map_or(0, |(_, v)| v);
+                (g.0, (rep.and_then(|r| r.newest()), hp))
+            })
+            .collect()
+    }
+
+    /// A guest that dropped out and came back holds nothing; the host's snapshot to its seat alone
+    /// gives it the whole world, and the stream after keeps it the host's, as for a guest that
+    /// never left.
+    #[test]
+    fn a_guest_back_from_a_drop_gets_the_whole_world() {
+        let mut whims = Whims(0x00BA_C4ED);
+        let mut host = world(Mode::Host, 0);
+        host.add_systems(Update, host::stream);
+        host.insert_resource(FxLog::default());
+        let mut alive: Vec<(Entity, u64)> = Vec::new();
+        let mut next_guid = 5000u64;
+        let mut churn = |host: &mut App, whims: &mut Whims, alive: &mut Vec<(Entity, u64)>| {
+            for _ in 0..whims.below(3) {
+                let e = host.world_mut().spawn((unit(next_guid, 100), Hostile)).id();
+                alive.push((e, next_guid));
+                next_guid += 1;
+            }
+            if !alive.is_empty() && whims.below(3) == 0 {
+                let (e, _) = alive.swap_remove(whims.below(alive.len() as u64) as usize);
+                host.world_mut().despawn(e);
+            }
+            for &(e, _) in alive.iter() {
+                if whims.below(2) == 0 {
+                    host.world_mut()
+                        .get_mut::<Transform>(e)
+                        .unwrap()
+                        .translation += Vec3::new(whims.below(10) as f32 / 20.0, 0.0, 0.1);
+                }
+                if whims.below(5) == 0 {
+                    let hp = 1 + whims.below(100) as u32;
+                    host.world_mut()
+                        .get_mut::<ObjectStore>(e)
+                        .unwrap()
+                        .0
+                        .merge(ObjectFields::from_pairs(&[(22, hp)]));
+                }
+            }
+            host.world_mut().resource_mut::<Run>().elapsed += host::TICK;
+            host.world_mut().resource_mut::<host::Replicator>().due();
+            host.update();
+        };
+        // A run well under way, with no one to see it: its frames go nowhere.
+        for _ in 0..120 {
+            churn(&mut host, &mut whims, &mut alive);
+            frames_for_guest(&mut host);
+        }
+        assert!(alive.len() > 20);
+
+        // The guest comes back with nothing and asks for the world.
+        let mut back = world(Mode::Client, 1);
+        back.add_systems(Update, client::receive);
+        host.world_mut()
+            .resource_mut::<host::Replicator>()
+            .ask_resync(1);
+        churn(&mut host, &mut whims, &mut alive);
+        for data in frames_for_guest(&mut host) {
+            arrive(&mut back, 0, &data);
+        }
+        back.update();
+        let (want, got) = (host_units(&host, &alive), guest_units(&mut back));
+        assert_eq!(
+            got.keys().collect::<std::collections::BTreeSet<_>>(),
+            want.keys().collect::<std::collections::BTreeSet<_>>(),
+            "the snapshot brings every unit"
+        );
+        // And the stream goes on from there.
+        for _ in 0..60 {
+            churn(&mut host, &mut whims, &mut alive);
+            for data in frames_for_guest(&mut host) {
+                arrive(&mut back, 0, &data);
+            }
+            back.update();
+        }
+        let (want, got) = (host_units(&host, &alive), guest_units(&mut back));
+        assert_eq!(
+            got.keys().collect::<std::collections::BTreeSet<_>>(),
+            want.keys().collect::<std::collections::BTreeSet<_>>()
+        );
+        for (g, (pos, hp)) in &want {
+            let (copy, copy_hp) = got[g];
+            let copy = copy.expect("a copy is drawn from the host's track");
+            assert!(copy.distance(*pos) < 0.05, "unit {g}: {copy} vs {pos}");
+            assert_eq!(copy_hp, *hp, "unit {g}'s health");
+        }
+        // The snapshot was the rejoining seat's alone.
+        host.world_mut()
+            .resource_mut::<host::Replicator>()
+            .ask_resync(1);
+        churn(&mut host, &mut whims, &mut alive);
+        let outbox = std::mem::take(&mut host.world_mut().resource_mut::<Net>().outbox);
+        let snapshots: Vec<&Up> = outbox
+            .iter()
+            .filter(|u| {
+                matches!(u, Up::Relay { to: Target::Slot(1), data }
+                    if decode_batch(data).iter().filter(|g| matches!(g, Game::Spawn(_))).count() == alive.len())
+            })
+            .collect();
+        assert_eq!(snapshots.len(), 1, "one snapshot, to seat 1");
+    }
+
+    /// Back in the run, a guest drops every stale copy (its own hero's too) and asks for the world.
+    #[test]
+    fn a_rejoined_guest_starts_over_and_asks_for_the_world() {
+        let mut host = world(Mode::Host, 0);
+        host.add_systems(Update, host::stream);
+        let mut guest = world(Mode::Client, 1);
+        guest.add_systems(Update, (client::rejoined, client::receive).chain());
+        let class = &data::CLASSES[7];
+        host.world_mut().spawn((unit(100, 100), Hostile));
+        host.world_mut().spawn((
+            unit(200, 100),
+            HeroState {
+                slot: 1,
+                v: Vitals::new(class, 2),
+            },
+        ));
+        host.world_mut().resource_mut::<host::Replicator>().due();
+        host.update();
+        deliver(&mut host, &mut guest);
+        guest.update();
+        assert!(by_guid(&mut guest, 100).is_some() && by_guid(&mut guest, 200).is_some());
+
+        guest.world_mut().resource_mut::<Net>().resync = true;
+        guest.update();
+        assert!(by_guid(&mut guest, 100).is_none(), "stale copies go");
+        assert!(
+            by_guid(&mut guest, 200).is_none(),
+            "its own hero too, to come back whole"
+        );
+        let asked = guest
+            .world()
+            .resource::<Net>()
+            .outbox
+            .iter()
+            .any(|u| matches!(u, Up::Relay { to: Target::Host, data } if decode_batch(data) == vec![Game::Resync]));
+        assert!(asked, "the host is asked for the world");
+        assert!(!guest.world().resource::<Net>().resync, "once");
+    }
+
+    #[test]
+    fn an_away_hero_is_harmed_by_nothing_and_rejoins_are_paced() {
+        let mut v = Vitals::new(&data::CLASSES[0], 1);
+        v.away = true;
+        let hp = v.hp;
+        assert_eq!(crate::survivors::hero::hurt_hero(&mut v, 500.0), 0.0);
+        assert_eq!(v.hp, hp);
+        v.away = false;
+        assert!(crate::survivors::hero::hurt_hero(&mut v, 5.0) > 0.0);
+        // A second, then doubling to eight: about a minute before giving up.
+        let waits: Vec<f32> = (0..REJOIN_TRIES).map(rejoin_wait).collect();
+        assert_eq!(&waits[..4], &[1.0, 2.0, 4.0, 8.0]);
+        assert!(waits.iter().all(|w| *w <= 8.0));
+        let total: f32 = waits.iter().sum();
+        assert!((45.0..=90.0).contains(&total), "{total}");
     }
 
     #[test]

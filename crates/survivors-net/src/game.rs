@@ -348,6 +348,8 @@ pub enum Game {
         spell: u32,
         effect: MobilityEffect,
     },
+    /// The client came back to the run with nothing: the host sends it the whole world again.
+    Resync,
 }
 
 /// A tick's messages in one relay frame: each one length-prefixed, so the server forwards one
@@ -914,6 +916,9 @@ impl Wire for Game {
                 w.u8(15).u32(*spell);
                 effect.put(w);
             }
+            Game::Resync => {
+                w.u8(18);
+            }
         }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
@@ -1076,6 +1081,7 @@ impl Wire for Game {
                 spell: r.u32()?,
                 effect: MobilityEffect::get(r)?,
             },
+            18 => Game::Resync,
             t => return Err(WireError::BadTag(t)),
         })
     }
@@ -1304,6 +1310,7 @@ pub(crate) mod tests {
                 }],
             },
             Game::Loaded,
+            Game::Resync,
             Game::Input {
                 t: 12.5,
                 motion: motion(),

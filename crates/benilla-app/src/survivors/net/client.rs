@@ -35,7 +35,7 @@ const LOADED_AFTER: f32 = 1.0;
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        (receive, arrive, interpolate)
+        (rejoined, receive, arrive, interpolate)
             .chain()
             .after(WorldStage::Input)
             .run_if(is_client),
@@ -568,9 +568,42 @@ pub(super) fn receive(
             | Game::Card(_)
             | Game::ShrineChoice(_)
             | Game::Buy { .. }
-            | Game::Mobility { .. } => {}
+            | Game::Mobility { .. }
+            | Game::Resync => {}
         }
     }
+}
+
+/// Back in the run after a dropped connection: everything the copy held is stale, so it goes,
+/// the guest's own hero with it, and the host is asked for the whole world again, which its next
+/// tick sends (`host::stream`).
+pub(super) fn rejoined(
+    mut commands: Commands,
+    mut net: ResMut<Net>,
+    mut reps: ResMut<Replicas>,
+    mut run: ResMut<Run>,
+) {
+    // While it tries, the run says so.
+    if net.rejoin.is_some() {
+        run.banner = Some(("Connection lost: rejoining…".into(), 0.5));
+    }
+    if !std::mem::take(&mut net.resync) {
+        return;
+    }
+    for (_, e) in reps.by_guid.drain() {
+        commands.entity(e).try_despawn();
+    }
+    // The stage and the load stand as they were; the host's clock is met anew.
+    let leg = reps.leg;
+    let loaded_sent = reps.loaded_sent;
+    *reps = Replicas {
+        leg,
+        loaded_sent,
+        ..Replicas::default()
+    };
+    net.inbox.clear();
+    net.relay(Target::Host, &[Game::Resync]);
+    run.banner = Some(("You are back in the run.".into(), 3.0));
 }
 
 /// The local hero steps over to a new stage's battleground.

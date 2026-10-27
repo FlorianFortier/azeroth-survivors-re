@@ -465,6 +465,9 @@ pub(super) struct Vitals {
     pub heal_t: f32,
     /// Seconds to the next nova of a run item's (`data::ItemEffect::Nova`); the simulation's.
     pub nova_t: f32,
+    /// The hero's player dropped out of a multiplayer run and has not rejoined: the hero stands
+    /// where it was, harmed by nothing and doing nothing, and counts as down for the loss.
+    pub away: bool,
     /// The class mobility's cooldown and running effect. Owned by the machine that moves the
     /// hero: the simulation only reads it.
     mobile: mobility::MobilityState,
@@ -533,6 +536,7 @@ impl Default for Vitals {
             heal_rate: 0.0,
             heal_t: 0.0,
             nova_t: 0.0,
+            away: false,
             mobile: mobility::MobilityState::default(),
             pending_levels: 0,
             dead_t: None,

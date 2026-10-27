@@ -46,9 +46,15 @@ struct Conn {
 }
 
 struct Seat {
-    conn: ConnId,
+    /// None while the seat's player is away: their connection dropped during the run, and the
+    /// seat waits for them to [`Up::Rejoin`].
+    conn: Option<ConnId>,
+    /// The player's name, kept for the seat while they are away.
+    name: String,
     loadout: Loadout,
     ready: bool,
+    /// This run's rejoin token for the seat, 0 outside a run.
+    token: u64,
 }
 
 struct Lobby {
@@ -60,7 +66,7 @@ struct Lobby {
 
 impl Lobby {
     fn host(&self) -> Option<ConnId> {
-        self.seats[0].as_ref().map(|s| s.conn)
+        self.seats[0].as_ref().and_then(|s| s.conn)
     }
     fn count(&self) -> usize {
         self.seats.iter().flatten().count()
@@ -68,14 +74,14 @@ impl Lobby {
     fn slot_of(&self, conn: ConnId) -> Option<Slot> {
         self.seats
             .iter()
-            .position(|s| s.as_ref().is_some_and(|s| s.conn == conn))
+            .position(|s| s.as_ref().is_some_and(|s| s.conn == Some(conn)))
             .map(|i| i as Slot)
     }
     fn conns(&self) -> impl Iterator<Item = (Slot, ConnId)> + '_ {
         self.seats
             .iter()
             .enumerate()
-            .filter_map(|(i, s)| s.as_ref().map(|s| (i as Slot, s.conn)))
+            .filter_map(|(i, s)| s.as_ref().and_then(|s| s.conn).map(|c| (i as Slot, c)))
     }
 }
 
@@ -135,11 +141,30 @@ impl Hub {
         );
     }
 
-    /// The connection is gone: it leaves its lobby as if it had asked to.
+    /// The connection is gone: it leaves its lobby as if it had asked to, except a guest's seat
+    /// in a run, which is kept away for its player to rejoin by its token.
     pub fn disconnect(&mut self, conn: ConnId) -> Vec<Send> {
         let mut out = Vec::new();
-        self.leave(conn, LeftReason::Left, false, &mut out);
-        self.conns.remove(&conn);
+        let in_run = self
+            .seat_of(conn)
+            .filter(|(code, slot)| *slot != 0 && self.lobbies[code].state == LobbyState::InRun);
+        match in_run {
+            Some((code, slot)) => {
+                if let Some(seat) = self
+                    .lobbies
+                    .get_mut(&code)
+                    .and_then(|l| l.seats[slot as usize].as_mut())
+                {
+                    seat.conn = None;
+                }
+                self.conns.remove(&conn);
+                self.broadcast_view(&code, &mut out);
+            }
+            None => {
+                self.leave(conn, LeftReason::Left, false, &mut out);
+                self.conns.remove(&conn);
+            }
+        }
         out
     }
 
@@ -227,11 +252,14 @@ impl Hub {
                     return out;
                 }
                 let code = self.new_code();
+                let name = self.conns[&conn].name.clone().unwrap_or_default();
                 let mut seats: [Option<Seat>; MAX_PLAYERS as usize] = Default::default();
                 seats[0] = Some(Seat {
-                    conn,
+                    conn: Some(conn),
+                    name,
                     loadout,
                     ready: false,
+                    token: 0,
                 });
                 self.lobbies.insert(
                     code.clone(),
@@ -268,11 +296,14 @@ impl Hub {
                     return out;
                 };
                 self.leave(conn, LeftReason::Left, true, &mut out);
+                let name = self.conns[&conn].name.clone().unwrap_or_default();
                 if let Some(l) = self.lobbies.get_mut(&code) {
                     l.seats[slot] = Some(Seat {
-                        conn,
+                        conn: Some(conn),
+                        name,
                         loadout,
                         ready: false,
+                        token: 0,
                     });
                 }
                 if let Some(c) = self.conns.get_mut(&conn) {
@@ -368,7 +399,16 @@ impl Hub {
                     .and_then(|s| s.as_ref())
                     .map(|s| s.conn);
                 match victim {
-                    Some(v) if target != 0 => self.leave(v, LeftReason::Kicked, true, &mut out),
+                    Some(Some(v)) if target != 0 => {
+                        self.leave(v, LeftReason::Kicked, true, &mut out)
+                    }
+                    // A seat whose player is away: given up, for good.
+                    Some(None) if target != 0 => {
+                        if let Some(l) = self.lobbies.get_mut(&code) {
+                            l.seats[target as usize] = None;
+                        }
+                        self.broadcast_view(&code, &mut out);
+                    }
                     _ => err(&mut out, ErrorCode::BadState),
                 }
             }
@@ -398,12 +438,29 @@ impl Hub {
                     return out;
                 }
                 l.state = LobbyState::InRun;
-                let to: Vec<ConnId> = l.conns().map(|(_, c)| c).collect();
+                let slots: Vec<usize> = (0..l.seats.len())
+                    .filter(|&i| l.seats[i].is_some())
+                    .collect();
+                // Each seat's own rejoin token, never 0.
+                let tokens: Vec<u64> = slots.iter().map(|_| self.next() | 1).collect();
+                let l = self
+                    .lobbies
+                    .get_mut(&code)
+                    .expect("seat_of names a live lobby");
+                let mut to: Vec<(ConnId, u64)> = Vec::new();
+                for (&i, &token) in slots.iter().zip(&tokens) {
+                    if let Some(seat) = l.seats[i].as_mut() {
+                        seat.token = token;
+                        if let Some(c) = seat.conn {
+                            to.push((c, token));
+                        }
+                    }
+                }
                 self.broadcast_view(&code, &mut out);
-                for c in to {
+                for (c, token) in to {
                     out.push(Send {
                         to: c,
-                        msg: Down::Started { seed },
+                        msg: Down::Started { seed, token },
                     });
                 }
             }
@@ -425,8 +482,15 @@ impl Hub {
                     return out;
                 }
                 l.state = LobbyState::Open;
+                // A seat still away when the run ends is given up; the others' tokens expire.
+                for seat in l.seats.iter_mut() {
+                    if seat.as_ref().is_some_and(|s| s.conn.is_none()) {
+                        *seat = None;
+                    }
+                }
                 for seat in l.seats.iter_mut().flatten() {
                     seat.ready = false;
+                    seat.token = 0;
                 }
                 let to: Vec<ConnId> = l.conns().map(|(_, c)| c).collect();
                 for c in to {
@@ -435,6 +499,44 @@ impl Hub {
                         msg: Down::Ended,
                     });
                 }
+                self.broadcast_view(&code, &mut out);
+            }
+            Up::Rejoin { code, token } => {
+                let code = normalize_code(&code);
+                let seat = self.lobbies.get(&code).and_then(|l| {
+                    (l.state == LobbyState::InRun && token != 0)
+                        .then(|| {
+                            l.seats.iter().position(|s| {
+                                s.as_ref()
+                                    .is_some_and(|s| s.conn.is_none() && s.token == token)
+                            })
+                        })
+                        .flatten()
+                });
+                let Some(slot) = seat else {
+                    err(&mut out, ErrorCode::CannotRejoin);
+                    return out;
+                };
+                // Out of wherever this connection sat, into its seat again.
+                self.leave(conn, LeftReason::Left, true, &mut out);
+                let name = self.conns[&conn].name.clone();
+                if let Some(seat) = self
+                    .lobbies
+                    .get_mut(&code)
+                    .and_then(|l| l.seats[slot].as_mut())
+                {
+                    seat.conn = Some(conn);
+                    if let Some(name) = name {
+                        seat.name = name;
+                    }
+                }
+                if let Some(c) = self.conns.get_mut(&conn) {
+                    c.lobby = Some(code.clone());
+                }
+                out.push(Send {
+                    to: conn,
+                    msg: Down::Rejoined,
+                });
                 self.broadcast_view(&code, &mut out);
             }
             Up::Relay { to, data } => {
@@ -457,7 +559,7 @@ impl Hub {
                         .seats
                         .get(s as usize)
                         .and_then(|x| x.as_ref())
-                        .map(|x| x.conn)
+                        .and_then(|x| x.conn)
                         .into_iter()
                         .filter(|&c| c != conn)
                         .collect(),
@@ -533,13 +635,10 @@ impl Hub {
             .filter_map(|(i, s)| {
                 s.as_ref().map(|s| Member {
                     slot: i as Slot,
-                    name: self
-                        .conns
-                        .get(&s.conn)
-                        .and_then(|c| c.name.clone())
-                        .unwrap_or_default(),
+                    name: s.name.clone(),
                     loadout: s.loadout.clone(),
                     ready: s.ready,
+                    away: s.conn.is_none(),
                 })
             })
             .collect();
@@ -724,6 +823,152 @@ mod tests {
         assert!(v.members.iter().all(|m| !m.ready));
     }
 
+    /// The rejoin token a start gave `conn`.
+    fn token_of(out: &[Send], conn: ConnId) -> u64 {
+        out.iter()
+            .find_map(|s| match s.msg {
+                Down::Started { token, .. } if s.to == conn => Some(token),
+                _ => None,
+            })
+            .expect("a start for that connection")
+    }
+
+    /// A host (1) and two guests (2, 3) in a run, and the guests' tokens.
+    fn table_in_a_run(h: &mut Hub) -> (String, u64, u64) {
+        hello(h, 1, "Host");
+        hello(h, 2, "Guest");
+        hello(h, 3, "Third");
+        let code = create(h, Settings::default());
+        join(h, 2, &code);
+        join(h, 3, &code);
+        h.handle(2, Up::SetReady(true));
+        h.handle(3, Up::SetReady(true));
+        let out = h.handle(1, Up::Start);
+        let (t2, t3) = (token_of(&out, 2), token_of(&out, 3));
+        assert!(t2 != 0 && t3 != 0 && t2 != t3, "each seat its own token");
+        (code, t2, t3)
+    }
+
+    #[test]
+    fn a_guest_who_drops_in_a_run_keeps_their_seat_and_rejoins_by_token() {
+        let mut h = hub();
+        let (code, t2, t3) = table_in_a_run(&mut h);
+        // The guest's connection drops: its seat stays, away, under its name.
+        let out = h.disconnect(2);
+        let v = view_for(&out, 1);
+        let m = v
+            .members
+            .iter()
+            .find(|m| m.slot == 1)
+            .expect("the seat stays");
+        assert!(m.away && m.name == "Guest");
+        assert!(!v.members.iter().find(|m| m.slot == 2).unwrap().away);
+        // Nothing goes to an away seat.
+        let out = h.handle(
+            1,
+            Up::Relay {
+                to: Target::Slot(1),
+                data: vec![1],
+            },
+        );
+        assert!(out.is_empty());
+        // A new connection: a wrong token, another seat's token, a token for no run are refused.
+        hello(&mut h, 5, "Guest");
+        for (c, t) in [
+            (code.as_str(), t2 ^ 1),
+            (code.as_str(), t3),
+            ("ZZZZZ", t2),
+            (code.as_str(), 0),
+        ] {
+            let out = h.handle(
+                5,
+                Up::Rejoin {
+                    code: c.into(),
+                    token: t,
+                },
+            );
+            assert_eq!(errors(&out, 5), vec![ErrorCode::CannotRejoin], "{c} {t}");
+        }
+        // The right one takes the seat back: the same seat, no longer away.
+        let out = h.handle(
+            5,
+            Up::Rejoin {
+                code: code.to_lowercase(),
+                token: t2,
+            },
+        );
+        assert!(out.iter().any(|s| s.to == 5 && s.msg == Down::Rejoined));
+        let mine = view_for(&out, 5);
+        assert_eq!(mine.you, 1);
+        assert!(mine.members.iter().all(|m| !m.away));
+        assert!(!view_for(&out, 1).members[1].away);
+        // And its relays flow from that seat again.
+        let out = h.handle(
+            5,
+            Up::Relay {
+                to: Target::Host,
+                data: vec![7],
+            },
+        );
+        assert_eq!(
+            out,
+            vec![Send {
+                to: 1,
+                msg: Down::Relay {
+                    from: 1,
+                    data: vec![7]
+                }
+            }]
+        );
+        // A token is good once: the seat is taken now.
+        hello(&mut h, 6, "Impostor");
+        let out = h.handle(6, Up::Rejoin { code, token: t2 });
+        assert_eq!(errors(&out, 6), vec![ErrorCode::CannotRejoin]);
+    }
+
+    #[test]
+    fn an_away_seat_is_given_up_when_the_run_ends_or_the_host_kicks_it() {
+        let mut h = hub();
+        let (code, t2, t3) = table_in_a_run(&mut h);
+        h.disconnect(2);
+        h.disconnect(3);
+        // The host gives up on one.
+        let out = h.handle(1, Up::Kick(2));
+        assert_eq!(view_for(&out, 1).members.len(), 2);
+        hello(&mut h, 5, "Third");
+        let out = h.handle(
+            5,
+            Up::Rejoin {
+                code: code.clone(),
+                token: t3,
+            },
+        );
+        assert_eq!(errors(&out, 5), vec![ErrorCode::CannotRejoin]);
+        // The run ends: the other away seat goes too, and its token with it.
+        let out = h.handle(1, Up::EndRun);
+        let v = view_for(&out, 1);
+        assert_eq!(v.members.len(), 1, "{v:?}");
+        let out = h.handle(5, Up::Rejoin { code, token: t2 });
+        assert_eq!(errors(&out, 5), vec![ErrorCode::CannotRejoin]);
+    }
+
+    #[test]
+    fn leaving_on_purpose_frees_the_seat_and_a_host_dropping_closes_the_run() {
+        let mut h = hub();
+        let (code, t2, _) = table_in_a_run(&mut h);
+        // A guest who leaves is gone, not away.
+        let out = h.handle(3, Up::Leave);
+        assert_eq!(view_for(&out, 1).members.len(), 2);
+        // The host's connection drops: the run is over for everyone, and no seat waits.
+        h.disconnect(2);
+        let out = h.disconnect(1);
+        assert!(out.is_empty() || out.iter().all(|s| s.to != 1));
+        hello(&mut h, 5, "Guest");
+        let out = h.handle(5, Up::Rejoin { code, token: t2 });
+        assert_eq!(errors(&out, 5), vec![ErrorCode::CannotRejoin]);
+        assert_eq!(h.lobby_count(), 0);
+    }
+
     #[test]
     fn start_needs_everyone_ready_then_relays_flow() {
         let mut h = hub();
@@ -755,7 +1000,7 @@ mod tests {
         let seeds: Vec<u64> = out
             .iter()
             .filter_map(|s| match s.msg {
-                Down::Started { seed } => Some(seed),
+                Down::Started { seed, .. } => Some(seed),
                 _ => None,
             })
             .collect();

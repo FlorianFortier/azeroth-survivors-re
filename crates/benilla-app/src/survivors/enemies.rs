@@ -412,9 +412,10 @@ pub(super) fn move_enemies(
     if dt <= 0.0 {
         return;
     }
+    // An away hero is no one's quarry, a boss's neither.
     let quarry: Vec<Quarry> = heroes
         .iter()
-        .filter(|(_, _, h)| h.alive())
+        .filter(|(_, _, h)| h.alive() && !h.away)
         .map(|(e, t, h)| Quarry {
             e,
             pos: t.translation,
@@ -801,7 +802,7 @@ pub(super) fn collect_gems(
     vacuum.0 = (vacuum.0 - dt).max(0.0);
     let catchers: Vec<(Entity, Vec3, f32)> = heroes
         .iter()
-        .filter(|(_, _, h)| h.alive())
+        .filter(|(_, _, h)| h.alive() && !h.away)
         .map(|(e, t, h)| (e, t.translation, h.stats().magnet))
         .collect();
     if catchers.is_empty() {

@@ -1141,6 +1141,7 @@ fn refresh_party(
     mut commands: Commands,
     session: Res<Session>,
     party: Res<Party>,
+    net: Res<Net>,
     font: Res<HudFont>,
     root: Query<Entity, With<PartyRoot>>,
     mut shown: Local<String>,
@@ -1153,16 +1154,23 @@ fn refresh_party(
         .iter()
         .filter(|m| m.slot != session.slot)
         .collect();
+    // A player whose connection dropped, by the lobby's word.
+    let away = |slot: u8| {
+        net.lobby
+            .as_ref()
+            .is_some_and(|l| l.members.iter().any(|m| m.slot == slot && m.away))
+    };
     let sig = others
         .iter()
         .map(|m| {
             format!(
-                "{}:{}:{}:{}:{}",
+                "{}:{}:{}:{}:{}:{}",
                 m.slot,
                 m.level,
                 m.hp.round(),
                 m.max_hp.round(),
-                m.dead
+                m.dead,
+                away(m.slot)
             )
         })
         .collect::<Vec<_>>()
@@ -1218,7 +1226,9 @@ fn refresh_party(
                         BackgroundColor(if m.dead { DIM } else { GREEN }),
                     ));
                 });
-                if m.dead {
+                if away(m.slot) {
+                    c.spawn(text(f, crate::survivors::lang::tr("Away"), 12.0, DIM));
+                } else if m.dead {
                     c.spawn(text(f, "Fallen", 12.0, RED));
                 }
             });
