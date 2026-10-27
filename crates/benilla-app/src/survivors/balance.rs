@@ -262,7 +262,7 @@ fn pilot(app: &mut App, t: f32) {
         };
         // In a portal, standing is the point: the crowd matters less than the charge.
         let in_gate = gate.is_some_and(|g| super::units::flat(g - at).length() < data::PORTAL_RADIUS);
-        let caution = if in_gate { caution * 0.5 } else { caution };
+        let caution = if gate.is_some() { caution * 0.5 } else { caution };
         let mut best = (f32::INFINITY, Vec3::ZERO);
         for k in 0..=16 {
             // Sixteen headings, and standing still.
@@ -274,8 +274,11 @@ fn pilot(app: &mut App, t: f32) {
             };
             let ahead = at + dir * speed * LOOK_SECS;
             let mut score = (danger(ahead) + danger(at + dir * speed * 0.5)) * caution;
-            let off = super::units::flat(ahead - center).length();
-            score += ((off - KITE_RADIUS).max(0.0) / 10.0).powi(2);
+            // Near the middle, unless it has somewhere to go.
+            if goal.is_none() {
+                let off = super::units::flat(ahead - center).length();
+                score += ((off - KITE_RADIUS).max(0.0) / 10.0).powi(2);
+            }
             match (gate, goal) {
                 // A portal wants the hero inside it while it charges, moving or not.
                 (Some(g), _) => {
