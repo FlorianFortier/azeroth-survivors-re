@@ -1590,7 +1590,7 @@ pub(super) fn refresh_hud(
         Some((msg, t)) => {
             *t -= time.delta_secs();
             if *t > 0.0 {
-                msg.clone()
+                super::lang::tr(msg).to_string()
             } else {
                 String::new()
             }
