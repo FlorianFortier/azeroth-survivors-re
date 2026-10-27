@@ -1169,11 +1169,12 @@ pub(super) fn menu_preview(
     mut shown: Local<
         Option<(
             usize,
-            u32,
+            (u32, u8, u8),
             usize,
             super::outfit::Appearance,
             bool,
             Vec<String>,
+            Option<u32>,
         )>,
     >,
 ) {
@@ -1185,9 +1186,10 @@ pub(super) fn menu_preview(
         .class
         .zip(selection.look.and_then(|i| selection.looks.get(i)).copied());
     let key = want.map(|(c, l)| {
+        // The whole look: a race opened in the Rewards tab borrows a display another race has.
         (
             c,
-            l.0,
+            l,
             selection.stage,
             selection.appearance,
             catalog.is_some() && displays.is_some(),
@@ -1197,6 +1199,7 @@ pub(super) fn menu_preview(
                 .iter()
                 .map(|i| i.name.clone())
                 .collect(),
+            store.profile.worn_tabard().map(|t| t.display),
         )
     });
     if key == *shown && (key.is_none() || !heroes.is_empty()) {
@@ -1222,6 +1225,7 @@ pub(super) fn menu_preview(
         selection.appearance,
         display,
         &store.profile.gear(),
+        store.profile.worn_tabard().map(|t| t.display),
         catalog.as_deref().map(|c| &c.0),
         displays.as_deref().map(|d| &d.catalog),
     );
@@ -1586,7 +1590,7 @@ pub(super) fn refresh_hud(
         Some((msg, t)) => {
             *t -= time.delta_secs();
             if *t > 0.0 {
-                msg.clone()
+                super::lang::tr(msg).to_string()
             } else {
                 String::new()
             }
@@ -2440,6 +2444,38 @@ pub(super) fn item_effect_text(e: data::ItemEffect) -> String {
             &[&pct(chance), &num(damage), &num(radius)],
         ),
         data::ItemEffect::KillHeal(hp) => trf("Each kill heals you for {}.", &[&num(hp)]),
+        data::ItemEffect::Ignite {
+            chance, dps, secs, ..
+        } => trf(
+            "{} chance on a hit to burn the foe for {} damage a second over {} sec.",
+            &[&pct(chance), &num(dps), &num(secs)],
+        ),
+        data::ItemEffect::Chill { chance, slow, secs } => trf(
+            "{} chance on a hit to slow the foe by {} for {} sec.",
+            &[&pct(chance), &pct(1.0 - slow), &num(secs)],
+        ),
+        data::ItemEffect::Execute(t) => trf(
+            "Your hits finish any foe but a boss they leave under {} health.",
+            &[&pct(t)],
+        ),
+        data::ItemEffect::Dodge(c) => trf("{} chance to dodge a blow.", &[&pct(c)]),
+        data::ItemEffect::KillShield { amount, max } => trf(
+            "Each kill shields you for {}, up to {}.",
+            &[&num(amount), &num(max)],
+        ),
+        data::ItemEffect::Nova {
+            every,
+            damage,
+            radius,
+            ..
+        } => trf(
+            "Every {} sec, a nova strikes everything within {} yd for {} damage.",
+            &[&num(every), &num(radius), &num(damage)],
+        ),
+        data::ItemEffect::Bounty { chance, gold } => trf(
+            "{} chance on a kill to find {} more gold.",
+            &[&pct(chance), &num(gold)],
+        ),
     }
 }
 

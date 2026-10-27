@@ -64,6 +64,8 @@ pub(super) struct Dying(f32);
 #[derive(Resource, Default)]
 pub(super) struct Spawner {
     timer: f32,
+    /// A surge was on at the last spawn, so its start is told once.
+    surging: bool,
 }
 
 /// While it runs, every gem on the field flies to the nearest hero: a stage's fall clears it.
@@ -270,6 +272,10 @@ pub(super) fn spawn_enemies(
         let n = ((28 + (rules.progress(elapsed) * 60.0) as usize) as f32 * rules.density).max(8.0)
             as usize;
         let n = (n / anchors.len()).max(8);
+        // Never past the frame's budget, however thick the ring.
+        let alive = enemies.iter().filter(|e| !e.dead).count();
+        let room = data::HARD_CROWD_CAP.saturating_sub(alive) / anchors.len();
+        let n = n.min(room);
         for &hpos in &anchors {
             for i in 0..n {
                 let a = i as f32 / n as f32 * std::f32::consts::TAU;
@@ -289,18 +295,32 @@ pub(super) fn spawn_enemies(
         return;
     }
     spawner.timer = 0.12;
+    // A surge is told as it begins; the final swarm is a surge of its own.
+    let surge = data::surging(elapsed) && run.swarm.is_none();
+    if surge && !spawner.surging {
+        run.banner = Some(("A wave is coming!".into(), 3.0));
+    }
+    spawner.surging = surge;
     let alive = enemies.iter().filter(|e| !e.dead).count();
     let target = rules.target_alive(elapsed);
     if alive >= target {
         return;
     }
+    let per_hero = if surge { 8.0 } else { 4.0 };
     let n = (((target - alive) as f32) / 6.0)
         .ceil()
-        .min(4.0 * anchors.len() as f32) as usize;
-    for _ in 0..n {
+        .min(per_hero * anchors.len() as f32) as usize;
+    // In a surge, the horde comes in packs from one side; otherwise from all around.
+    let mut pack: Option<(Vec3, f32)> = None;
+    for k in 0..n {
+        if surge && k % data::PACK_SIZE == 0 {
+            pack = Some((anchor(&mut rng), rng.range(0.0, std::f32::consts::TAU)));
+        }
+        let (hpos, a) = match pack {
+            Some((hpos, side)) => (hpos, side + rng.range(-0.35, 0.35)),
+            None => (anchor(&mut rng), rng.range(0.0, std::f32::consts::TAU)),
+        };
         let def = &roster.enemies[pool[rng.index(pool.len())]];
-        let hpos = anchor(&mut rng);
-        let a = rng.range(0.0, std::f32::consts::TAU);
         let r = rng.range(34.0, 42.0);
         let pos = ground(&world, hpos + Vec3::new(a.cos(), 0.0, a.sin()) * r, hpos.y);
         spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, None, false);
@@ -325,6 +345,7 @@ pub(super) fn move_enemies(
     mut enemies: Query<(Entity, &mut Transform, &mut Enemy, &mut MovementState), Without<Hero>>,
     mut fx: Fx,
     mut hits: MessageWriter<Hit>,
+    mut rng: ResMut<Rng>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -497,6 +518,11 @@ pub(super) fn move_enemies(
                 continue;
             };
             e.attack_cd = if e.boss { 1.0 } else { 1.3 };
+            // A run item's dodge: the swing comes, the blow does not.
+            if rng.f32() < dodge_chance(&hero) {
+                fx.swing(ent, hero_e, 0.0);
+                continue;
+            }
             let raw = e.damage * e.weaken;
             let taken = hero::hurt_hero(&mut hero.v, raw);
             fx.swing(ent, hero_e, taken);
@@ -532,6 +558,17 @@ pub(super) fn move_enemies(
             }
         }
     }
+}
+
+/// The chance a hero's items dodge a blow, all of them together, up to [`data::MAX_DODGE`].
+pub(super) fn dodge_chance(hero: &HeroState) -> f32 {
+    hero.item_effects()
+        .map(|e| match e {
+            data::ItemEffect::Dodge(c) => c,
+            _ => 0.0,
+        })
+        .sum::<f32>()
+        .min(data::MAX_DODGE)
 }
 
 /// Mark timers run down; the state kits reap with them.

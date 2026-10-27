@@ -241,6 +241,17 @@ fn french(s: &str) -> Option<&'static str> {
         "Run items: {}" => "Objets de la partie : {}",
         // The unit frames, the damage meter and the line under the clock.
         "Damage Done" => "Dégâts infligés",
+        "A wave is coming!" => "Une vague arrive !",
+        "They're surrounding you!" => "Ils vous encerclent !",
+        "The final swarm comes: hold out!" => "La nuée finale arrive : tenez bon !",
+        "Stage cleared! A portal onward has opened." => {
+            "Étape terminée ! Un portail vers la suite s'est ouvert."
+        }
+        "The boss portal is open: stand in it to call the boss." => {
+            "Le portail du boss est ouvert : tenez-vous dedans pour appeler le boss."
+        }
+        "Wave in {}" => "Vague dans {}",
+        "Wave!" => "Vague !",
         "Screen shake" => "Tremblement de l'écran",
         "Other" => "Autre",
         "{} ({}%)" => "{} ({} %)",
@@ -435,6 +446,25 @@ fn french(s: &str) -> Option<&'static str> {
             "{} de chances, à chaque victime, d'exploser pour {} points de dégâts à {} m."
         }
         "Each kill heals you for {}." => "Chaque victime vous rend {} points de vie.",
+        "{} chance on a hit to burn the foe for {} damage a second over {} sec." => {
+            "{} de chances qu'un coup embrase l'ennemi : {} dégâts par seconde pendant {} s."
+        }
+        "{} chance on a hit to slow the foe by {} for {} sec." => {
+            "{} de chances qu'un coup ralentisse l'ennemi de {} pendant {} s."
+        }
+        "Your hits finish any foe but a boss they leave under {} health." => {
+            "Vos coups achèvent tout ennemi, sauf un boss, qu'ils laissent sous {} de vie."
+        }
+        "{} chance to dodge a blow." => "{} de chances d'esquiver un coup.",
+        "Each kill shields you for {}, up to {}." => {
+            "Chaque victime vous protège de {} points, jusqu'à {}."
+        }
+        "Every {} sec, a nova strikes everything within {} yd for {} damage." => {
+            "Toutes les {} s, une nova frappe tout dans un rayon de {} m pour {} dégâts."
+        }
+        "{} chance on a kill to find {} more gold." => {
+            "{} de chances qu'une victime rapporte {} pièces d'or de plus."
+        }
         "Victory!" => "Victoire !",
         "You have fallen" => "Vous êtes tombé",
         "The horde was too much this time." => "La horde était trop forte cette fois.",
@@ -468,6 +498,13 @@ fn french(s: &str) -> Option<&'static str> {
         "Thorns" => "Épines",
         "Chain" => "Rebond",
         "Burst" => "Explosion",
+        "Ignite" => "Embrasement",
+        "Chill" => "Gel",
+        "Execute" => "Exécution",
+        "Dodge" => "Esquive",
+        "Kill Shield" => "Bouclier de victime",
+        "Nova" => "Nova",
+        "Bounty" => "Prime",
         "Run items" => "Objets de partie",
         "Gear" => "Équipement porté",
         // The Rewards tab.
@@ -482,7 +519,25 @@ fn french(s: &str) -> Option<&'static str> {
         "Appearances" => "Apparences",
         "Takes back every point spent on perks, to spend again. {} of {} resets left on this save." => "Rend tous les points dépensés en atouts, à redépenser. {} réinitialisation(s) sur {} restante(s) pour cette sauvegarde.",
         "Reset perks" => "Réinitialiser les atouts",
-        "Perks and races are the account's: every hero of every class has them. Achievements earn more points." => "Les atouts et les races sont ceux du compte : chaque héros de chaque classe en profite. Les hauts faits rapportent d'autres points.",
+        "Perks, races and tabards are the account's: every hero of every class has them. Achievements earn more points." => "Les atouts, les races et les tabards sont ceux du compte : chaque héros de chaque classe en profite. Les hauts faits rapportent d'autres points.",
+        "Worn over the gear, in the menu and in every run; only the look. Some are bought with points, the others earned by an achievement." => "Porté par-dessus l'équipement, au menu et dans chaque partie ; l'apparence seule. Certains s'achètent avec des points, les autres se gagnent par un haut fait.",
+        "Achievement: {}" => "Haut fait : {}",
+        "Take off" => "Retirer",
+        "Wear" => "Porter",
+        "Buy" => "Acheter",
+        "Locked" => "Verrouillé",
+        "Worn" => "Porté",
+        "Tabard of Stormwind" => "Tabard de Hurlevent",
+        "Arathor Battle Tabard" => "Tabard de bataille d'Arathor",
+        "Battle Tabard of the Defilers" => "Tabard de bataille des Profanateurs",
+        "Tabard of the Argent Dawn" => "Tabard de l'Aube d'argent",
+        "Tabard of the Scarlet Crusade" => "Tabard de la Croisade écarlate",
+        "Frostwolf Battle Tabard" => "Tabard de bataille Loup-de-givre",
+        "Stormpike Battle Tabard" => "Tabard de bataille Foudrepique",
+        "Silverwing Battle Tabard" => "Tabard de bataille d'Aile-argent",
+        "Warsong Battle Tabard" => "Tabard de bataille chanteguerre",
+        "Tabard of Flame" => "Tabard de la Flamme",
+        "Tabard of Frost" => "Tabard du Givre",
         "Open a race to every class, {} points each. An opened race stays open through perk resets." => "Ouvrez une race à toutes les classes, {} points chacune. Une race ouverte le reste malgré la réinitialisation des atouts.",
         "Opens it to: {}" => "L'ouvre à : {}",
         "Open" => "Ouvrir",

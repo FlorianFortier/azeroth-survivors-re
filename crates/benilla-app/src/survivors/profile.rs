@@ -128,6 +128,11 @@ pub(super) struct Profile {
     /// The races opened to every class with reward points, by name
     /// (`char_select::race_name`). A perk reset keeps them.
     pub races: BTreeSet<String>,
+    /// The tabards bought with reward points, by [`data::TabardDef::key`]. A perk reset keeps
+    /// them; those an achievement earns are not stored.
+    pub tabards: BTreeSet<String>,
+    /// The tabard worn, by key; empty for none.
+    pub tabard: String,
 }
 
 /// The race a stored name stands for.
@@ -211,6 +216,8 @@ impl Default for Profile {
             perks: BTreeMap::new(),
             perk_resets: 0,
             races: BTreeSet::new(),
+            tabards: BTreeSet::new(),
+            tabard: String::new(),
         }
     }
 }
@@ -399,9 +406,30 @@ impl Profile {
         races.iter().filter(|r| race_id(r).is_some()).count() as u32 * data::RACE_POINTS
     }
 
+    /// The reward points `tabards` cost; one an achievement earns, or the tables no longer
+    /// have, costs nothing.
+    pub fn tabards_cost(tabards: &BTreeSet<String>) -> u32 {
+        tabards
+            .iter()
+            .filter_map(|k| match data::tabard(k)?.unlock {
+                data::TabardUnlock::Points(n) => Some(n),
+                data::TabardUnlock::Achievement(_) => None,
+            })
+            .sum()
+    }
+
+    /// What perks, races and tabards cost together.
+    pub fn cost(
+        perks: &BTreeMap<String, u8>,
+        races: &BTreeSet<String>,
+        tabards: &BTreeSet<String>,
+    ) -> u32 {
+        Self::perks_cost(perks) + Self::races_cost(races) + Self::tabards_cost(tabards)
+    }
+
     /// The reward points spent.
     pub fn points_spent(&self) -> u32 {
-        Self::perks_cost(&self.perks) + Self::races_cost(&self.races)
+        Self::cost(&self.perks, &self.races, &self.tabards)
     }
 
     /// Whether `race` has been opened to every class.
@@ -421,12 +449,56 @@ impl Profile {
     /// and the points earned pay for it with the perks; false and nothing changed otherwise.
     pub fn open_races(&mut self, races: BTreeSet<String>) -> bool {
         let fits = self.races.is_subset(&races) && races.iter().all(|r| race_id(r).is_some());
-        if !fits || Self::perks_cost(&self.perks) + Self::races_cost(&races) > self.points_earned()
-        {
+        if !fits || Self::cost(&self.perks, &races, &self.tabards) > self.points_earned() {
             return false;
         }
         self.races = races;
         true
+    }
+
+    /// Whether the tabard is the profile's: bought, or its achievement done.
+    pub fn tabard_owned(&self, t: &data::TabardDef) -> bool {
+        match t.unlock {
+            data::TabardUnlock::Points(_) => self.tabards.contains(t.key),
+            data::TabardUnlock::Achievement(key) => data::ACHIEVEMENTS
+                .iter()
+                .find(|a| a.key == key)
+                .is_some_and(|a| self.achieved(a)),
+        }
+    }
+
+    /// Take `tabards` as the tabards bought, if it keeps every one already bought, names only
+    /// tabards sold for points, and the points earned pay for it; false and nothing changed
+    /// otherwise.
+    pub fn buy_tabards(&mut self, tabards: BTreeSet<String>) -> bool {
+        let fits = self.tabards.is_subset(&tabards)
+            && tabards.iter().all(|k| {
+                data::tabard(k).is_some_and(|t| matches!(t.unlock, data::TabardUnlock::Points(_)))
+            });
+        if !fits || Self::cost(&self.perks, &self.races, &tabards) > self.points_earned() {
+            return false;
+        }
+        self.tabards = tabards;
+        true
+    }
+
+    /// Wear a tabard the profile owns, or none; false and nothing changed for one it does not.
+    pub fn wear_tabard(&mut self, key: Option<&str>) -> bool {
+        match key {
+            None => self.tabard.clear(),
+            Some(k) => {
+                if !data::tabard(k).is_some_and(|t| self.tabard_owned(t)) {
+                    return false;
+                }
+                self.tabard = k.to_string();
+            }
+        }
+        true
+    }
+
+    /// The tabard worn, if the profile still owns it.
+    pub fn worn_tabard(&self) -> Option<&'static data::TabardDef> {
+        data::tabard(&self.tabard).filter(|t| self.tabard_owned(t))
     }
 
     /// The reward points left to spend.
@@ -455,8 +527,7 @@ impl Profile {
         let fits = perks
             .iter()
             .all(|(k, r)| data::perk(k).is_some_and(|p| *r <= p.max_rank));
-        if !fits || Self::perks_cost(&perks) + Self::races_cost(&self.races) > self.points_earned()
-        {
+        if !fits || Self::cost(&perks, &self.races, &self.tabards) > self.points_earned() {
             return false;
         }
         self.perks = perks.into_iter().filter(|(_, r)| *r > 0).collect();
@@ -821,6 +892,11 @@ fn refresh_brings(
             .iter()
             .map(|(p, r)| (p.key.to_string(), *r))
             .collect(),
+        tabard: store
+            .profile
+            .worn_tabard()
+            .map(|t| t.key.to_string())
+            .unwrap_or_default(),
     };
     if selection.brings != brings {
         selection.brings = brings;

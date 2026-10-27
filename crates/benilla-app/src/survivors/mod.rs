@@ -129,6 +129,7 @@ impl Plugin for SurvivorsPlugin {
                     enemies::move_enemies,
                     abilities::cast_abilities,
                     abilities::tick_areas,
+                    abilities::item_novas,
                     abilities::apply_hits,
                     enemies::tick_marks,
                     enemies::drop_loot,
@@ -299,6 +300,8 @@ pub(super) struct Brings {
     pub bonuses: Vec<(u8, u8, i32)>,
     pub gear: Vec<String>,
     pub perks: Vec<(String, u8)>,
+    /// The tabard worn, by [`data::TabardDef::key`]; empty for none.
+    pub tabard: String,
 }
 
 /// Who plays the run on this machine.
@@ -451,6 +454,8 @@ pub(super) struct Vitals {
     pub thorns_spell: u32,
     pub heal_rate: f32,
     pub heal_t: f32,
+    /// Seconds to the next nova of a run item's (`data::ItemEffect::Nova`); the simulation's.
+    pub nova_t: f32,
     /// The class mobility's cooldown and running effect. Owned by the machine that moves the
     /// hero: the simulation only reads it.
     mobile: mobility::MobilityState,
@@ -518,6 +523,7 @@ impl Default for Vitals {
             thorns_spell: 0,
             heal_rate: 0.0,
             heal_t: 0.0,
+            nova_t: 0.0,
             mobile: mobility::MobilityState::default(),
             pending_levels: 0,
             dead_t: None,

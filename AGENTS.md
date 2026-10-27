@@ -52,11 +52,11 @@ it holds; read it before changing the file.
 | `stats.rs` | a hero's numbers from every `data::Bonus` source; the one place they combine |
 | `hero.rs` | the local hero: WoW's mouse and keys in the chase view (`MouseLook`: a left-drag swings the camera, a right-drag turns the hero, both run, a press let go in place is a click; `CamRig::facing` is the hero's heading, A/D turn it, Q/E strafe), movement under WoW's rules (backpedal at `RUN_BACK_RATIO`, a running jump locked to its momentum, one walk-speed nudge for a standing jump, no ground inertia), the jump, the chase/top-down cameras, health, and the menu camera that frames the hero into the screen's stage (`MenuStage`, `stage_eye`) |
 | `abilities.rs` | auto-cast: each owned ability fires on its cooldown at the targets its kind picks; the local hero's target first for those that strike the nearest (`aimed_order`) |
-| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) and races opened to every class (`data::RACE_POINTS`) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`), which leaves the races; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
+| `rewards.rs` | the Rewards tab: reward points (`AchievementDef::points`, a tenth of an achievement's gold, earned once it is done) spent on perks (`data::PERKS`) races opened to every class (`data::RACE_POINTS`) and tabards (`data::TABARDS`, bought or earned by an achievement, one worn) on a draft kept with Confirm, and the perk reset (`data::MAX_PERK_RESETS`), which leaves races and tabards; `apply_perks` puts the non-bonus ranks on a hero at its run's start |
 | `sheet.rs` | the character sheet on `C`, over a paused run: the paper doll (gear worn, else the starting outfit; the neck, rings and trinkets are the run items), the live hero framed in its stage, the hero's numbers and its items' effects |
 | `targeting.rs` | the hero's target: a click on an enemy, Tab, Esc; mirrored into the client's `target::Selection`, whose ring draws under it |
 | `mobility.rs` | the class movement spell on `F` from level 5 |
-| `enemies.rs` | the horde: spawning, the chase, contact damage, death, experience gems, loot |
+| `enemies.rs` | the horde: spawning (the stage's crowd, its waves: a surge of packs every `data::WAVE_EVERY`, a lull between, all under `HARD_CROWD_CAP`), the chase, contact damage, death, experience gems, loot |
 | `cards.rs` | the level-up cards as they show (the key and NEW or RANK badge, icon, rarity, what a new spell does, the perks in green, the foot; the deal-in, tilt and burst), the Banish button under each, and the row under them (the spell slots, Skip and Reroll) |
 | `offer.rs` | the level-up offer as the simulation deals it: four spell cards per banked level at drawn rarities (`data::CardRarity`), each with the perks it grows (`draw_perks`), rerolls, banishes and skips, and `apply_action`, which takes a move only if it fits the hero's offer |
 | `units.rs` | local units built as streamed ones (`Guid`, `NetEntity`, `ObjectStore`), and `Fx`, every visual |
@@ -69,7 +69,7 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
-| `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`) |
+| `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`, `wave_line`) |
 | `feel.rs` | how a hit feels on every machine: the struck model's brighten (the client's highlight bit, in `Last`) and the camera's shake (`Options::shake`), both read off `Struck`, which `units::Fx::number` writes; the shove itself is the simulation's (`data::knock_impulse`, `Enemy::knock`) |
 | `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls (and every gem on the field pulled in, `enemies::Vacuum`), the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |
 | `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |
@@ -204,8 +204,10 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   draws among the kinds held, and gold once each is at `MAX_RUN_ITEM_STACKS`. Half the unspent gold goes to the profile.
   A run item has a rarity (`data::CardRarity`, drawn by `item_odds` in `data::draw_run_item`)
   and may have a `data::ItemEffect` beyond its stat (lifesteal, an arc, thorns, a burst, a
-  heal on kills), each number per stack (`ItemEffect::at`). Only the simulation fires them, in
-  `abilities::apply_hits` and `enemies::move_enemies`, their visuals through `units::Fx`; an
+  heal on kills, a burn, a chill, an execute, a dodge, a shield on kills, a nova, a bounty),
+  each number per stack (`ItemEffect::at`, the execute and the dodge capped). Only the
+  simulation fires them, in `abilities::apply_hits` (`afflict`, `on_hit`, `on_kill`),
+  `abilities::item_novas` and `enemies::move_enemies`, their visuals through `units::Fx`; an
   item's own hits carry `Hit::proc` and set nothing more off. Guests see items through
   `Vitals::run_items` on `Game::Me` alone.
   Chests and elites carry a `treasure::FieldMark` on every machine (the host sets it; a guest
@@ -232,7 +234,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   each rank held to its perk's most). A race opened is stored by name (`Profile::races`) and
   only adds looks: `menu::all_looks` gives every class a look of it in both sexes, and
   `outfit::body` dresses a pair vanilla never had in the class's outfit from another race. The
-  lobby `Loadout` already carries class and race, so it needs nothing on the wire.
+  lobby `Loadout` already carries class and race, so it needs nothing on the wire. A tabard
+  bought is stored by key (`Profile::tabards`), one earned by an achievement is derived
+  (`Profile::tabard_owned`); the one worn (`Profile::tabard`) is only a look: `outfit::body`
+  puts its real 1.12.1 display in the tabard slot, and it reaches the host as `Brings::tabard`
+  and the lobby `Loadout::tabard`.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

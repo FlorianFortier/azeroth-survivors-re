@@ -2,9 +2,11 @@
 //! spent on what every hero of every class brings into a run. The perks ([`data::PERKS`]): more
 //! rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and
 //! gold, gold in hand at the start. The races: one opened ([`data::RACE_POINTS`]) can be every
-//! class, its look added to each class's ([`super::menu::open_looks`]). Both are bought on a
-//! draft and kept with Confirm (Undo drops the draft); Reset takes every perk point back,
-//! [`data::MAX_PERK_RESETS`] times a save, and leaves the races open.
+//! class, its look added to each class's ([`super::menu::open_looks`]). The tabards
+//! ([`data::TABARDS`]), 1.12.1's own, worn over the gear: some bought, some earned by an
+//! achievement, one worn at a time. All are bought on a draft and kept with Confirm (Undo drops
+//! the draft); Reset takes every perk point back, [`data::MAX_PERK_RESETS`] times a save, and
+//! leaves the races and tabards.
 //!
 //! A perk's bonus rides the profile's other bonuses (`Profile::meta_bonuses`, so a guest's
 //! loadout carries it); the rest lands on the hero when its run begins ([`apply_perks`]), on the
@@ -77,6 +79,7 @@ const SECTIONS: [(Section, &str); 5] = [
 struct Draft {
     perks: Option<BTreeMap<String, u8>>,
     races: Option<BTreeSet<String>>,
+    tabards: Option<BTreeSet<String>>,
     section: Section,
 }
 
@@ -89,13 +92,27 @@ impl Draft {
         self.races.as_ref().unwrap_or(&profile.races)
     }
 
+    fn tabards<'a>(&'a self, profile: &'a Profile) -> &'a BTreeSet<String> {
+        self.tabards.as_ref().unwrap_or(&profile.tabards)
+    }
+
     /// What the draft costs in all.
     fn cost(&self, profile: &Profile) -> u32 {
-        Profile::perks_cost(self.perks(profile)) + Profile::races_cost(self.races(profile))
+        Profile::cost(
+            self.perks(profile),
+            self.races(profile),
+            self.tabards(profile),
+        )
     }
 
     fn dirty(&self) -> bool {
-        self.perks.is_some() || self.races.is_some()
+        self.perks.is_some() || self.races.is_some() || self.tabards.is_some()
+    }
+
+    fn clear(&mut self) {
+        self.perks = None;
+        self.races = None;
+        self.tabards = None;
     }
 }
 
@@ -106,6 +123,9 @@ enum RewardAction {
     Down(usize),
     /// Open a race on the draft, or take it off again.
     Race(u8),
+    /// A tabard owned: wear it, or take it off; one for points: put it on the draft, or take it
+    /// off again.
+    Tabard(usize),
     Confirm,
     Undo,
     Reset,
@@ -206,9 +226,9 @@ fn reward_clicks(
             };
             perks.insert(perk.key.to_string(), want);
             perks.retain(|_, r| *r > 0);
-            let races = Profile::races_cost(draft.races(&store.profile));
-            if Profile::perks_cost(&perks) + races <= store.profile.points_earned() {
-                draft.perks = (perks != store.profile.perks).then_some(perks);
+            let p = &store.profile;
+            if Profile::cost(&perks, draft.races(p), draft.tabards(p)) <= p.points_earned() {
+                draft.perks = (perks != p.perks).then_some(perks);
             }
         }
         RewardAction::Race(race) => {
@@ -220,15 +240,39 @@ fn reward_clicks(
             if !races.remove(&name) {
                 races.insert(name);
             }
-            let perks = Profile::perks_cost(draft.perks(&store.profile));
-            if perks + Profile::races_cost(&races) <= store.profile.points_earned() {
-                draft.races = (races != store.profile.races).then_some(races);
+            let p = &store.profile;
+            if Profile::cost(draft.perks(p), &races, draft.tabards(p)) <= p.points_earned() {
+                draft.races = (races != p.races).then_some(races);
+            }
+        }
+        RewardAction::Tabard(i) => {
+            let Some(t) = data::TABARDS.get(i) else {
+                return;
+            };
+            if store.profile.tabard_owned(t) {
+                let worn = store.profile.tabard == t.key;
+                store.edit(|p| {
+                    p.wear_tabard((!worn).then_some(t.key));
+                });
+                return;
+            }
+            if !matches!(t.unlock, data::TabardUnlock::Points(_)) {
+                return;
+            }
+            let mut tabards = draft.tabards(&store.profile).clone();
+            if !tabards.remove(t.key) {
+                tabards.insert(t.key.to_string());
+            }
+            let p = &store.profile;
+            if Profile::cost(draft.perks(p), draft.races(p), &tabards) <= p.points_earned() {
+                draft.tabards = (tabards != p.tabards).then_some(tabards);
             }
         }
         RewardAction::Confirm => {
-            // Perks first: the races already open count against them, and the new ones against
-            // the perks just kept, so a draft that fits in all goes through.
-            let (perks, races) = (draft.perks.take(), draft.races.take());
+            // Perks first: the races and tabards already bought count against them, and the new
+            // ones against the perks just kept, so a draft that fits in all goes through.
+            let (perks, races, tabards) =
+                (draft.perks.take(), draft.races.take(), draft.tabards.take());
             store.edit(|p| {
                 if let Some(perks) = perks {
                     p.set_perks(perks);
@@ -236,14 +280,14 @@ fn reward_clicks(
                 if let Some(races) = races {
                     p.open_races(races);
                 }
+                if let Some(tabards) = tabards {
+                    p.buy_tabards(tabards);
+                }
             });
         }
-        RewardAction::Undo => {
-            draft.perks = None;
-            draft.races = None;
-        }
+        RewardAction::Undo => draft.clear(),
         RewardAction::Reset => {
-            draft.perks = None;
+            draft.clear();
             store.edit(|p| {
                 p.reset_perks();
             });
@@ -261,6 +305,12 @@ struct View {
     draft: Option<BTreeMap<String, u8>>,
     profile_races: BTreeSet<String>,
     draft_races: Option<BTreeSet<String>>,
+    profile_tabards: BTreeSet<String>,
+    draft_tabards: Option<BTreeSet<String>>,
+    tabard: String,
+    /// The tabards owned, achievements' included.
+    owned: Vec<bool>,
+    icons: bool,
     resets: u8,
     section: Section,
     lang: u32,
@@ -271,6 +321,7 @@ fn refresh_rewards(
     fonts: Option<Res<KitFonts>>,
     store: Res<ProfileStore>,
     draft: Res<Draft>,
+    displays: Option<Res<crate::entities::ItemDisplays>>,
     side: Query<Entity, With<RewardsSide>>,
     main: Query<Entity, With<RewardsMain>>,
     mut shown: Local<Option<View>>,
@@ -289,6 +340,11 @@ fn refresh_rewards(
         draft: draft.perks.clone(),
         profile_races: p.races.clone(),
         draft_races: draft.races.clone(),
+        profile_tabards: p.tabards.clone(),
+        draft_tabards: draft.tabards.clone(),
+        tabard: p.tabard.clone(),
+        owned: data::TABARDS.iter().map(|t| p.tabard_owned(t)).collect(),
+        icons: displays.is_some(),
         resets: p.perk_resets,
         section: draft.section,
         lang: *lang_seen,
@@ -346,7 +402,7 @@ fn refresh_rewards(
                 kit::ButtonLook::PLAIN,
                 RewardAction::Section(section),
             );
-            let built = matches!(section, Section::Perks | Section::Races);
+            let built = matches!(section, Section::Perks | Section::Races | Section::Tabards);
             s.commands().entity(b).insert((
                 kit::Selected(section == draft.section),
                 kit::Disabled(!built),
@@ -393,7 +449,7 @@ fn refresh_rewards(
         });
         s.spawn(kit::text(
             &f.body,
-            tr("Perks and races are the account's: every hero of every class has them. Achievements earn more points."),
+            tr("Perks, races and tabards are the account's: every hero of every class has them. Achievements earn more points."),
             12.0,
             theme::DIM,
         ));
@@ -424,6 +480,34 @@ fn refresh_rewards(
                         RaceState::Closed
                     };
                     race_card(grid, f, race, state, left);
+                }
+            });
+        }
+        Section::Tabards => {
+            kit::heading(m, f, tr("Tabards"));
+            m.spawn(kit::text(
+                &f.body,
+                tr("Worn over the gear, in the menu and in every run; only the look. Some are bought with points, the others earned by an achievement."),
+                13.0,
+                theme::DIM,
+            ));
+            let tabards = draft.tabards(p);
+            let catalog = displays.as_deref().map(|d| &d.catalog);
+            grid(m, |grid| {
+                for (i, t) in data::TABARDS.iter().enumerate() {
+                    let state = if p.tabard == t.key && p.tabard_owned(t) {
+                        TabardState::Worn
+                    } else if p.tabard_owned(t) {
+                        TabardState::Owned
+                    } else if tabards.contains(t.key) {
+                        TabardState::Drafted
+                    } else {
+                        TabardState::Locked
+                    };
+                    let icon = catalog
+                        .and_then(|c| c.get(t.display)?.icon.clone())
+                        .unwrap_or_else(|| TABARD_ICON.to_string());
+                    tabard_card(grid, f, i, t, state, icon, left);
                 }
             });
         }
@@ -476,6 +560,90 @@ enum RaceState {
     /// On the draft, kept with Confirm.
     Drafted,
     Open,
+}
+
+/// A tabard's icon while the item displays are not read yet.
+const TABARD_ICON: &str = "Interface\\Icons\\INV_Shirt_GuildTabard_01";
+
+/// Where a tabard stands in the Rewards tab.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TabardState {
+    /// Not owned: its price, or the achievement that earns it.
+    Locked,
+    /// On the draft, kept with Confirm.
+    Drafted,
+    Owned,
+    Worn,
+}
+
+/// One tabard: its icon, name, how it is earned, and Buy, Wear or Take off.
+fn tabard_card(
+    p: &mut ChildSpawnerCommands,
+    f: &KitFonts,
+    i: usize,
+    t: &data::TabardDef,
+    state: TabardState,
+    icon: String,
+    left: u32,
+) {
+    let how = match t.unlock {
+        data::TabardUnlock::Points(n) => trf("{} points", &[&n.to_string()]),
+        data::TabardUnlock::Achievement(key) => {
+            let name = data::ACHIEVEMENTS
+                .iter()
+                .find(|a| a.key == key)
+                .map_or(key, |a| a.name.as_str());
+            trf("Achievement: {}", &[tr(name)])
+        }
+    };
+    p.spawn(card_node(matches!(
+        state,
+        TabardState::Worn | TabardState::Drafted
+    )))
+    .with_children(|card| {
+        kit::icon(card, IconSource::Texture(icon), 44.0, None);
+        card.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            min_width: Val::Px(0.0),
+            row_gap: Val::Px(3.0),
+            ..default()
+        })
+        .with_children(|c| {
+            c.spawn(kit::text(&f.body, tr(t.name), 18.0, Color::WHITE));
+            c.spawn(kit::text(&f.body, how, 13.0, theme::TEXT));
+        });
+        card.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::FlexEnd,
+            row_gap: Val::Px(4.0),
+            ..default()
+        })
+        .with_children(|c| {
+            let (label, enabled) = match (state, t.unlock) {
+                (TabardState::Worn, _) => (tr("Take off"), true),
+                (TabardState::Owned, _) => (tr("Wear"), true),
+                (TabardState::Drafted, _) => (tr("Take back"), true),
+                (TabardState::Locked, data::TabardUnlock::Points(n)) => (tr("Buy"), left >= n),
+                (TabardState::Locked, data::TabardUnlock::Achievement(_)) => (tr("Locked"), false),
+            };
+            if state == TabardState::Worn {
+                c.spawn(kit::text(&f.body, tr("Worn"), 14.0, theme::GREEN));
+            }
+            let b = kit::button(
+                c,
+                f,
+                label,
+                None,
+                kit::ButtonLook::PLAIN,
+                RewardAction::Tabard(i),
+            );
+            c.commands().entity(b).insert((
+                kit::Selected(state == TabardState::Drafted),
+                kit::Disabled(!enabled),
+            ));
+        });
+    });
 }
 
 /// One race: its face, name, the classes it opens to, and Open.
@@ -772,6 +940,62 @@ mod tests {
         assert_eq!(super::super::menu::open_looks(mage.clone(), &[1]), mage);
         // No looks at all: nothing to borrow.
         assert!(super::super::menu::open_looks(Vec::new(), &[2]).is_empty());
+    }
+
+    #[test]
+    fn tabards_are_bought_or_earned_and_one_is_worn() {
+        let mut p = Profile::default();
+        let bought = data::tabard("stormwind").unwrap();
+        let earned_one = data::tabard("frostwolf").unwrap();
+        // Nothing owned, nothing worn.
+        assert!(!p.tabard_owned(bought) && !p.tabard_owned(earned_one));
+        assert!(!p.wear_tabard(Some("stormwind")));
+        assert!(!p.buy_tabards(BTreeSet::from(["stormwind".to_string()])));
+        // Points buy the one for points; the achievement's is never sold.
+        let mut p = earned(200);
+        assert!(!p.buy_tabards(BTreeSet::from(["frostwolf".to_string()])));
+        assert!(p.buy_tabards(BTreeSet::from(["stormwind".to_string()])));
+        assert_eq!(p.points_spent(), 50);
+        // The victories earned the Frostwolf tabard.
+        assert!(p.tabard_owned(earned_one));
+        assert!(p.wear_tabard(Some("frostwolf")));
+        assert_eq!(p.worn_tabard().map(|t| t.display), Some(earned_one.display));
+        assert!(p.wear_tabard(Some("stormwind")));
+        assert_eq!(p.worn_tabard().map(|t| t.key), Some("stormwind"));
+        assert!(p.wear_tabard(None));
+        assert!(p.worn_tabard().is_none());
+        // Bought stays bought: a smaller set is refused, a perk reset leaves it.
+        assert!(!p.buy_tabards(BTreeSet::new()));
+        p.perks.insert("banish".into(), 1);
+        assert!(p.reset_perks());
+        assert!(p.tabard_owned(bought));
+        // A tabard the profile lost hold of is not worn.
+        p.tabard = "no_such_tabard".into();
+        assert!(p.worn_tabard().is_none());
+    }
+
+    #[test]
+    fn every_tabard_is_sound() {
+        let mut keys = std::collections::HashSet::new();
+        for t in data::TABARDS {
+            assert!(keys.insert(t.key), "{} twice", t.key);
+            assert!(t.display > 0 && t.display < 0x1_0000, "{}", t.key);
+            if let data::TabardUnlock::Achievement(a) = t.unlock {
+                assert!(
+                    data::ACHIEVEMENTS.iter().any(|x| x.key == a),
+                    "{}: no achievement {a}",
+                    t.key
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tabard_is_worn_over_the_body() {
+        // Without the catalog the hero is the trainer: nothing to wear it on.
+        let class = &data::CLASSES[0];
+        let body = super::super::outfit::body(class, 1, 0, [0; 5], 7, &[], Some(21338), None, None);
+        assert_eq!(body, super::super::outfit::Body::Trainer { display: 7 });
     }
 
     #[test]
