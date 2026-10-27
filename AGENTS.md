@@ -166,6 +166,12 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   builds the host's units in `net/client.rs` and moves only its own hero. Anything that changes
   the run goes through the simulation (`HeroState`), never straight into `Run`, which is only the
   local hero's view. Visuals go through `units::Fx`, which the host also logs for its guests.
+- **A dropped guest is away, not gone.** In a run, a guest's connection dropping keeps its seat
+  (`hub::Seat::conn` none, `Member::away`) for `Up::Rejoin` with the token its `Down::Started`
+  gave; the host keeps the hero, `Vitals::away` (harmed by nothing, no one's quarry, casting
+  nothing, down for the loss, not waited for at a load). Back in, the guest clears its copies
+  (`client::rejoined`) and sends `Game::Resync`; the host's next tick sends that seat alone every
+  unit (`host::stream`). The host's own drop still ends the run.
 - **Every stat goes through `survivors/stats.rs`.** A hero's numbers are `Vitals::stats()`:
   the class head start, the run's passives, `Vitals::meta` (what the profile brings in:
   collection, talents, racials, gear, through `Profile::run_bonuses`; a guest's lobby `Loadout` carries its

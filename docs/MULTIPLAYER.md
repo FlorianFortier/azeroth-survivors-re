@@ -135,6 +135,23 @@ ware still at the merchant, by a hero standing at it with the gold; a mobility
 cast must be the hero's own and learned. It is a co-op game
 among friends, not an anti-cheat: a guest's hero position is trusted within the battleground.
 
+## A dropped connection
+
+If a guest's connection drops during a run, the run goes on and the seat waits:
+
+- The lobby server keeps the seat, **away**, under the player's name. The others see *Away* on
+  that player's party frame.
+- The away hero stands where it was. Nothing harms it, the horde (bosses too) ignores it, it casts
+  nothing and draws no gems. It counts as down for a loss, and the next stage's load does not
+  wait for it.
+- The guest's game keeps its screen and says *Connection lost: rejoining…*. It connects again by
+  itself after 1 s, then 2 s, 4 s and every 8 s, about a minute in all. Each run gives every seat
+  its own secret token; `Rejoin` with it takes the seat back.
+- Back in the run, the guest drops every stale copy and asks for the world (`Game::Resync`): the
+  host's next tick sends every unit to that seat alone, and the stream goes on as for anyone.
+- A seat still away when the run ends is given up; the host can also give it up (×) at any time.
+  A player who leaves on purpose is gone, not away.
+
 ## What a bad connection does
 
 The stream runs over WebSockets, so it arrives in order and complete, but a slow or jittery
@@ -144,7 +161,8 @@ connection delivers it late and in bursts. That is tested, with no game data:
   cut short, padded or given forged lengths, never panic a decoder; what decodes encodes back to
   itself; a bad message in a tick's batch costs only itself.
 - **The lobby server** (the same file): random sequences of every message from seven connections
-  that come and go, across forty seeds, never break its rules: no seat taken twice, no table
+  that come and go, rejoin their runs by token (sometimes a wrong one), across two hundred
+  seeds, never break its rules: no seat taken twice, no table
   without its host, no frame for a connection that is gone, no relay crossing to another lobby.
 - **The game** (`net/mod.rs`, `the_guest_converges_through_a_bad_link`): the host's horde comes,
   moves, is hurt and goes while its frames reach the guest up to 400 ms late and in bursts, mixed
@@ -158,8 +176,8 @@ supersedes them) and never a unit's coming, fields or going, which would leave a
 
 ## Limits
 
-- Four players. No joining a run already in progress, and no reconnecting to one.
-- If the host leaves, the run ends for everyone.
+- Four players. No joining a run already in progress, except to take back your own seat (below).
+- If the host leaves, or its connection drops, the run ends for everyone.
 - Bandwidth: the host uploads roughly 100–200 KB/s per guest late in a run (a full horde moving
   twenty times a second). Fine on a LAN or decent broadband.
 - The desktop build cannot reach a `wss://` lobby.
