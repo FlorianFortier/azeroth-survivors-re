@@ -66,6 +66,9 @@ pub(super) struct Spawner {
     timer: f32,
     /// A surge was on at the last spawn, so its start is told once.
     surging: bool,
+    /// The side a surge comes from: one per surge, drifting as it goes, so the wave is seen
+    /// coming and can be kited.
+    side: f32,
 }
 
 /// While it runs, every gem on the field flies to the nearest hero: a stage's fall clears it.
@@ -299,8 +302,12 @@ pub(super) fn spawn_enemies(
     let surge = data::surging(elapsed) && run.swarm.is_none();
     if surge && !spawner.surging {
         run.banner = Some(("A wave is coming!".into(), 3.0));
+        spawner.side = rng.range(0.0, std::f32::consts::TAU);
     }
     spawner.surging = surge;
+    if surge {
+        spawner.side += data::SURGE_DRIFT * 0.12;
+    }
     let alive = enemies.iter().filter(|e| !e.dead).count();
     let target = rules.target_alive(elapsed);
     if alive >= target {
@@ -310,14 +317,15 @@ pub(super) fn spawn_enemies(
     let n = (((target - alive) as f32) / 6.0)
         .ceil()
         .min(per_hero * anchors.len() as f32) as usize;
-    // In a surge, the horde comes in packs from one side; otherwise from all around.
+    // In a surge, the horde comes in packs from the surge's side; otherwise from all around.
     let mut pack: Option<(Vec3, f32)> = None;
     for k in 0..n {
         if surge && k % data::PACK_SIZE == 0 {
-            pack = Some((anchor(&mut rng), rng.range(0.0, std::f32::consts::TAU)));
+            let spread = rng.range(-data::SURGE_ARC, data::SURGE_ARC);
+            pack = Some((anchor(&mut rng), spawner.side + spread));
         }
         let (hpos, a) = match pack {
-            Some((hpos, side)) => (hpos, side + rng.range(-0.35, 0.35)),
+            Some((hpos, side)) => (hpos, side + rng.range(-0.25, 0.25)),
             None => (anchor(&mut rng), rng.range(0.0, std::f32::consts::TAU)),
         };
         let def = &roster.enemies[pool[rng.index(pool.len())]];

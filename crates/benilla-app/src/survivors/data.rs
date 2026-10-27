@@ -1812,6 +1812,11 @@ pub(crate) fn ring_angles(n: usize, turn: f32) -> Vec<f32> {
         .collect()
 }
 
+/// A surge comes from one side of the heroes, its packs within this many radians of it, the side
+/// turning this many radians a second as the surge goes on.
+pub(crate) const SURGE_ARC: f32 = 0.6;
+pub(crate) const SURGE_DRIFT: f32 = 0.12;
+
 /// A surge's spawns come this many together, from one side of a hero.
 pub(crate) const PACK_SIZE: usize = 8;
 /// The crowd a stage keeps: from [`CROWD_START`] to [`CROWD_PEAK`] over its clock, before the
