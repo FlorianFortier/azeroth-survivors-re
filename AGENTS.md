@@ -77,6 +77,7 @@ it holds; read it before changing the file.
 | `minimap.rs` | the minimap cluster and the day clock; the field's chests, elites and empty posts on it |
 | `grade.rs` | the picture polish pass (`G`, `?grade=0`) |
 | `auto.rs` | `WOW_SURVIVORS_AUTO`: a hands-off run for testing, with screenshots |
+| `balance.rs` | the balance simulator (tests only): whole runs played headless through `SimSet`'s own systems on an empty world, a pilot playing the hero (kiting by look-ahead, chests, portals, the boss targeted, the rarest card), each stage logged (time, level, kills, damage taken, the portal, the boss); `--ignored` runs every class and prints the table, `trace_a_run` (`SIM_CLASS`, `SIM_SEED`, `SIM_LIMIT`) what one run faced every ten seconds |
 | `net/` | multiplayer, game side: `socket.rs` (WebSocket, native or browser), `host.rs` (plays and streams the run), `client.rs` (a guest's copy), `smooth.rs` (snapshot interpolation: what another machine moves is drawn `smooth::DELAY` behind its clock, between two positions it sent), `ui.rs` (lobby screens, party frames, scoreboard) |
 
 ## Switches
@@ -109,6 +110,8 @@ cargo check --target wasm32-unknown-unknown -p wenilla --no-default-features --f
 cargo check --workspace --all-targets      # native (Debian/Ubuntu: libasound2-dev libudev-dev)
 cargo test -p benilla-app --lib survivors  # tables, balance, cards, host→guest replication; no game data
 cargo test -p survivors-net -p survivors-server  # multiplayer protocol, lobby rules, server end to end
+cargo test -p benilla-app --lib --no-default-features survivors::balance -- --ignored --nocapture
+                            # the balance simulator: every class through whole runs, the table printed
 make lobby                  # a standalone lobby server on :7777
 cargo test --workspace                     # ~320 tests need a 1.12.1 patch chain and fail without one
 ```
@@ -250,6 +253,12 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   adds it to the hero's `Vitals::damage_by`, which reaches guests on `Game::Me`. A target's
   health reaches guests as a percent in its health field (`units::set_health`, 1..100 while it
   lives; 0 is `kill_unit`'s).
+- **A balance change is measured.** A number that changes a run's pace (the horde, its waves,
+  the bosses, the cards' perks, the hero's stats) is checked with the balance simulator
+  (`balance.rs`) before and after, and the table goes in the PR. A stage's showdown (from the
+  boss portal's opening to the boss's fall: `enemies::spawn_enemies`, `data::SHOWDOWN_CROWD`)
+  thins the crowd and brings no ring and no surge; an ambush ring always leaves its openings
+  (`data::ring_angles`); a surge comes from one side (`data::SURGE_ARC`).
 - **Shown text goes through `lang::tr`.** A new label on the main screen or the HUD is written
   in English inside `tr(…)`, and its French added to `lang.rs`'s table; a name the profile stores
   (zones, items, classes) stays English in data and is translated only where it is shown.

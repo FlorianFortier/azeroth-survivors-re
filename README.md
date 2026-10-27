@@ -64,6 +64,10 @@ to the next, tougher zone, and after the third hold out against the final swarm 
 - **Quicker levels, snappier pickups**: the first levels come faster, so a run opens on choices;
   gems fly to you faster once your pickup range catches them, and when a stage's boss falls every
   gem left on the field comes in at once.
+- **Balanced by simulation**: whole runs are played headless by a simple pilot for every class,
+  and the numbers are tuned against what it meets: an ambush ring always leaves two openings, a
+  wave comes from one side, the horde thins while you face a stage's boss, and the bosses are
+  set to a stage's strength.
 - **Hits you feel**: every blow shoves its foe back (the heavier the hit, the further; elites
   and bosses hardly budge), a struck model brightens for a moment, and the camera shakes at a
   heavy blow to you, a run of critical strikes and a boss's coming (Options turns the shake off).
