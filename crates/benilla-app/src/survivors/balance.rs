@@ -202,6 +202,15 @@ fn pilot(app: &mut App, t: f32) {
         .map(|t| t.translation)
         .collect();
 
+    // A player targets the stage's boss once it stands, so the spells that strike one foe strike
+    // it rather than the nearest of the horde.
+    let boss = world
+        .query::<(Entity, &enemies::Enemy)>()
+        .iter(world)
+        .find(|(_, e)| e.final_boss && !e.dead)
+        .map(|(e, _)| e);
+    world.resource_mut::<super::targeting::HeroTarget>().0 = boss;
+
     // The cards and the blessings, before anything moves.
     let mut rng = Rng::seeded(t.to_bits() as u64);
     let mut heroes = world.query_filtered::<(&mut Transform, &mut HeroState), With<Hero>>();
