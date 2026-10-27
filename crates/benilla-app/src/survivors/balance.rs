@@ -50,6 +50,11 @@ pub(super) struct StageLog {
     pub low: f32,
     /// The stage's final boss fell.
     pub cleared: bool,
+    /// When the boss portal opened and when the boss was called, on the stage's clock.
+    pub portal: Option<f32>,
+    pub called: Option<f32>,
+    /// The final boss's health share at the end, while it stood.
+    pub boss_left: Option<f32>,
 }
 
 /// A whole run: its stages, and how it ended.
@@ -376,9 +381,24 @@ pub(super) fn play(class: usize, zone: usize, seed: u64, limit: f32) -> RunLog {
                 ..std::mem::take(&mut window)
             });
         }
+        let boss_left = {
+            let mut q = world.query::<&enemies::Enemy>();
+            q.iter(world)
+                .find(|e| e.final_boss && !e.dead)
+                .map(|e| e.hp / e.max_hp)
+        };
         let run = world.resource::<Run>();
         if run.leg_done {
             stage.cleared = true;
+        }
+        if stage.portal.is_none() && run.gates.iter().any(|g| g.open) {
+            stage.portal = Some(run.elapsed);
+        }
+        if stage.called.is_none() && boss_left.is_some() {
+            stage.called = Some(run.elapsed);
+        }
+        if boss_left.is_some() {
+            stage.boss_left = boss_left;
         }
         let (won, lost, now) = (run.won, run.lost, run.leg);
         if now != leg {
@@ -457,13 +477,17 @@ fn row(log: &RunLog) -> String {
         .iter()
         .map(|s| {
             format!(
-                "{:>4.0}s L{:<2} {:>5}k {:>6.0}dmg low{:>3.0}%{}",
+                "{:>4.0}s L{:<2} {:>5}k {:>6.0}dmg low{:>3.0}%{} portal {} called {} boss {}",
                 s.secs,
                 s.level,
                 s.kills,
                 s.taken,
                 s.low * 100.0,
-                if s.cleared { " ✓" } else { "  " }
+                if s.cleared { " ✓" } else { "  " },
+                s.portal.map_or("-".into(), |t| format!("{t:.0}")),
+                s.called.map_or("-".into(), |t| format!("{t:.0}")),
+                s.boss_left
+                    .map_or("-".into(), |b| format!("{:.0}%", b * 100.0)),
             )
         })
         .collect();
