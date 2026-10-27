@@ -568,7 +568,8 @@ pub(super) fn receive(
             | Game::Card(_)
             | Game::ShrineChoice(_)
             | Game::Buy { .. }
-            | Game::Mobility { .. } => {}
+            | Game::Mobility { .. }
+            | Game::Resync => {}
         }
     }
 }
