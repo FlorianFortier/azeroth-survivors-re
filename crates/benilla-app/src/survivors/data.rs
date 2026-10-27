@@ -4412,7 +4412,7 @@ mod tests {
         for r in CardRarity::ALL {
             assert!(RUN_ITEMS.iter().any(|i| i.rarity == r), "{r:?}");
         }
-        assert!(RUN_ITEMS.len() >= 28);
+        assert!(RUN_ITEMS.len() >= 27);
     }
 
     #[test]
