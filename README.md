@@ -37,11 +37,11 @@ to the next, tougher zone, and after the third hold out against the final swarm 
 ### In this build
 
 - **A Megabonk-style field**: kills drop the run's gold; six chests stand around the battleground
-  and open for a hero who stands at one with the gold (20, then 40% dearer each time) for a run
-  item, a spell's rank or a roll for gear. Four elites hold fixed posts, each over a reward of its
+  and open at once for a hero who walks up to one with the gold (20, then 40% dearer each time),
+  offering three run items to choose from. Four elites hold fixed posts, each over a reward of its
   own (gear, a spell's rank, a run item, a purse), and come back a while after they fall. Run
   items stack for the run, five kinds at most (the neck, rings and trinkets of the character
-  sheet: once five are held, a chest gives more of one of them), Common to Legendary (the rarer,
+  sheet: once five are held, a chest offers more of them), Common to Legendary (the rarer,
   the less often drawn), shown with
   their stacks under your talents; besides a stat, some do more: a vampiric fang heals off your
   damage, a storm charm arcs lightning, thornmail strikes back, a volatile ember bursts on kills,

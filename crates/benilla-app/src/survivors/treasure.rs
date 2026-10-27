@@ -12,7 +12,7 @@ use benilla_world::world_point::WorldPoint;
 use bevy::prelude::*;
 
 use super::data::{self, Reward, ShrineKind};
-use super::enemies::{self, Enemy, GemKind};
+use super::enemies::{self, Enemy};
 use super::hero::Hero;
 use super::units::{self, flat};
 use super::{HeroState, Owned, Rng, Run, Selection, Session, Vitals};
