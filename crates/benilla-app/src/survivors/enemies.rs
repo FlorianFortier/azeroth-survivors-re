@@ -298,8 +298,15 @@ pub(super) fn spawn_enemies(
         return;
     }
     spawner.timer = 0.12;
+    // The showdown: from the boss portal's opening to the boss's fall, the crowd thins out.
+    let showdown = !run.leg_done
+        && (run.bosses as usize >= data::BOSS_TIMES.len()
+            || run
+                .gates
+                .iter()
+                .any(|g| g.kind == super::legs::Gate::Boss && g.open));
     // A surge is told as it begins; the final swarm is a surge of its own.
-    let surge = data::surging(elapsed) && run.swarm.is_none();
+    let surge = data::surging(elapsed) && run.swarm.is_none() && !showdown;
     if surge && !spawner.surging {
         run.banner = Some(("A wave is coming!".into(), 3.0));
         spawner.side = rng.range(0.0, std::f32::consts::TAU);
@@ -310,6 +317,11 @@ pub(super) fn spawn_enemies(
     }
     let alive = enemies.iter().filter(|e| !e.dead).count();
     let target = rules.target_alive(elapsed);
+    let target = if showdown {
+        ((target as f32 * data::SHOWDOWN_CROWD) as usize).max(1)
+    } else {
+        target
+    };
     if alive >= target {
         return;
     }

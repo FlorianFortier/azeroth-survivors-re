@@ -1816,6 +1816,10 @@ pub(crate) fn ring_angles(n: usize, turn: f32) -> Vec<f32> {
         .collect()
 }
 
+/// From the boss portal's opening to the boss's fall, the stage's showdown: the crowd thins to
+/// this share and no surge comes, so the heroes can reach the portal and fight the boss.
+pub(crate) const SHOWDOWN_CROWD: f32 = 0.5;
+
 /// A surge comes from one side of the heroes, its packs within this many radians of it, the side
 /// turning this many radians a second as the surge goes on.
 pub(crate) const SURGE_ARC: f32 = 0.6;
