@@ -4001,9 +4001,10 @@ pub(crate) const MAX_PERK_RESETS: u8 = 2;
 /// perk reset leaves it.
 pub(crate) const RACE_POINTS: u32 = 100;
 
-/// How a tabard is earned: bought with reward points, or worn once an achievement is done.
+/// How a tabard or an appearance is earned: bought with reward points, or worn once an
+/// achievement is done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TabardUnlock {
+pub(crate) enum Unlock {
     Points(u32),
     Achievement(&'static str),
 }
@@ -4016,7 +4017,7 @@ pub(crate) struct TabardDef {
     pub name: &'static str,
     /// `ItemDisplayInfo.dbc` id, the real 1.12.1 tabard's (its `item_template.displayid`).
     pub display: u32,
-    pub unlock: TabardUnlock,
+    pub unlock: Unlock,
 }
 
 /// The tabards, as 1.12.1 has them: the battlegrounds', the factions', the Upper Deck's two.
@@ -4025,73 +4026,213 @@ pub(crate) const TABARDS: &[TabardDef] = &[
         key: "stormwind",
         name: "Tabard of Stormwind",
         display: 21338,
-        unlock: TabardUnlock::Points(50),
+        unlock: Unlock::Points(50),
     },
     TabardDef {
         key: "arathor",
         name: "Arathor Battle Tabard",
         display: 32695,
-        unlock: TabardUnlock::Points(75),
+        unlock: Unlock::Points(75),
     },
     TabardDef {
         key: "defilers",
         name: "Battle Tabard of the Defilers",
         display: 32694,
-        unlock: TabardUnlock::Points(75),
+        unlock: Unlock::Points(75),
     },
     TabardDef {
         key: "argent_dawn",
         name: "Tabard of the Argent Dawn",
         display: 35396,
-        unlock: TabardUnlock::Points(100),
+        unlock: Unlock::Points(100),
     },
     TabardDef {
         key: "scarlet_crusade",
         name: "Tabard of the Scarlet Crusade",
         display: 15817,
-        unlock: TabardUnlock::Points(100),
+        unlock: Unlock::Points(100),
     },
     TabardDef {
         key: "frostwolf",
         name: "Frostwolf Battle Tabard",
         display: 31527,
-        unlock: TabardUnlock::Achievement("victor"),
+        unlock: Unlock::Achievement("victor"),
     },
     TabardDef {
         key: "stormpike",
         name: "Stormpike Battle Tabard",
         display: 31528,
-        unlock: TabardUnlock::Achievement("slayer"),
+        unlock: Unlock::Achievement("slayer"),
     },
     TabardDef {
         key: "silverwing",
         name: "Silverwing Battle Tabard",
         display: 32026,
-        unlock: TabardUnlock::Achievement("seasoned"),
+        unlock: Unlock::Achievement("seasoned"),
     },
     TabardDef {
         key: "warsong",
         name: "Warsong Battle Tabard",
         display: 32031,
-        unlock: TabardUnlock::Achievement("exterminator"),
+        unlock: Unlock::Achievement("exterminator"),
     },
     TabardDef {
         key: "flame",
         name: "Tabard of Flame",
         display: 37060,
-        unlock: TabardUnlock::Achievement("heroic"),
+        unlock: Unlock::Achievement("heroic"),
     },
     TabardDef {
         key: "frost",
         name: "Tabard of Frost",
         display: 37061,
-        unlock: TabardUnlock::Achievement("mythic"),
+        unlock: Unlock::Achievement("mythic"),
     },
 ];
 
 /// A tabard by its key.
 pub(crate) fn tabard(key: &str) -> Option<&'static TabardDef> {
     TABARDS.iter().find(|t| t.key == key)
+}
+
+/// The slot an appearance dresses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum LookSlot {
+    Head,
+    Back,
+}
+
+impl LookSlot {
+    pub const ALL: [LookSlot; 2] = [LookSlot::Head, LookSlot::Back];
+
+    /// What the profile stores it by.
+    pub fn name(self) -> &'static str {
+        match self {
+            LookSlot::Head => "Head",
+            LookSlot::Back => "Back",
+        }
+    }
+}
+
+/// A look worn over the gear on the head or the back, the gear's numbers kept: a real 1.12.1
+/// piece's display, or none at all (the slot shown bare).
+#[derive(Debug)]
+pub(crate) struct AppearanceDef {
+    /// What the profile stores.
+    pub key: &'static str,
+    pub name: &'static str,
+    pub slot: LookSlot,
+    /// `ItemDisplayInfo.dbc` id (the 1.12.1 item's `item_template.displayid`); 0 hides the slot.
+    pub display: u32,
+    pub unlock: Unlock,
+}
+
+/// The appearances: a bare head and back for nothing, then 1.12.1's own hats and helms, cloaks
+/// and drapes, the fun ones for points and the raids' for the feats.
+pub(crate) const APPEARANCES: &[AppearanceDef] = &[
+    AppearanceDef {
+        key: "bare_head",
+        name: "Hide Helm",
+        slot: LookSlot::Head,
+        display: 0,
+        unlock: Unlock::Points(0),
+    },
+    AppearanceDef {
+        key: "lucky_fishing_hat",
+        name: "Lucky Fishing Hat",
+        slot: LookSlot::Head,
+        display: 16548,
+        unlock: Unlock::Points(50),
+    },
+    AppearanceDef {
+        key: "admirals_hat",
+        name: "Admiral's Hat",
+        slot: LookSlot::Head,
+        display: 18872,
+        unlock: Unlock::Points(75),
+    },
+    AppearanceDef {
+        key: "goblin_rocket_helmet",
+        name: "Goblin Rocket Helmet",
+        slot: LookSlot::Head,
+        display: 23166,
+        unlock: Unlock::Points(100),
+    },
+    AppearanceDef {
+        key: "helm_of_wrath",
+        name: "Helm of Wrath",
+        slot: LookSlot::Head,
+        display: 34215,
+        unlock: Unlock::Achievement("champion"),
+    },
+    AppearanceDef {
+        key: "judgement_crown",
+        name: "Judgement Crown",
+        slot: LookSlot::Head,
+        display: 34216,
+        unlock: Unlock::Achievement("ascendant"),
+    },
+    AppearanceDef {
+        key: "netherwind_crown",
+        name: "Netherwind Crown",
+        slot: LookSlot::Head,
+        display: 34218,
+        unlock: Unlock::Achievement("master"),
+    },
+    AppearanceDef {
+        key: "bare_back",
+        name: "Hide Cloak",
+        slot: LookSlot::Back,
+        display: 0,
+        unlock: Unlock::Points(0),
+    },
+    AppearanceDef {
+        key: "cape_of_the_black_baron",
+        name: "Cape of the Black Baron",
+        slot: LookSlot::Back,
+        display: 24013,
+        unlock: Unlock::Points(50),
+    },
+    AppearanceDef {
+        key: "cloak_of_firemaw",
+        name: "Cloak of Firemaw",
+        slot: LookSlot::Back,
+        display: 23422,
+        unlock: Unlock::Points(75),
+    },
+    AppearanceDef {
+        key: "onyxia_scale_cloak",
+        name: "Onyxia Scale Cloak",
+        slot: LookSlot::Back,
+        display: 25921,
+        unlock: Unlock::Points(100),
+    },
+    AppearanceDef {
+        key: "sapphiron_drape",
+        name: "Sapphiron Drape",
+        slot: LookSlot::Back,
+        display: 29719,
+        unlock: Unlock::Achievement("veteran"),
+    },
+    AppearanceDef {
+        key: "cloak_of_the_shrouded_mists",
+        name: "Cloak of the Shrouded Mists",
+        slot: LookSlot::Back,
+        display: 29824,
+        unlock: Unlock::Achievement("curator"),
+    },
+    AppearanceDef {
+        key: "cloak_of_the_fallen_god",
+        name: "Cloak of the Fallen God",
+        slot: LookSlot::Back,
+        display: 34337,
+        unlock: Unlock::Achievement("completionist"),
+    },
+];
+
+/// An appearance by its key.
+pub(crate) fn appearance(key: &str) -> Option<&'static AppearanceDef> {
+    APPEARANCES.iter().find(|a| a.key == key)
 }
 
 /// The playable races, `ChrRaces.dbc` ids.

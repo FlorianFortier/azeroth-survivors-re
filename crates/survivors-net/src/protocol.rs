@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 15;
+pub const PROTOCOL_VERSION: u16 = 16;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -22,6 +22,8 @@ pub type Slot = u8;
 pub const MAX_LOADOUT_BONUSES: usize = 128;
 pub const MAX_LOADOUT_GEAR: usize = 16;
 pub const MAX_LOADOUT_PERKS: usize = 32;
+/// How many appearances a loadout carries, one per slot and some slack.
+pub const MAX_LOADOUT_LOOKS: usize = 4;
 
 /// The hero a player brings: an index into the game's classes, the look picked for it, and what
 /// its profile brings into a run (the gear worn, the collection, the talents) for the host, who
@@ -44,6 +46,8 @@ pub struct Loadout {
     pub perks: Vec<(String, u8)>,
     /// The tabard worn, by key; empty for none.
     pub tabard: String,
+    /// The appearances worn on the head and back, by key.
+    pub looks: Vec<String>,
 }
 
 /// Who a relayed game message goes to.
@@ -260,6 +264,11 @@ impl Wire for Loadout {
             w.str(key).u8(*rank);
         }
         w.str(&self.tabard);
+        let looks = &self.looks[..self.looks.len().min(MAX_LOADOUT_LOOKS)];
+        w.len(looks.len());
+        for key in looks {
+            w.str(key);
+        }
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -293,6 +302,14 @@ impl Wire for Loadout {
                 out
             },
             tabard: r.str()?,
+            looks: {
+                let n = r.len(2)?.min(MAX_LOADOUT_LOOKS);
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    out.push(r.str()?);
+                }
+                out
+            },
         })
     }
 }
@@ -581,6 +598,7 @@ mod tests {
             gear: vec!["Hogger's Helm".into()],
             perks: vec![("second_thoughts".into(), 2)],
             tabard: "frostwolf".into(),
+            looks: vec!["helm_of_wrath".into(), "bare_back".into()],
         }
     }
 

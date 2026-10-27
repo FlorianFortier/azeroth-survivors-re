@@ -4,9 +4,11 @@
 //! gold, gold in hand at the start. The races: one opened ([`data::RACE_POINTS`]) can be every
 //! class, its look added to each class's ([`super::menu::open_looks`]). The tabards
 //! ([`data::TABARDS`]), 1.12.1's own, worn over the gear: some bought, some earned by an
-//! achievement, one worn at a time. All are bought on a draft and kept with Confirm (Undo drops
-//! the draft); Reset takes every perk point back, [`data::MAX_PERK_RESETS`] times a save, and
-//! leaves the races and tabards.
+//! achievement, one worn at a time. The appearances ([`data::APPEARANCES`]): 1.12.1's hats,
+//! helms and cloaks worn over the gear's look on the head and back, or the slot shown bare;
+//! earned the same ways. All are bought on a draft and kept with Confirm (Undo drops the draft);
+//! Reset takes every perk point back, [`data::MAX_PERK_RESETS`] times a save, and leaves the
+//! rest.
 //!
 //! A perk's bonus rides the profile's other bonuses (`Profile::meta_bonuses`, so a guest's
 //! loadout carries it); the rest lands on the hero when its run begins ([`apply_perks`]), on the
@@ -20,7 +22,7 @@ use super::data::{self, PerkDef, PerkEffect};
 use super::hud::TipLine;
 use super::kit::{self, theme, IconSource, KitClicks, KitFonts, Tooltip};
 use super::lang::{tr, trf};
-use super::profile::{Profile, ProfileStore};
+use super::profile::{Profile, ProfileStore, Spend};
 use super::Vitals;
 
 /// What a perk's ranks do that is not a bonus: rerolls and banishes in hand, a skip's gold, the
@@ -73,13 +75,13 @@ const SECTIONS: [(Section, &str); 5] = [
     (Section::Appearances, "Appearances"),
 ];
 
-/// The ranks and races being bought, before Confirm keeps them; each `None` while it matches
-/// the profile.
+/// What is being bought, before Confirm keeps it; each `None` while it matches the profile.
 #[derive(Resource, Default)]
 struct Draft {
     perks: Option<BTreeMap<String, u8>>,
     races: Option<BTreeSet<String>>,
     tabards: Option<BTreeSet<String>>,
+    appearances: Option<BTreeSet<String>>,
     section: Section,
 }
 
@@ -96,23 +98,32 @@ impl Draft {
         self.tabards.as_ref().unwrap_or(&profile.tabards)
     }
 
-    /// What the draft costs in all.
-    fn cost(&self, profile: &Profile) -> u32 {
-        Profile::cost(
-            self.perks(profile),
-            self.races(profile),
-            self.tabards(profile),
-        )
+    fn appearances<'a>(&'a self, profile: &'a Profile) -> &'a BTreeSet<String> {
+        self.appearances.as_ref().unwrap_or(&profile.appearances)
+    }
+
+    /// Everything the draft holds.
+    fn spend<'a>(&'a self, profile: &'a Profile) -> Spend<'a> {
+        Spend {
+            perks: self.perks(profile),
+            races: self.races(profile),
+            tabards: self.tabards(profile),
+            appearances: self.appearances(profile),
+        }
     }
 
     fn dirty(&self) -> bool {
-        self.perks.is_some() || self.races.is_some() || self.tabards.is_some()
+        self.perks.is_some()
+            || self.races.is_some()
+            || self.tabards.is_some()
+            || self.appearances.is_some()
     }
 
     fn clear(&mut self) {
-        self.perks = None;
-        self.races = None;
-        self.tabards = None;
+        *self = Self {
+            section: self.section,
+            ..Self::default()
+        };
     }
 }
 
@@ -126,6 +137,8 @@ enum RewardAction {
     /// A tabard owned: wear it, or take it off; one for points: put it on the draft, or take it
     /// off again.
     Tabard(usize),
+    /// The same for an appearance, on its slot.
+    Appearance(usize),
     Confirm,
     Undo,
     Reset,
@@ -227,7 +240,12 @@ fn reward_clicks(
             perks.insert(perk.key.to_string(), want);
             perks.retain(|_, r| *r > 0);
             let p = &store.profile;
-            if Profile::cost(&perks, draft.races(p), draft.tabards(p)) <= p.points_earned() {
+            let cost = Spend {
+                perks: &perks,
+                ..draft.spend(p)
+            }
+            .cost();
+            if cost <= p.points_earned() {
                 draft.perks = (perks != p.perks).then_some(perks);
             }
         }
@@ -241,7 +259,12 @@ fn reward_clicks(
                 races.insert(name);
             }
             let p = &store.profile;
-            if Profile::cost(draft.perks(p), &races, draft.tabards(p)) <= p.points_earned() {
+            let cost = Spend {
+                races: &races,
+                ..draft.spend(p)
+            }
+            .cost();
+            if cost <= p.points_earned() {
                 draft.races = (races != p.races).then_some(races);
             }
         }
@@ -256,23 +279,57 @@ fn reward_clicks(
                 });
                 return;
             }
-            if !matches!(t.unlock, data::TabardUnlock::Points(_)) {
+            if !matches!(t.unlock, data::Unlock::Points(_)) {
                 return;
             }
             let mut tabards = draft.tabards(&store.profile).clone();
-            if !tabards.remove(t.key) {
-                tabards.insert(t.key.to_string());
-            }
+            toggle(&mut tabards, t.key);
             let p = &store.profile;
-            if Profile::cost(draft.perks(p), draft.races(p), &tabards) <= p.points_earned() {
+            let cost = Spend {
+                tabards: &tabards,
+                ..draft.spend(p)
+            }
+            .cost();
+            if cost <= p.points_earned() {
                 draft.tabards = (tabards != p.tabards).then_some(tabards);
+            }
+        }
+        RewardAction::Appearance(i) => {
+            let Some(a) = data::APPEARANCES.get(i) else {
+                return;
+            };
+            if store.profile.appearance_owned(a) {
+                let worn =
+                    store.profile.looks.get(a.slot.name()).map(String::as_str) == Some(a.key);
+                store.edit(|p| {
+                    p.wear_appearance(a.slot, (!worn).then_some(a.key));
+                });
+                return;
+            }
+            if !matches!(a.unlock, data::Unlock::Points(_)) {
+                return;
+            }
+            let mut appearances = draft.appearances(&store.profile).clone();
+            toggle(&mut appearances, a.key);
+            let p = &store.profile;
+            let cost = Spend {
+                appearances: &appearances,
+                ..draft.spend(p)
+            }
+            .cost();
+            if cost <= p.points_earned() {
+                draft.appearances = (appearances != p.appearances).then_some(appearances);
             }
         }
         RewardAction::Confirm => {
             // Perks first: the races and tabards already bought count against them, and the new
             // ones against the perks just kept, so a draft that fits in all goes through.
-            let (perks, races, tabards) =
-                (draft.perks.take(), draft.races.take(), draft.tabards.take());
+            let (perks, races, tabards, appearances) = (
+                draft.perks.take(),
+                draft.races.take(),
+                draft.tabards.take(),
+                draft.appearances.take(),
+            );
             store.edit(|p| {
                 if let Some(perks) = perks {
                     p.set_perks(perks);
@@ -283,6 +340,9 @@ fn reward_clicks(
                 if let Some(tabards) = tabards {
                     p.buy_tabards(tabards);
                 }
+                if let Some(appearances) = appearances {
+                    p.buy_appearances(appearances);
+                }
             });
         }
         RewardAction::Undo => draft.clear(),
@@ -292,6 +352,13 @@ fn reward_clicks(
                 p.reset_perks();
             });
         }
+    }
+}
+
+/// Put `key` on a draft's set, or take it off again.
+fn toggle(set: &mut BTreeSet<String>, key: &str) {
+    if !set.remove(key) {
+        set.insert(key.to_string());
     }
 }
 
@@ -310,6 +377,11 @@ struct View {
     tabard: String,
     /// The tabards owned, achievements' included.
     owned: Vec<bool>,
+    profile_appearances: BTreeSet<String>,
+    draft_appearances: Option<BTreeSet<String>>,
+    looks: BTreeMap<String, String>,
+    /// The appearances owned, achievements' included.
+    owned_looks: Vec<bool>,
     icons: bool,
     resets: u8,
     section: Section,
@@ -344,6 +416,13 @@ fn refresh_rewards(
         draft_tabards: draft.tabards.clone(),
         tabard: p.tabard.clone(),
         owned: data::TABARDS.iter().map(|t| p.tabard_owned(t)).collect(),
+        profile_appearances: p.appearances.clone(),
+        draft_appearances: draft.appearances.clone(),
+        looks: p.looks.clone(),
+        owned_looks: data::APPEARANCES
+            .iter()
+            .map(|a| p.appearance_owned(a))
+            .collect(),
         icons: displays.is_some(),
         resets: p.perk_resets,
         section: draft.section,
@@ -355,7 +434,7 @@ fn refresh_rewards(
     *shown = Some(view);
     let f = &*fonts;
     let perks = draft.perks(p);
-    let spent = draft.cost(p);
+    let spent = draft.spend(p).cost();
     let earned = p.points_earned();
     let left = earned.saturating_sub(spent);
     let dirty = draft.dirty();
@@ -402,7 +481,7 @@ fn refresh_rewards(
                 kit::ButtonLook::PLAIN,
                 RewardAction::Section(section),
             );
-            let built = matches!(section, Section::Perks | Section::Races | Section::Tabards);
+            let built = matches!(section, Section::Perks | Section::Races | Section::Tabards | Section::Appearances);
             s.commands().entity(b).insert((
                 kit::Selected(section == draft.section),
                 kit::Disabled(!built),
@@ -449,7 +528,7 @@ fn refresh_rewards(
         });
         s.spawn(kit::text(
             &f.body,
-            tr("Perks, races and tabards are the account's: every hero of every class has them. Achievements earn more points."),
+            tr("Everything here is the account's: every hero of every class has it. Achievements earn more points."),
             12.0,
             theme::DIM,
         ));
@@ -496,20 +575,85 @@ fn refresh_rewards(
             grid(m, |grid| {
                 for (i, t) in data::TABARDS.iter().enumerate() {
                     let state = if p.tabard == t.key && p.tabard_owned(t) {
-                        TabardState::Worn
+                        LookState::Worn
                     } else if p.tabard_owned(t) {
-                        TabardState::Owned
+                        LookState::Owned
                     } else if tabards.contains(t.key) {
-                        TabardState::Drafted
+                        LookState::Drafted
                     } else {
-                        TabardState::Locked
+                        LookState::Locked
                     };
                     let icon = catalog
                         .and_then(|c| c.get(t.display)?.icon.clone())
                         .unwrap_or_else(|| TABARD_ICON.to_string());
-                    tabard_card(grid, f, i, t, state, icon, left);
+                    look_card(
+                        grid,
+                        f,
+                        (t.name, t.unlock),
+                        state,
+                        icon,
+                        left,
+                        RewardAction::Tabard(i),
+                    );
                 }
             });
+        }
+        Section::Appearances => {
+            kit::heading(m, f, tr("Appearances"));
+            m.spawn(kit::text(
+                &f.body,
+                tr("A look worn on the head or the back over the gear's, its numbers kept; or the slot shown bare. Some are bought with points, the others earned by an achievement."),
+                13.0,
+                theme::DIM,
+            ));
+            let bought = draft.appearances(p);
+            let catalog = displays.as_deref().map(|d| &d.catalog);
+            for slot in data::LookSlot::ALL {
+                kit::heading(
+                    m,
+                    f,
+                    tr(match slot {
+                        data::LookSlot::Head => "Head",
+                        data::LookSlot::Back => "Cloak",
+                    }),
+                );
+                grid(m, |grid| {
+                    for (i, a) in data::APPEARANCES.iter().enumerate() {
+                        if a.slot != slot {
+                            continue;
+                        }
+                        let owned = p.appearance_owned(a);
+                        let worn = p.looks.get(slot.name()).map(String::as_str) == Some(a.key);
+                        let state = if owned && worn {
+                            LookState::Worn
+                        } else if owned {
+                            LookState::Owned
+                        } else if bought.contains(a.key) {
+                            LookState::Drafted
+                        } else {
+                            LookState::Locked
+                        };
+                        let icon = catalog
+                            .and_then(|c| c.get(a.display)?.icon.clone())
+                            .unwrap_or_else(|| {
+                                match slot {
+                                    data::LookSlot::Head => HEAD_ICON,
+                                    data::LookSlot::Back => BACK_ICON,
+                                }
+                                .to_string()
+                            });
+                        look_card(
+                            grid,
+                            f,
+                            (a.name, a.unlock),
+                            state,
+                            icon,
+                            left,
+                            RewardAction::Appearance(i),
+                        );
+                    }
+                });
+            }
         }
         _ => {
             kit::heading(m, f, tr("Perks"));
@@ -562,12 +706,14 @@ enum RaceState {
     Open,
 }
 
-/// A tabard's icon while the item displays are not read yet.
+/// A tabard's icon while the item displays are not read yet, or for a bare slot.
 const TABARD_ICON: &str = "Interface\\Icons\\INV_Shirt_GuildTabard_01";
+const HEAD_ICON: &str = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Head";
+const BACK_ICON: &str = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Chest";
 
-/// Where a tabard stands in the Rewards tab.
+/// Where a tabard or an appearance stands in the Rewards tab.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum TabardState {
+enum LookState {
     /// Not owned: its price, or the achievement that earns it.
     Locked,
     /// On the draft, kept with Confirm.
@@ -576,19 +722,20 @@ enum TabardState {
     Worn,
 }
 
-/// One tabard: its icon, name, how it is earned, and Buy, Wear or Take off.
-fn tabard_card(
+/// One tabard or appearance: its icon, name, how it is earned, and Buy, Wear or Take off.
+fn look_card(
     p: &mut ChildSpawnerCommands,
     f: &KitFonts,
-    i: usize,
-    t: &data::TabardDef,
-    state: TabardState,
+    (name, unlock): (&str, data::Unlock),
+    state: LookState,
     icon: String,
     left: u32,
+    action: RewardAction,
 ) {
-    let how = match t.unlock {
-        data::TabardUnlock::Points(n) => trf("{} points", &[&n.to_string()]),
-        data::TabardUnlock::Achievement(key) => {
+    let how = match unlock {
+        data::Unlock::Points(0) => tr("Free").to_string(),
+        data::Unlock::Points(n) => trf("{} points", &[&n.to_string()]),
+        data::Unlock::Achievement(key) => {
             let name = data::ACHIEVEMENTS
                 .iter()
                 .find(|a| a.key == key)
@@ -598,7 +745,7 @@ fn tabard_card(
     };
     p.spawn(card_node(matches!(
         state,
-        TabardState::Worn | TabardState::Drafted
+        LookState::Worn | LookState::Drafted
     )))
     .with_children(|card| {
         kit::icon(card, IconSource::Texture(icon), 44.0, None);
@@ -610,7 +757,7 @@ fn tabard_card(
             ..default()
         })
         .with_children(|c| {
-            c.spawn(kit::text(&f.body, tr(t.name), 18.0, Color::WHITE));
+            c.spawn(kit::text(&f.body, tr(name), 18.0, Color::WHITE));
             c.spawn(kit::text(&f.body, how, 13.0, theme::TEXT));
         });
         card.spawn(Node {
@@ -620,26 +767,19 @@ fn tabard_card(
             ..default()
         })
         .with_children(|c| {
-            let (label, enabled) = match (state, t.unlock) {
-                (TabardState::Worn, _) => (tr("Take off"), true),
-                (TabardState::Owned, _) => (tr("Wear"), true),
-                (TabardState::Drafted, _) => (tr("Take back"), true),
-                (TabardState::Locked, data::TabardUnlock::Points(n)) => (tr("Buy"), left >= n),
-                (TabardState::Locked, data::TabardUnlock::Achievement(_)) => (tr("Locked"), false),
+            let (label, enabled) = match (state, unlock) {
+                (LookState::Worn, _) => (tr("Take off"), true),
+                (LookState::Owned, _) => (tr("Wear"), true),
+                (LookState::Drafted, _) => (tr("Take back"), true),
+                (LookState::Locked, data::Unlock::Points(n)) => (tr("Buy"), left >= n),
+                (LookState::Locked, data::Unlock::Achievement(_)) => (tr("Locked"), false),
             };
-            if state == TabardState::Worn {
+            if state == LookState::Worn {
                 c.spawn(kit::text(&f.body, tr("Worn"), 14.0, theme::GREEN));
             }
-            let b = kit::button(
-                c,
-                f,
-                label,
-                None,
-                kit::ButtonLook::PLAIN,
-                RewardAction::Tabard(i),
-            );
+            let b = kit::button(c, f, label, None, kit::ButtonLook::PLAIN, action);
             c.commands().entity(b).insert((
-                kit::Selected(state == TabardState::Drafted),
+                kit::Selected(state == LookState::Drafted),
                 kit::Disabled(!enabled),
             ));
         });
@@ -975,12 +1115,98 @@ mod tests {
     }
 
     #[test]
+    fn appearances_are_bought_or_earned_and_one_a_slot_is_worn() {
+        use data::LookSlot::{Back, Head};
+        let mut p = earned(300);
+        // A bare slot is free; a hat for points is not until bought; a feat's needs the feat.
+        let bare = data::appearance("bare_head").unwrap();
+        let hat = data::appearance("lucky_fishing_hat").unwrap();
+        let wrath = data::appearance("helm_of_wrath").unwrap();
+        assert!(p.appearance_owned(bare));
+        assert!(!p.appearance_owned(hat));
+        // Champion: 25 wins, which `earned` has.
+        assert!(p.appearance_owned(wrath));
+        assert!(!p.wear_appearance(Head, Some(hat.key)));
+        // Bought on its own slot only, never one a feat earns.
+        assert!(!p.buy_appearances(BTreeSet::from([wrath.key.to_string()])));
+        assert!(p.buy_appearances(BTreeSet::from([hat.key.to_string()])));
+        assert_eq!(p.points_spent(), 50);
+        assert!(!p.wear_appearance(Back, Some(hat.key)), "a hat on the back");
+        assert!(p.wear_appearance(Head, Some(hat.key)));
+        assert!(p.wear_appearance(Back, Some("bare_back")));
+        let worn: Vec<&str> = p.worn_appearances().iter().map(|a| a.key).collect();
+        assert_eq!(worn, ["lucky_fishing_hat", "bare_back"]);
+        // Over the gear: the hat on the head, the back bared, the tabard last.
+        assert!(p.wear_tabard(Some("frostwolf")));
+        use super::super::outfit::slot;
+        assert_eq!(
+            p.cosmetics(),
+            [
+                (slot::HEAD, hat.display),
+                (slot::BACK, 0),
+                (slot::TABARD, data::tabard("frostwolf").unwrap().display)
+            ]
+        );
+        // Another on the same slot replaces it; None takes it off.
+        assert!(p.wear_appearance(Head, Some(wrath.key)));
+        assert!(p.wear_appearance(Back, None));
+        assert_eq!(p.worn_appearances().len(), 1);
+        // A perk reset keeps what was bought.
+        p.perks.insert("banish".into(), 1);
+        assert!(p.reset_perks());
+        assert!(p.appearance_owned(hat));
+    }
+
+    #[test]
+    fn a_guests_cosmetics_keep_one_a_slot() {
+        use super::super::outfit::slot;
+        let c = super::super::profile::cosmetics(
+            [
+                "helm_of_wrath",
+                "lucky_fishing_hat",
+                "no_such_look",
+                "bare_back",
+            ],
+            Some("no_such_tabard"),
+        );
+        assert_eq!(c, [(slot::HEAD, 34215), (slot::BACK, 0)]);
+    }
+
+    #[test]
+    fn every_appearance_is_sound() {
+        let mut keys = std::collections::HashSet::new();
+        for a in data::APPEARANCES {
+            assert!(keys.insert(a.key), "{} twice", a.key);
+            assert!(a.display < 0x1_0000, "{}", a.key);
+            // Only a bare slot is free, and it has no display.
+            assert_eq!(
+                a.display == 0,
+                a.unlock == data::Unlock::Points(0),
+                "{}",
+                a.key
+            );
+            if let data::Unlock::Achievement(x) = a.unlock {
+                assert!(
+                    data::ACHIEVEMENTS.iter().any(|y| y.key == x),
+                    "{}: no achievement {x}",
+                    a.key
+                );
+            }
+        }
+        for slot in data::LookSlot::ALL {
+            assert!(data::APPEARANCES
+                .iter()
+                .any(|a| a.slot == slot && a.display == 0));
+        }
+    }
+
+    #[test]
     fn every_tabard_is_sound() {
         let mut keys = std::collections::HashSet::new();
         for t in data::TABARDS {
             assert!(keys.insert(t.key), "{} twice", t.key);
             assert!(t.display > 0 && t.display < 0x1_0000, "{}", t.key);
-            if let data::TabardUnlock::Achievement(a) = t.unlock {
+            if let data::Unlock::Achievement(a) = t.unlock {
                 assert!(
                     data::ACHIEVEMENTS.iter().any(|x| x.key == a),
                     "{}: no achievement {a}",
@@ -994,7 +1220,17 @@ mod tests {
     fn a_tabard_is_worn_over_the_body() {
         // Without the catalog the hero is the trainer: nothing to wear it on.
         let class = &data::CLASSES[0];
-        let body = super::super::outfit::body(class, 1, 0, [0; 5], 7, &[], Some(21338), None, None);
+        let body = super::super::outfit::body(
+            class,
+            1,
+            0,
+            [0; 5],
+            7,
+            &[],
+            &[(super::super::outfit::slot::TABARD, 21338)],
+            None,
+            None,
+        );
         assert_eq!(body, super::super::outfit::Body::Trainer { display: 7 });
     }
 

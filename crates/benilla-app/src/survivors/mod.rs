@@ -10,11 +10,11 @@
 
 mod abilities;
 mod auto;
+mod balance;
 mod cards;
 mod character;
 mod data;
 mod enemies;
-mod balance;
 mod feel;
 mod frames;
 mod grade;
@@ -303,6 +303,8 @@ pub(super) struct Brings {
     pub perks: Vec<(String, u8)>,
     /// The tabard worn, by [`data::TabardDef::key`]; empty for none.
     pub tabard: String,
+    /// The appearances worn, by [`data::AppearanceDef::key`].
+    pub looks: Vec<String>,
 }
 
 /// Who plays the run on this machine.
