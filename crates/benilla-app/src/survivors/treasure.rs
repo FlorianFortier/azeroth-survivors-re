@@ -655,9 +655,7 @@ fn tend_shrines(
                 let at = sh.view.pos;
                 let inside = heroes
                     .iter_mut()
-                    .filter(|(t, h)| {
-                        h.alive() && flat(t.translation - at).length() <= data::SHRINE_RADIUS
-                    })
+                    .filter(|(t, h)| h.alive() && flat(t.translation - at).length() <= def.radius)
                     .min_by(|a, b| {
                         flat(a.0.translation - at)
                             .length()
@@ -689,8 +687,7 @@ fn tend_shrines(
                             let kind = rng.index(data::ELITES.len());
                             let a =
                                 k as f32 / data::CHALLENGE_ELITES as f32 * std::f32::consts::TAU;
-                            let pos =
-                                at + Vec3::new(a.cos(), 0.0, a.sin()) * (data::SHRINE_RADIUS + 3.0);
+                            let pos = at + Vec3::new(a.cos(), 0.0, a.sin()) * (def.radius + 3.0);
                             let e = enemies::spawn_enemy(
                                 commands,
                                 run,

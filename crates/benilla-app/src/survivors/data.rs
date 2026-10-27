@@ -3417,6 +3417,8 @@ pub(crate) struct ShrineDef {
     pub color: [f32; 3],
     /// Seconds a hero stands in it to wake it.
     pub hold: f32,
+    /// How far from its middle a hero stands in it (yd).
+    pub radius: f32,
     pub count: usize,
 }
 
@@ -3428,6 +3430,8 @@ pub(crate) const SHRINES: [ShrineDef; 4] = [
         spell: 10060,
         color: [1.0, 0.85, 0.3],
         hold: 5.0,
+        // Wide: a hero kiting through the horde charges it without stopping on its stone.
+        radius: 7.0,
         count: 3,
     },
     ShrineDef {
@@ -3437,6 +3441,8 @@ pub(crate) const SHRINES: [ShrineDef; 4] = [
         spell: 6673,
         color: [0.95, 0.25, 0.15],
         hold: 1.5,
+        // Narrow: what it wakes is a risk taken on purpose, not on the way past.
+        radius: 4.0,
         count: 1,
     },
     ShrineDef {
@@ -3446,6 +3452,8 @@ pub(crate) const SHRINES: [ShrineDef; 4] = [
         spell: 921,
         color: [1.0, 0.65, 0.1],
         hold: 1.5,
+        // Narrow: what it wakes is a risk taken on purpose, not on the way past.
+        radius: 4.0,
         count: 1,
     },
     ShrineDef {
@@ -3455,6 +3463,8 @@ pub(crate) const SHRINES: [ShrineDef; 4] = [
         spell: 702,
         color: [0.6, 0.25, 0.85],
         hold: 1.5,
+        // Narrow: what it wakes is a risk taken on purpose, not on the way past.
+        radius: 4.0,
         count: 1,
     },
 ];
@@ -3464,9 +3474,6 @@ pub(crate) fn shrine(kind: usize) -> &'static ShrineDef {
     &SHRINES[kind.min(SHRINES.len() - 1)]
 }
 
-/// How far from a shrine's middle a hero stands in it: wide, so a hero kiting through the horde
-/// can charge it without stopping on its stone.
-pub(crate) const SHRINE_RADIUS: f32 = 7.0;
 /// How big a shrine's stone is drawn, against its model's own size: a marker in the grass, not a
 /// monument.
 pub(crate) const SHRINE_SCALE: f32 = 0.4;

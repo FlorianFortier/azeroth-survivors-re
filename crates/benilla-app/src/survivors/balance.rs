@@ -242,11 +242,18 @@ fn pilot(app: &mut App, t: f32) {
         if let Some(b) = v.shrine_offer.first().copied() {
             treasure::take_boon(v, data::bonus_to_wire(&b.bonus));
         }
-        // The rarest of a chest's choices.
+        // A chest's rank of a spell, as a player growing its spells would take it, else its
+        // rarest item.
         if let Some(pick) = v
             .chest_offer
             .iter()
-            .max_by_key(|p| CardRarity::ALL.iter().position(|r| *r == p.rarity()))
+            .max_by_key(|p| match p {
+                data::ChestPick::Rank(_) => CardRarity::ALL.len(),
+                data::ChestPick::Item(i) => CardRarity::ALL
+                    .iter()
+                    .position(|r| *r == i.rarity)
+                    .unwrap_or(0),
+            })
             .copied()
         {
             treasure::take_chest_item(v, &pick.key(), &mut rng);
