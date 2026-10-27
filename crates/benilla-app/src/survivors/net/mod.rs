@@ -884,18 +884,23 @@ mod tests {
         // An item never offered is refused; one of the offer is taken.
         let never = data::RUN_ITEMS
             .iter()
-            .find(|i| !offered.contains(i))
+            .map(|i| data::ChestPick::Item(i))
+            .find(|p| !offered.contains(p))
             .unwrap();
-        for key in [never.key, offered[1].key] {
+        let picks = host.world().get::<HeroState>(hero).unwrap().picks;
+        for p in [never, offered[1]] {
             host.world_mut()
                 .resource_mut::<Net>()
                 .inbox
-                .push((1, Game::ChestChoice(key.into())));
+                .push((1, Game::ChestChoice(p.key())));
         }
         host.update();
         let h = host.world().get::<HeroState>(hero).unwrap();
-        assert_eq!(h.run_items, [(offered[1], 1)]);
+        assert_eq!(h.picks, picks + 1, "one choice taken");
         assert!(h.chest_offer.is_empty());
+        if let data::ChestPick::Item(item) = offered[1] {
+            assert_eq!(h.run_items, [(item, 1)]);
+        }
     }
 
     #[test]

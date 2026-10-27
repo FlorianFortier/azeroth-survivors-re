@@ -242,14 +242,14 @@ fn pilot(app: &mut App, t: f32) {
         if let Some(b) = v.shrine_offer.first().copied() {
             treasure::take_boon(v, data::bonus_to_wire(&b.bonus));
         }
-        // The rarest of a chest's items.
-        if let Some(item) = v
+        // The rarest of a chest's choices.
+        if let Some(pick) = v
             .chest_offer
             .iter()
-            .max_by_key(|i| CardRarity::ALL.iter().position(|r| *r == i.rarity))
+            .max_by_key(|p| CardRarity::ALL.iter().position(|r| *r == p.rarity()))
             .copied()
         {
-            treasure::take_chest_item(v, item.key);
+            treasure::take_chest_item(v, &pick.key(), &mut rng);
         }
 
         // Where to: an open portal, a chest it can pay for, else round the middle.

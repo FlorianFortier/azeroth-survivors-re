@@ -307,10 +307,11 @@ pub(super) fn add_run_item(v: &mut Vitals, item: &'static data::RunItemDef) -> u
     n
 }
 
-/// What an opened chest offers a hero: [`data::CHEST_CHOICES`] different run items it can still
-/// take, each drawn at its rarity's odds; among the kinds it holds once it holds five. Empty when
-/// it can take none (five kinds, each at its most stacks).
-pub(super) fn deal_chest(v: &Vitals, rng: &mut Rng) -> Vec<&'static data::RunItemDef> {
+/// What an opened chest offers a hero: [`data::CHEST_CHOICES`] different choices, each a rank of
+/// one of its spells at [`data::CHEST_RANK_ODDS`], else a run item it can still take, drawn at
+/// its rarity's odds (among the kinds it holds once it holds five). Empty when it can take
+/// nothing.
+pub(super) fn deal_chest(v: &Vitals, rng: &mut Rng) -> Vec<data::ChestPick> {
     let full = v.run_items.len() >= data::MAX_RUN_ITEM_KINDS;
     let open = |item: &data::RunItemDef| match v.run_items.iter().find(|(i, _)| i.key == item.key) {
         Some((_, n)) => *n < data::MAX_RUN_ITEM_STACKS,
@@ -318,25 +319,43 @@ pub(super) fn deal_chest(v: &Vitals, rng: &mut Rng) -> Vec<&'static data::RunIte
     };
     let mut pool: Vec<&'static data::RunItemDef> =
         data::RUN_ITEMS.iter().filter(|i| open(i)).collect();
+    let mut spells: Vec<&'static data::AbilityDef> = v.abilities.iter().map(|o| o.def).collect();
     let mut out = Vec::with_capacity(data::CHEST_CHOICES);
-    while out.len() < data::CHEST_CHOICES && !pool.is_empty() {
+    while out.len() < data::CHEST_CHOICES && !(pool.is_empty() && spells.is_empty()) {
+        let rank = !spells.is_empty() && (pool.is_empty() || rng.f32() < data::CHEST_RANK_ODDS);
+        if rank {
+            let def = spells.swap_remove(rng.index(spells.len()));
+            out.push(data::ChestPick::Rank(def));
+            continue;
+        }
         let Some(item) = data::draw_held_run_item(&pool, rng.f32()) else {
             break;
         };
         pool.retain(|i| i.key != item.key);
-        out.push(item);
+        out.push(data::ChestPick::Item(item));
     }
     out
 }
 
-/// Take the run item of the hero's chest offer that `key` names, if it is one: the offer goes,
-/// a stack of the item stays for the run.
-pub(super) fn take_chest_item(v: &mut Vitals, key: &str) -> bool {
-    let Some(item) = v.chest_offer.iter().find(|i| i.key == key).copied() else {
+/// Take the choice of the hero's chest offer that `key` names, if it is one: the offer goes, and
+/// a stack of the item, or the spell's rank with an Uncommon card's perks, stays for the run.
+pub(super) fn take_chest_item(v: &mut Vitals, key: &str, rng: &mut Rng) -> bool {
+    let Some(pick) = v.chest_offer.iter().find(|p| p.key() == key).copied() else {
         return false;
     };
     v.chest_offer.clear();
-    add_run_item(v, item);
+    match pick {
+        data::ChestPick::Item(item) => {
+            add_run_item(v, item);
+        }
+        data::ChestPick::Rank(def) => {
+            if let Some(k) = v.abilities.iter().position(|o| o.def.key == def.key) {
+                let perks = super::offer::draw_perks(def, false, data::CardRarity::Uncommon, rng);
+                v.abilities[k].rank_up(&perks);
+                v.version += 1;
+            }
+        }
+    }
     // A move like a card's: a guest's view knows which of its moves the host has applied.
     v.picks += 1;
     true
@@ -794,23 +813,47 @@ mod tests {
     }
 
     #[test]
-    fn a_chest_offers_three_items_the_hero_can_take_and_one_is_taken() {
-        let mut h = hero();
+    fn a_chest_offers_three_choices_and_one_is_taken() {
         let mut rng = Rng::seeded(7);
-        let offer = deal_chest(&h.v, &mut rng);
-        assert_eq!(offer.len(), data::CHEST_CHOICES);
-        let mut keys: Vec<&str> = offer.iter().map(|i| i.key).collect();
-        keys.dedup();
-        assert_eq!(keys.len(), data::CHEST_CHOICES, "three different items");
-        h.v.chest_offer = offer.clone();
-        // Not of the offer: refused, and the offer stays.
-        let never = data::RUN_ITEMS.iter().find(|i| !offer.contains(i)).unwrap();
-        assert!(!take_chest_item(&mut h.v, never.key));
-        assert_eq!(h.chest_offer.len(), data::CHEST_CHOICES);
-        assert!(take_chest_item(&mut h.v, offer[0].key));
-        assert_eq!(h.run_items, [(offer[0], 1)]);
-        assert!(h.chest_offer.is_empty());
-        assert!(!take_chest_item(&mut h.v, offer[1].key), "one a chest");
+        let (mut items, mut ranks) = (0, 0);
+        for _ in 0..40 {
+            let mut h = hero();
+            let offer = deal_chest(&h.v, &mut rng);
+            assert_eq!(offer.len(), data::CHEST_CHOICES);
+            let mut keys: Vec<String> = offer.iter().map(|p| p.key()).collect();
+            keys.sort();
+            keys.dedup();
+            assert_eq!(keys.len(), data::CHEST_CHOICES, "three different choices");
+            h.v.chest_offer = offer.clone();
+            // Not of the offer: refused, and the offer stays.
+            let never = data::RUN_ITEMS
+                .iter()
+                .map(|i| data::ChestPick::Item(i))
+                .find(|p| !offer.contains(p))
+                .unwrap();
+            assert!(!take_chest_item(&mut h.v, &never.key(), &mut rng));
+            assert_eq!(h.chest_offer.len(), data::CHEST_CHOICES);
+            let level = h.abilities[0].level;
+            assert!(take_chest_item(&mut h.v, &offer[0].key(), &mut rng));
+            match offer[0] {
+                data::ChestPick::Item(item) => {
+                    items += 1;
+                    assert_eq!(h.run_items, [(item, 1)]);
+                }
+                data::ChestPick::Rank(def) => {
+                    ranks += 1;
+                    assert_eq!(def.key, h.abilities[0].def.key, "the spell it knows");
+                    assert_eq!(h.abilities[0].level, level + 1);
+                }
+            }
+            assert!(h.chest_offer.is_empty());
+            assert!(
+                !take_chest_item(&mut h.v, &offer[1].key(), &mut rng),
+                "one a chest"
+            );
+        }
+        // Mostly items, a rank now and then.
+        assert!(items > ranks && ranks > 0, "{items} items, {ranks} ranks");
     }
 
     #[test]
@@ -829,11 +872,22 @@ mod tests {
         for _ in 0..20 {
             let offer = deal_chest(&h.v, &mut rng);
             assert_eq!(offer.len(), data::CHEST_CHOICES);
-            assert!(offer.iter().all(|i| kinds[1..].contains(i)), "{offer:?}");
+            assert!(
+                offer.iter().all(|p| match p {
+                    data::ChestPick::Item(i) => kinds[1..].contains(i),
+                    data::ChestPick::Rank(_) => true,
+                }),
+                "{offer:?}"
+            );
         }
+        // Every kind at its most: only ranks; and nothing at all for a hero with no spell.
         for (_, n) in &mut h.run_items {
             *n = data::MAX_RUN_ITEM_STACKS;
         }
+        let offer = deal_chest(&h.v, &mut rng);
+        assert!(!offer.is_empty());
+        assert!(offer.iter().all(|p| matches!(p, data::ChestPick::Rank(_))));
+        h.v.abilities.clear();
         assert!(deal_chest(&h.v, &mut rng).is_empty());
     }
 

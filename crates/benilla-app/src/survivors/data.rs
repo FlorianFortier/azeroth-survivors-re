@@ -2727,6 +2727,53 @@ pub(crate) const CHEST_RESPAWN_SECS: f32 = 40.0;
 pub(crate) const CHEST_REACH: f32 = 3.0;
 /// The run items an opened chest offers: one may be taken.
 pub(crate) const CHEST_CHOICES: usize = 3;
+/// The odds each of a chest's choices is a rank of one of the hero's spells rather than a run item.
+pub(crate) const CHEST_RANK_ODDS: f32 = 0.3;
+
+/// One of an opened chest's choices: a run item, or a rank of a spell the hero knows (as an
+/// Uncommon card gives it).
+#[derive(Clone, Copy)]
+pub(crate) enum ChestPick {
+    Item(&'static RunItemDef),
+    Rank(&'static AbilityDef),
+}
+
+impl ChestPick {
+    /// What the wire and a guest's answer name it by: an item's key, or `rank:` and a spell's.
+    pub fn key(self) -> String {
+        match self {
+            ChestPick::Item(i) => i.key.to_string(),
+            ChestPick::Rank(a) => format!("rank:{}", a.key),
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key.strip_prefix("rank:") {
+            Some(k) => ABILITIES.iter().find(|a| a.key == k).map(ChestPick::Rank),
+            None => run_item(key).map(ChestPick::Item),
+        }
+    }
+
+    /// The rarity its card wears: an item's own, Uncommon for a rank.
+    pub fn rarity(self) -> CardRarity {
+        match self {
+            ChestPick::Item(i) => i.rarity,
+            ChestPick::Rank(_) => CardRarity::Uncommon,
+        }
+    }
+}
+
+impl PartialEq for ChestPick {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl std::fmt::Debug for ChestPick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.key())
+    }
+}
 
 /// The half of the gold left unspent at the end that the profile keeps.
 pub(crate) const UNSPENT_GOLD_KEPT: f32 = 0.5;

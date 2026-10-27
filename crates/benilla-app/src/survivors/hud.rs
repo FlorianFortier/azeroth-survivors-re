@@ -325,10 +325,10 @@ pub(super) fn follow_offer(phase: Res<State<Phase>>, run: Res<Run>, mut offer: R
         run.chest_offer
             .iter()
             .enumerate()
-            .map(|(i, item)| {
+            .map(|(i, pick)| {
                 let d = Dealt {
                     choice: survivors_net::game::Choice::Heal,
-                    rarity: item.rarity,
+                    rarity: pick.rarity(),
                     perks: Vec::new(),
                 };
                 (d, Choice::ChestItem(i))
@@ -398,13 +398,14 @@ pub(super) fn make_move(
         let Some(Choice::ChestItem(k)) = offer.cards.get(i).map(|(_, c)| *c) else {
             return false;
         };
-        let Some(item) = run.chest_offer.get(k).copied() else {
+        let Some(pick) = run.chest_offer.get(k).copied() else {
             return false;
         };
-        if !super::treasure::take_chest_item(&mut run.me, item.key) {
+        // The view takes it now; a rank's perks are the run's to draw, and come back with it.
+        if !super::treasure::take_chest_item(&mut run.me, &pick.key(), &mut Rng::seeded(0)) {
             return false;
         }
-        picks.2.push(item.key.to_string());
+        picks.2.push(pick.key());
         if done(run) {
             next.set(Phase::Playing);
         }
@@ -1552,8 +1553,29 @@ pub(super) fn describe_card(
             }
         }
         Choice::ChestItem(k) => {
-            let Some(item) = run.chest_offer.get(k).copied() else {
-                return describe_card(Choice::Heal, perks, run, spells);
+            let item = match run.chest_offer.get(k).copied() {
+                Some(data::ChestPick::Item(item)) => item,
+                Some(data::ChestPick::Rank(def)) => {
+                    let level = run
+                        .abilities
+                        .iter()
+                        .find(|o| o.def.key == def.key)
+                        .map_or(1, |o| o.level);
+                    return CardText {
+                        spell: def.spell,
+                        name: spell_name(spells, def.spell, def.key),
+                        badge: Badge::Rank(level + 1),
+                        tag: trf(
+                            "Rank {} » {}",
+                            &[&level.to_string(), &(level + 1).to_string()],
+                        ),
+                        desc: tr("A rank more of a spell you know, as an Uncommon card brings it.")
+                            .to_string(),
+                        perks: Vec::new(),
+                        footer: tr("For the rest of the run").to_string(),
+                    };
+                }
+                None => return describe_card(Choice::Heal, perks, run, spells),
             };
             let held = run
                 .run_items

@@ -385,6 +385,7 @@ fn french(s: &str) -> Option<&'static str> {
         "Choose an item for the rest of the run." => "Choisissez un objet pour le reste de la partie.",
         "Click an item, or press 1, 2 or 3" => "Cliquez sur un objet, ou appuyez sur 1, 2 ou 3",
         "New item" => "Nouvel objet",
+        "A rank more of a spell you know, as an Uncommon card brings it." => "Un rang de plus d'un sort que vous connaissez, comme le donne une carte Peu commune.",
         "Stack {} » {}" => "Cumul {} » {}",
         "Blessing!" => "Bénédiction !",
         "Choose a blessing for the rest of the run." => {

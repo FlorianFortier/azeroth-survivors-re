@@ -245,11 +245,11 @@ fn apply_me(run: &mut Run, v: WireVitals) {
         run.offer = v.offer.iter().filter_map(PostDealt::from_wire).collect();
         run.rerolls = v.rerolls;
         run.banishes = v.banishes;
-        // The items a chest offers.
+        // What a chest offers.
         run.chest_offer = v
             .chest_offer
             .iter()
-            .filter_map(|k| data::run_item(k))
+            .filter_map(|k| data::ChestPick::from_key(k))
             .collect();
         // The blessings offered, and what the shrines gave.
         run.shrine_offer = v
