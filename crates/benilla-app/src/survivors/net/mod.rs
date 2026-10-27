@@ -169,6 +169,7 @@ pub(super) fn loadout(selection: &Selection) -> Loadout {
         bonuses: selection.brings.bonuses.clone(),
         gear: selection.brings.gear.clone(),
         perks: selection.brings.perks.clone(),
+        tabard: selection.brings.tabard.clone(),
     }
 }
 
@@ -388,6 +389,7 @@ fn start_session(
                 bonuses: m.loadout.bonuses.clone(),
                 gear: m.loadout.gear.clone(),
                 perks: m.loadout.perks.clone(),
+                tabard: m.loadout.tabard.clone(),
             },
         })
         .collect();

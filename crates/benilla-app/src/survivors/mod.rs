@@ -298,6 +298,8 @@ pub(super) struct Brings {
     pub bonuses: Vec<(u8, u8, i32)>,
     pub gear: Vec<String>,
     pub perks: Vec<(String, u8)>,
+    /// The tabard worn, by [`data::TabardDef::key`]; empty for none.
+    pub tabard: String,
 }
 
 /// Who plays the run on this machine.

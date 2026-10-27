@@ -442,8 +442,9 @@ pub(super) enum Body {
     Trainer { display: u32 },
 }
 
-/// The body of a hero of `class`, race and sex, with the dials picked and `gear` equipped over
-/// the starting outfit; `trainer` is the class trainer's display the old look used.
+/// The body of a hero of `class`, race and sex, with the dials picked, `gear` equipped over the
+/// starting outfit and a `tabard` (`ItemDisplayInfo` id) over it all; `trainer` is the class
+/// trainer's display the old look used.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn body(
     class: &ClassDef,
@@ -452,6 +453,7 @@ pub(super) fn body(
     appearance: Appearance,
     trainer: u32,
     gear: &[&ItemDef],
+    tabard: Option<u32>,
     catalog: Option<&CharCreateCatalog>,
     displays: Option<&ItemDisplayCatalog>,
 ) -> Body {
@@ -469,6 +471,10 @@ pub(super) fn body(
                     worn.retain(|o| o.slot != w.slot);
                     worn.push(w);
                 }
+            }
+            if let Some(display) = tabard {
+                worn.retain(|o| o.slot != slot::TABARD);
+                worn.push(Worn::armour(slot::TABARD, display, 19));
             }
             Body::Player {
                 display,

@@ -7,7 +7,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 
 /// Bumped on any change to this protocol or to [`crate::game`]: a client and server that disagree
 /// refuse each other at [`Up::Hello`].
-pub const PROTOCOL_VERSION: u16 = 14;
+pub const PROTOCOL_VERSION: u16 = 15;
 
 /// Where the lobby lives on a server, under its origin.
 pub const LOBBY_PATH: &str = "/lobby";
@@ -42,6 +42,8 @@ pub struct Loadout {
     pub gear: Vec<String>,
     /// The perks bought, `(key, rank)`: the host holds each rank to its perk's most.
     pub perks: Vec<(String, u8)>,
+    /// The tabard worn, by key; empty for none.
+    pub tabard: String,
 }
 
 /// Who a relayed game message goes to.
@@ -257,6 +259,7 @@ impl Wire for Loadout {
         for (key, rank) in perks {
             w.str(key).u8(*rank);
         }
+        w.str(&self.tabard);
     }
     fn get(r: &mut Reader) -> Result<Self, WireError> {
         Ok(Self {
@@ -289,6 +292,7 @@ impl Wire for Loadout {
                 }
                 out
             },
+            tabard: r.str()?,
         })
     }
 }
@@ -576,6 +580,7 @@ mod tests {
             bonuses: vec![(1, 1, 400), (9, 0, -50)],
             gear: vec!["Hogger's Helm".into()],
             perks: vec![("second_thoughts".into(), 2)],
+            tabard: "frostwolf".into(),
         }
     }
 

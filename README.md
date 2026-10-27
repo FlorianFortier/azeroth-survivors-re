@@ -110,8 +110,10 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   (N)** tab spends the points on perks every hero of every class brings into a run: more
   rerolls and banishes, more gold for a skipped hand, a fuller first hand, more experience and gold, gold in hand at the
   start; and on races, each opened to every class for 100 points (an Orc paladin, a Tauren
-  mage), kept through resets. Both are bought on a draft kept with **Confirm**; **Reset** takes
-  every perk point back, twice a save.
+  mage), kept through resets; and on 1.12.1's own tabards (Stormwind, the Argent Dawn, the
+  Scarlet Crusade, the battlegrounds', Flame and Frost), some bought, some earned by an
+  achievement, one worn over the gear. All are bought on a draft kept with **Confirm**;
+  **Reset** takes every perk point back, twice a save.
 - **Options and French**: the **Options** page (bottom left) sets the master, music and effects
   volumes, the mouse sensitivity, the picture polish, the screen shake and the language, English or French, and
   lists the controls. The run's headings follow the language from the next start.

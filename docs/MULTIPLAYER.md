@@ -148,6 +148,6 @@ among friends, not an anti-cheat: a guest's hero position is trusted within the 
 A player's loadout carries what their own profile brings into a run beyond their race: the gear
 they wear (by name), the bonuses of that gear, of their collection, of their class's talents and
 of their perks, and the ranks of their other perks (rerolls, banishes, a skip's gold, the first hand,
-gold at the start). The host, who plays every hero, seats each guest's hero with its race's
-racials, those bonuses and perks, dressed in that gear. Each value is held to a cap on the way in; it is a game
+gold at the start), and the tabard they wear (by key). The host, who plays every hero, seats each
+guest's hero with its race's racials, those bonuses and perks, dressed in that gear and tabard. Each value is held to a cap on the way in; it is a game
 among friends, not an anti-cheat.
