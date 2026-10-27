@@ -109,6 +109,41 @@ pub(super) struct Gem {
     speed: f32,
 }
 
+impl Gem {
+    /// Not yet caught by a magnet or sent by a companion.
+    pub(super) fn free(&self) -> bool {
+        self.pulled.is_none()
+    }
+
+    /// Send it flying to `hero`, as that hero's magnet would.
+    pub(super) fn send_to(&mut self, hero: Entity) {
+        self.pulled = Some(hero);
+    }
+
+    /// Experience.
+    pub(super) fn is_xp(&self) -> bool {
+        matches!(self.kind, GemKind::Xp(_))
+    }
+
+    /// A loose pickup, for tests.
+    #[cfg(test)]
+    pub(super) fn loose(kind: GemKind) -> Self {
+        Self {
+            kind,
+            pulled: None,
+            speed: data::GEM_SPEED,
+        }
+    }
+
+    /// Gold, a key, a reward or a piece of gear: what a gold sniffer runs for first.
+    pub(super) fn is_treasure(&self) -> bool {
+        matches!(
+            self.kind,
+            GemKind::Gold(_) | GemKind::Key | GemKind::Reward(_) | GemKind::Item(_)
+        )
+    }
+}
+
 /// The `GameObjectDisplayInfo` row and scale a pickup wears: a wisp per experience tier, the
 /// bigger tiers rarer, and a turkey leg for health.
 fn look_for(kind: GemKind) -> (u32, f32) {

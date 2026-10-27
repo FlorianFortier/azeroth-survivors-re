@@ -128,7 +128,10 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   achievement, one worn over the gear; and on appearances for the head and back, 1.12.1's own
   (the Lucky Fishing Hat, the Goblin Rocket Helmet, the Helm of Wrath, the Onyxia Scale Cloak,
   Sapphiron's drape…), worn over the gear's look with its numbers kept, or the helm and cloak
-  hidden. All are bought on a draft kept with **Confirm**;
+  hidden; and on a companion, one of 1.12.1's vanity pets (a Prairie Dog, a Worg Pup, a
+  Zergling, Murky…) that runs at the hero's side and fetches the wisps, coins and keys within its
+  leash, with an instinct to pick (everything, gold first, wisps first) and training to buy (a
+  longer leash, quicker paws, a keener nose). All are bought on a draft kept with **Confirm**;
   **Reset** takes every perk point back, twice a save.
 - **Options and French**: the **Options** page (bottom left) sets the master, music and effects
   volumes, the mouse sensitivity, the picture polish, the screen shake and the language, English or French, and
