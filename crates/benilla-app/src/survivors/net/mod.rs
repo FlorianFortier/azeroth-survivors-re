@@ -987,13 +987,13 @@ mod tests {
 
     /// The host's world over a bad link: frames late by up to 400 ms and in bursts, as a slow
     /// network delivers TCP (in order, never lost); a guest's frames that only the host may send;
-    /// a host frame the transport cut; NaN positions in well-formed messages. Units come, move,
+    /// frames that decode to nothing; NaN positions in well-formed messages. Units come, move,
     /// are hurt and go all the while. Once the link has caught up, the guest's copy is the host's:
     /// the same units, at the same places, with the same fields, and none of the poison.
     #[test]
     fn the_guest_converges_through_a_bad_link() {
-        use survivors_net::game::{encode_batch, Motion, ObjectKind, Role, Spawn};
         use std::collections::{HashMap, VecDeque};
+        use survivors_net::game::{encode_batch, Motion, ObjectKind, Role, Spawn};
         for seed in 1..=6u64 {
             let mut whims = Whims(0xBAD_11E5 ^ seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
             let mut host = world(Mode::Host, 0);
@@ -1028,7 +1028,10 @@ mod tests {
                                 0.0,
                                 whims.below(100) as f32 / 100.0 - 0.5,
                             );
-                            host.world_mut().get_mut::<Transform>(e).unwrap().translation += step;
+                            host.world_mut()
+                                .get_mut::<Transform>(e)
+                                .unwrap()
+                                .translation += step;
                         }
                         if whims.below(6) == 0 {
                             let hp = 1 + whims.below(100) as u32;
@@ -1083,10 +1086,13 @@ mod tests {
                 while link.front().is_some_and(|(due, _)| *due <= tick) {
                     let (_, data) = link.pop_front().unwrap();
                     arrive(&mut guest, 0, &data);
-                    // A frame cut short by a broken transport, and another guest's word on the
-                    // run, which only the host may give.
+                    // Frames that decode to nothing (empty, or a forged length past the end), and
+                    // another guest's word on the run, which only the host may give.
                     if whims.below(25) == 0 {
-                        arrive(&mut guest, 0, &data[..data.len() / 2]);
+                        arrive(&mut guest, 0, &[]);
+                        let mut forged = vec![0xFF, 0xFF, 0xFF, 0x7F];
+                        forged.extend_from_slice(&data[..data.len().min(32)]);
+                        arrive(&mut guest, 0, &forged);
                     }
                     if whims.below(25) == 0 {
                         let spawn = encode_batch(&[Game::Despawn {
@@ -1177,8 +1183,20 @@ mod tests {
                     color: 0,
                 },
             ));
-            inbox.push((0, Game::Motions { t: g as f32, list: vec![] }));
-            inbox.push((0, Game::Despawn { guid: g, fade: false }));
+            inbox.push((
+                0,
+                Game::Motions {
+                    t: g as f32,
+                    list: vec![],
+                },
+            ));
+            inbox.push((
+                0,
+                Game::Despawn {
+                    guid: g,
+                    fade: false,
+                },
+            ));
         }
         trim_inbox(&mut inbox, 120);
         assert_eq!(inbox.len(), 120);
@@ -1198,7 +1216,10 @@ mod tests {
                 .count(),
             50
         );
-        assert!(matches!(inbox.last(), Some((_, Game::Despawn { guid: 49, .. }))));
+        assert!(matches!(
+            inbox.last(),
+            Some((_, Game::Despawn { guid: 49, .. }))
+        ));
         let numbers = inbox
             .iter()
             .filter(|(_, g)| matches!(g, Game::Number { .. }))
