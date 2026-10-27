@@ -372,13 +372,28 @@ pub(super) fn receive(
                         continue;
                     };
                     let Some(pos) = finite(m.pos) else { continue };
+                    let yaw = finite_or(m.yaw, 0.0);
                     if let Ok((mut copy, mv)) = movers.get_mut(e) {
-                        copy.track.push(t, pos, finite_or(m.yaw, 0.0), HOST_TICK);
+                        copy.track.push(t, pos, yaw, HOST_TICK);
                         if let Some(mut mv) = mv {
                             mv.speed = m.speed;
                             mv.flags = m.flags;
                             mv.vertical_speed = m.vertical_speed;
                         }
+                    } else {
+                        // A copy spawned this same frame (a burst brought its spawn and its first
+                        // steps together) is not in the world yet: its steps follow its spawn
+                        // through the command queue, or the copy would stand where it came in.
+                        commands.queue(move |world: &mut World| {
+                            if let Some(mut copy) = world.get_mut::<Replica>(e) {
+                                copy.track.push(t, pos, yaw, HOST_TICK);
+                            }
+                            if let Some(mut mv) = world.get_mut::<MovementState>(e) {
+                                mv.speed = m.speed;
+                                mv.flags = m.flags;
+                                mv.vertical_speed = m.vertical_speed;
+                            }
+                        });
                     }
                 }
             }
