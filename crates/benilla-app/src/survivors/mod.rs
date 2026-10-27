@@ -14,6 +14,7 @@ mod cards;
 mod character;
 mod data;
 mod enemies;
+mod balance;
 mod feel;
 mod frames;
 mod grade;

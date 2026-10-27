@@ -1786,13 +1786,45 @@ pub(crate) const XP_RATE: f32 = 2.0;
 /// challenge, is what grows.
 pub(crate) const HARD_CROWD_CAP: usize = 400;
 
+/// What the horde's blows grow by over a stage's clock (0.9 before the simulator: the late
+/// stage killed a fresh hero in a second of contact).
+pub(crate) const HORDE_DAMAGE_GROWTH: f32 = 0.6;
+
 /// The horde comes in waves: every [`WAVE_EVERY`] seconds of a stage, the last [`SURGE_SECS`]
 /// of it are a surge, the crowd [`SURGE_CROWD`] times as thick and coming in packs; between
 /// surges it thins to [`LULL_CROWD`].
 pub(crate) const WAVE_EVERY: f32 = 45.0;
 pub(crate) const SURGE_SECS: f32 = 12.0;
-pub(crate) const SURGE_CROWD: f32 = 1.6;
-pub(crate) const LULL_CROWD: f32 = 0.85;
+pub(crate) const SURGE_CROWD: f32 = 1.35;
+pub(crate) const LULL_CROWD: f32 = 0.9;
+/// An ambush ring leaves this many openings, each this wide (radians), turned at random: a
+/// closed ring is a death no player can see coming or get out of.
+pub(crate) const RING_GAPS: usize = 2;
+pub(crate) const RING_GAP: f32 = 0.7;
+
+/// The angles of an ambush ring of `n` foes turned by `turn`: [`RING_GAPS`] arcs, evenly
+/// filled, with a [`RING_GAP`] opening after each.
+pub(crate) fn ring_angles(n: usize, turn: f32) -> Vec<f32> {
+    let arc = std::f32::consts::TAU / RING_GAPS as f32;
+    let filled = arc - RING_GAP;
+    let per = n.div_ceil(RING_GAPS).max(1);
+    (0..n)
+        .map(|i| {
+            let (seg, k) = (i / per, i % per);
+            turn + seg as f32 * arc + filled * (k as f32 + 0.5) / per as f32
+        })
+        .collect()
+}
+
+/// From the boss portal's opening to the boss's fall, the stage's showdown: the crowd thins to
+/// this share and no surge comes, so the heroes can reach the portal and fight the boss.
+pub(crate) const SHOWDOWN_CROWD: f32 = 0.5;
+
+/// A surge comes from one side of the heroes, its packs within this many radians of it, the side
+/// turning this many radians a second as the surge goes on.
+pub(crate) const SURGE_ARC: f32 = 0.6;
+pub(crate) const SURGE_DRIFT: f32 = 0.12;
+
 /// A surge's spawns come this many together, from one side of a hero.
 pub(crate) const PACK_SIZE: usize = 8;
 /// The crowd a stage keeps: from [`CROWD_START`] to [`CROWD_PEAK`] over its clock, before the
@@ -1878,7 +1910,7 @@ impl Rules {
 
     /// Enemy damage grows the same way.
     pub fn damage_scale(&self, elapsed: f32) -> f32 {
-        (1.0 + self.progress(elapsed) * 0.9) * self.damage
+        (1.0 + self.progress(elapsed) * HORDE_DAMAGE_GROWTH) * self.damage
     }
 
     /// When the `n`th boss (from 0) comes: its [`BOSS_TIMES`] slot, scaled to the run's length.
@@ -3647,6 +3679,11 @@ impl Default for Perks {
 
 /// The least of its cooldown a spell keeps, however many cards cut it.
 pub(crate) const MIN_COOLDOWN_SHARE: f32 = 0.25;
+/// The most cards add to a spell's area, duration and targets: its damage grows without end, but
+/// a ground spell past these covers the field and stays forever (the simulator's runaway).
+pub(crate) const MAX_PERK_AREA: f32 = 1.5;
+pub(crate) const MAX_PERK_DURATION: f32 = 2.0;
+pub(crate) const MAX_PERK_TARGETS: u8 = 10;
 
 impl Perks {
     /// These with `perk` added: shares add up, a cooldown is cut by its share of what is left.
@@ -3656,9 +3693,9 @@ impl Perks {
             Perk::Cooldown(v) => {
                 self.cooldown = (self.cooldown * (1.0 - v)).max(MIN_COOLDOWN_SHARE);
             }
-            Perk::Targets(n) => self.targets = self.targets.saturating_add(n),
-            Perk::Area(v) => self.area += v,
-            Perk::Duration(v) => self.duration += v,
+            Perk::Targets(n) => self.targets = self.targets.saturating_add(n).min(MAX_PERK_TARGETS),
+            Perk::Area(v) => self.area = (self.area + v).min(MAX_PERK_AREA),
+            Perk::Duration(v) => self.duration = (self.duration + v).min(MAX_PERK_DURATION),
         }
         self
     }
@@ -4347,13 +4384,24 @@ pub(crate) struct Roster {
     pub bosses: Vec<EnemyDef>,
 }
 
-/// How much tougher the final boss is than the boss ladder's top rung.
-pub(crate) const FINAL_BOSS_HEALTH: f32 = 1.5;
+/// The final boss against the boss ladder's top rung, after [`BOSS_HEALTH`]: 1.5 before the
+/// simulator, whose fight ran past ten minutes; just enough to stay the zone's toughest.
+pub(crate) const FINAL_BOSS_HEALTH: f32 = 0.6;
+/// Every boss's health against the tuned ladder: a stage is a share of the old run's clock, and
+/// a hero meets its final boss at that stage's strength, not the old run's end (the simulator
+/// left it standing at 11% after half an hour).
+pub(crate) const BOSS_HEALTH: f32 = 0.45;
+/// And its blows: the top rung's hit a second killed a fresh hero in two.
+pub(crate) const BOSS_DAMAGE: f32 = 0.6;
 
 static ROSTERS: std::sync::LazyLock<Vec<Roster>> = std::sync::LazyLock::new(|| {
     MAPS.iter()
         .map(|m| {
             let mut bosses = ladder(m.bosses, BOSSES, m.might);
+            for b in &mut bosses {
+                b.hp = (b.hp * BOSS_HEALTH).round();
+                b.damage = (b.damage * BOSS_DAMAGE).round();
+            }
             if let Some(last) = bosses.last_mut() {
                 last.hp = (last.hp * FINAL_BOSS_HEALTH).round();
             }
@@ -4932,6 +4980,37 @@ mod tests {
     }
 
     #[test]
+    fn a_spells_area_duration_and_targets_stop_but_its_damage_does_not() {
+        let mut p = Perks::default();
+        for _ in 0..100 {
+            p = p
+                .with(Perk::Area(0.3))
+                .with(Perk::Duration(0.3))
+                .with(Perk::Targets(2))
+                .with(Perk::Damage(0.3));
+        }
+        assert_eq!(p.area, MAX_PERK_AREA);
+        assert_eq!(p.duration, MAX_PERK_DURATION);
+        assert_eq!(p.targets, MAX_PERK_TARGETS);
+        assert!(p.damage > 29.0);
+    }
+
+    #[test]
+    fn an_ambush_ring_leaves_its_openings() {
+        let a = ring_angles(60, 0.0);
+        assert_eq!(a.len(), 60);
+        let mut sorted: Vec<f32> = a
+            .iter()
+            .map(|x| x.rem_euclid(std::f32::consts::TAU))
+            .collect();
+        sorted.sort_by(f32::total_cmp);
+        let mut gaps: Vec<f32> = sorted.windows(2).map(|w| w[1] - w[0]).collect();
+        gaps.push(sorted[0] + std::f32::consts::TAU - sorted[59]);
+        let wide = gaps.iter().filter(|g| **g >= RING_GAP).count();
+        assert_eq!(wide, RING_GAPS, "{gaps:?}");
+    }
+
+    #[test]
     fn the_horde_surges_on_its_clock() {
         assert!(!surging(0.0) && !surging(WAVE_EVERY - SURGE_SECS - 0.1));
         assert!(surging(WAVE_EVERY - SURGE_SECS) && surging(WAVE_EVERY - 0.1));
@@ -4952,7 +5031,7 @@ mod tests {
         assert_eq!(hp_scale(0.0), 1.0);
         assert_eq!(damage_scale(0.0), 1.0);
         assert!((hp_scale(FINAL_BOSS_SECS) - 1.75).abs() < 1e-5);
-        assert!((damage_scale(FINAL_BOSS_SECS) - 1.9).abs() < 1e-5);
+        assert!((damage_scale(FINAL_BOSS_SECS) - (1.0 + HORDE_DAMAGE_GROWTH)).abs() < 1e-5);
         // A negative clock (never expected) does not shrink enemies below their base.
         assert_eq!(hp_scale(-10.0), 1.0);
     }
