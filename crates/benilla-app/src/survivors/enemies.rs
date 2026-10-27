@@ -64,6 +64,8 @@ pub(super) struct Dying(f32);
 #[derive(Resource, Default)]
 pub(super) struct Spawner {
     timer: f32,
+    /// A surge was on at the last spawn, so its start is told once.
+    surging: bool,
 }
 
 /// An enemy died here, worth this much.
@@ -266,6 +268,10 @@ pub(super) fn spawn_enemies(
         let n = ((28 + (rules.progress(elapsed) * 60.0) as usize) as f32 * rules.density).max(8.0)
             as usize;
         let n = (n / anchors.len()).max(8);
+        // Never past the frame's budget, however thick the ring.
+        let alive = enemies.iter().filter(|e| !e.dead).count();
+        let room = data::HARD_CROWD_CAP.saturating_sub(alive) / anchors.len();
+        let n = n.min(room);
         for &hpos in &anchors {
             for i in 0..n {
                 let a = i as f32 / n as f32 * std::f32::consts::TAU;
@@ -285,18 +291,32 @@ pub(super) fn spawn_enemies(
         return;
     }
     spawner.timer = 0.12;
+    // A surge is told as it begins; the final swarm is a surge of its own.
+    let surge = data::surging(elapsed) && run.swarm.is_none();
+    if surge && !spawner.surging {
+        run.banner = Some(("A wave is coming!".into(), 3.0));
+    }
+    spawner.surging = surge;
     let alive = enemies.iter().filter(|e| !e.dead).count();
     let target = rules.target_alive(elapsed);
     if alive >= target {
         return;
     }
+    let per_hero = if surge { 8.0 } else { 4.0 };
     let n = (((target - alive) as f32) / 6.0)
         .ceil()
-        .min(4.0 * anchors.len() as f32) as usize;
-    for _ in 0..n {
+        .min(per_hero * anchors.len() as f32) as usize;
+    // In a surge, the horde comes in packs from one side; otherwise from all around.
+    let mut pack: Option<(Vec3, f32)> = None;
+    for k in 0..n {
+        if surge && k % data::PACK_SIZE == 0 {
+            pack = Some((anchor(&mut rng), rng.range(0.0, std::f32::consts::TAU)));
+        }
+        let (hpos, a) = match pack {
+            Some((hpos, side)) => (hpos, side + rng.range(-0.35, 0.35)),
+            None => (anchor(&mut rng), rng.range(0.0, std::f32::consts::TAU)),
+        };
         let def = &roster.enemies[pool[rng.index(pool.len())]];
-        let hpos = anchor(&mut rng);
-        let a = rng.range(0.0, std::f32::consts::TAU);
         let r = rng.range(34.0, 42.0);
         let pos = ground(&world, hpos + Vec3::new(a.cos(), 0.0, a.sin()) * r, hpos.y);
         spawn_enemy(&mut commands, &mut run, &rules, def, pos, hpos, None, false);

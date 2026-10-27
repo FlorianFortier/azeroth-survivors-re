@@ -241,6 +241,17 @@ fn french(s: &str) -> Option<&'static str> {
         "Run items: {}" => "Objets de la partie : {}",
         // The unit frames, the damage meter and the line under the clock.
         "Damage Done" => "Dégâts infligés",
+        "A wave is coming!" => "Une vague arrive !",
+        "They're surrounding you!" => "Ils vous encerclent !",
+        "The final swarm comes: hold out!" => "La nuée finale arrive : tenez bon !",
+        "Stage cleared! A portal onward has opened." => {
+            "Étape terminée ! Un portail vers la suite s'est ouvert."
+        }
+        "The boss portal is open: stand in it to call the boss." => {
+            "Le portail du boss est ouvert : tenez-vous dedans pour appeler le boss."
+        }
+        "Wave in {}" => "Vague dans {}",
+        "Wave!" => "Vague !",
         "Screen shake" => "Tremblement de l'écran",
         "Other" => "Autre",
         "{} ({}%)" => "{} ({} %)",
