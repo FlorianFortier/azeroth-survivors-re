@@ -35,6 +35,19 @@ pub(super) struct Mobility {
     pub cooldown: f32,
     pub secs: f32,
     pub desc: &'static str,
+    /// The 1.12.1 spell whose visual it plays, when `spell` is Legion's; 0 plays `spell`'s.
+    pub visual: u32,
+}
+
+impl Mobility {
+    /// The spell whose visual it plays.
+    pub(super) fn visual(&self) -> u32 {
+        if self.visual != 0 {
+            self.visual
+        } else {
+            self.spell
+        }
+    }
 }
 
 /// One per class, indexed by class id.
@@ -52,6 +65,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 8.0,
             secs: 1.5,
             desc: "Charge the nearest enemy within 25 yards, stunning it.",
+            visual: 0,
         },
     ),
     (
@@ -63,6 +77,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 15.0,
             secs: 5.0,
             desc: "Nothing can hold you: run 60% faster for 5 sec.",
+            visual: 0,
         },
     ),
     (
@@ -74,6 +89,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 14.0,
             secs: 5.0,
             desc: "Run 70% faster for 5 sec.",
+            visual: 0,
         },
     ),
     (
@@ -85,6 +101,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 15.0,
             secs: 4.0,
             desc: "Run 80% faster for 4 sec.",
+            visual: 0,
         },
     ),
     (
@@ -96,6 +113,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 18.0,
             secs: 4.0,
             desc: "Fade from the horde's sight: enemies lose you and you run 40% faster for 4 sec.",
+            visual: 0,
         },
     ),
     (
@@ -107,6 +125,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 15.0,
             secs: 6.0,
             desc: "Take the form of a ghost wolf, running 60% faster for 6 sec.",
+            visual: 0,
         },
     ),
     (
@@ -118,6 +137,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 10.0,
             secs: 0.0,
             desc: "Teleport 18 yards forward.",
+            visual: 0,
         },
     ),
     (
@@ -129,6 +149,19 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 20.0,
             secs: 4.0,
             desc: "Howl, sending every enemy within 12 yards fleeing in terror for 4 sec.",
+            visual: 0,
+        },
+    ),
+    (
+        6,
+        Mobility {
+            spell: 48265,
+            name: "Death's Advance",
+            kind: Move::Haste(1.7),
+            cooldown: 15.0,
+            secs: 5.0,
+            desc: "Run 70% faster for 5 sec.",
+            visual: 2983,
         },
     ),
     (
@@ -140,6 +173,7 @@ static MOBILITY: &[(u8, Mobility)] = &[
             cooldown: 15.0,
             secs: 4.0,
             desc: "Run 80% faster for 4 sec.",
+            visual: 0,
         },
     ),
 ];
@@ -287,7 +321,7 @@ pub(super) fn cast_mobility(
         }
     }
     run.mobile.cd = def.cooldown;
-    queue.0.push((session.slot, def.spell, effect));
+    queue.0.push((session.slot, def.visual(), effect));
 }
 
 /// The run plays every mobility cast: its visual on the caster, and its hold on the horde.

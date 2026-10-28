@@ -337,3 +337,44 @@ fn legions_races_read_as_1_12_1_races() {
         assert_eq!((blp.width, blp.height), (256, 256));
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn legions_classes_read_with_their_spells_and_talents() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    let obliterate = library.spell(49020).unwrap();
+    assert_eq!(
+        (obliterate.name.as_str(), obliterate.icon),
+        ("Obliterate", 135771)
+    );
+    // Its icon is a texture the library answers.
+    let icon = library
+        .read(&format!("legion/{}.blp", obliterate.icon))
+        .unwrap()
+        .unwrap();
+    assert!(benilla_blp::decode(&icon).is_ok());
+    for (class, names) in [
+        (6u8, &["Blood", "Frost", "Unholy"][..]),
+        (10, &["Brewmaster", "Mistweaver", "Windwalker"]),
+        (12, &["Havoc", "Vengeance"]),
+    ] {
+        let specs = library.specs(class);
+        let got: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(got, names);
+        for s in &specs {
+            println!("{}: {} talents", s.name, s.talents.len());
+            assert_eq!(s.talents.len(), 21, "{}", s.name);
+            assert!(s.icon != 0);
+            for t in &s.talents {
+                assert!(t.tier < 7 && t.column < 3, "{t:?}");
+                let spell = library.spell(t.spell).unwrap();
+                assert!(!spell.name.is_empty() && spell.icon != 0, "{spell:?}");
+            }
+        }
+    }
+}

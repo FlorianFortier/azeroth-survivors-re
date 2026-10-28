@@ -311,6 +311,19 @@ upstream merge. Each step is one pull request or a few.
    gave their bodies a texture layout of their own (a 1024×512 skin), which 1.12.1's 256²
    compositor cannot hold; they would need a compositor for that layout, as the HD bodies
    would.
+   **The classes, first part done**: the Death Knight. Its spells are Legion's: `Spell`'s name
+   and `SpellMisc`'s icon (`library::Library::spell`), played with the visuals of a 1.12.1 spell
+   of the same kind (`AbilityDef::visual`: Obliterate swings as Mortal Strike, Howling Blast
+   blows as Cone of Cold); Legion's own spell visuals (`SpellXSpellVisual`, `SpellVisualKit`…)
+   would be a reader of their own. Its talents are its specializations' (`ChrSpecialization`,
+   `Talent`: seven tiers of three, a spec's own talent taking the seat of the class's shared
+   one), each a tab added to the client's talent catalog (`TalentCatalog::add_tab`, a file of
+   our own), three ranks a talent and one for the last tier's, so that five points open a tier
+   as in vanilla. It is every race's, wears the warrior's starting outfit and a runeblade in each
+   hand, and is offered only where Legion's data is. Read through the library: the three
+   classes' specs, each of 21 talents with their spells' names and icons
+   (`legions_classes_read_with_their_spells_and_talents`). Not seen on screen here. **Next**:
+   the Monk and the Demon Hunter, the same way.
 
 9. **Maps.** Legion's split ADTs (`_tex0`, `_obj0`, `_obj1`), WDT and WMO by file data id, `MH2O`
    liquids, lighting and skies; Broken Isles zones in `data::MAPS`. The biggest step.

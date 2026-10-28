@@ -211,7 +211,8 @@ mod tests {
                     // The sums as the game wrote them before.
                     let (mut hp, mut speed) = (120.0f32, 7.0f32);
                     match class.id {
-                        1 | 2 => hp += 40.0,
+                        // The death knight, new, starts as tough as these.
+                        1 | 2 | 6 => hp += 40.0,
                         7 | 11 | 3 | 4 => hp += 15.0,
                         _ => speed += 0.5,
                     }

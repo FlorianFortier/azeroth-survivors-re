@@ -557,6 +557,9 @@ pub(super) fn spell_name(
     spell: u32,
     fallback: &str,
 ) -> String {
+    if let Some(l) = data::legion_spell(spell) {
+        return l.name.clone();
+    }
     spells
         .and_then(|s| s.catalog.get(spell))
         .map(|d| d.name.clone())
@@ -1832,7 +1835,8 @@ pub(super) fn refresh_hud(
     }
 }
 
-/// Fill icon slots from `SpellIcon.dbc` once the client data and the asset reader are up.
+/// Fill icon slots from `SpellIcon.dbc` once the client data and the asset reader are up; a Legion
+/// spell's from Legion's own icon ([`data::legion_spell`]).
 pub(super) fn fill_icons(
     mut commands: Commands,
     mut slots: Query<(Entity, &mut ImageNode, &SpellIcon), Without<IconDone>>,
@@ -1848,10 +1852,9 @@ pub(super) fn fill_icons(
         let handle = match cache.get(&icon.0) {
             Some(h) => Some(h.clone()),
             None => {
-                let path = spells
-                    .catalog
-                    .get(icon.0)
-                    .and_then(|d| d.icon.clone())
+                let path = data::legion_spell(icon.0)
+                    .map(|l| l.icon.clone())
+                    .or_else(|| spells.catalog.get(icon.0).and_then(|d| d.icon.clone()))
                     .unwrap_or_else(|| "Interface\\Icons\\INV_Misc_QuestionMark".into());
                 let h = assets.sprite_texture(&format!("{path}.blp"), &mut images);
                 if let Some(h) = &h {

@@ -470,7 +470,10 @@ pub(super) fn body(
         .and_then(|c| Some((c, c.body_display(race, sex)?)));
     match player {
         Some((c, display)) => {
-            let mut worn = outfit(class, start_outfit(c, race, class.id, sex));
+            let mut worn = outfit(
+                class,
+                start_outfit(c, race, super::data::outfit_class(class.id), sex),
+            );
             if let Some(displays) = displays {
                 for item in gear {
                     let Some(w) = gear_worn(item, class, displays) else {

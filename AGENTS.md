@@ -284,7 +284,15 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   Draenei, the Goblin and the Worgen) join `data::playable_races` only where `entities::legion` put them into the client's
   character tables (`data::legion_race`); they are stored by name (`data::race_name`), never
   opened in the Rewards tab, wear no helm, and a guest without them draws their stand-in
-  (`data::stand_in`, `data::stand_in_body`, in `net/client.rs`).
+  (`data::stand_in`, `data::stand_in_body`, in `net/client.rs`). Legion's classes
+  (`data::LEGION_CLASSES`: the Death Knight) are in `data::CLASSES` everywhere, but offered only
+  where `entities::legion` read their spells (`data::class_shown`). Their abilities' `spell` is
+  Legion's (its icon and name, `data::legion_spell`, which `hud::fill_icons` and
+  `hud::spell_name` read first) and their `visual` the 1.12.1 spell they play
+  (`AbilityDef::visual`, `Mobility::visual`): a guest needs nothing of Legion's to see them.
+  Their talent trees are their specializations, added to the client's talent catalog
+  (`entities::legion`, tab and talent ids from `TALENT_BASE`); they wear the warrior's starting
+  outfit (`data::outfit_class`).
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it
