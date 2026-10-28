@@ -262,6 +262,32 @@ Or set it permanently by editing the single clearly-marked `DEFAULT_DATA_URL` li
 `scripts/fetch-data.sh`. Either way the URL must be a direct link to a zip holding the client's
 `Data/*.MPQ` files.
 
+### Legion's data (native only, optional)
+
+Legion's creatures, races, classes and Val'sharah need a **Legion 7.3.5 (build 26972)** client
+too, and WoWDBDefs' definitions of its tables. `make fetch-legion` (`scripts/fetch-legion.sh`)
+puts both in `legion-data/` (git-ignored):
+
+```bash
+make fetch-legion            # the install's game files, 71 GB from archive.org, each file checked
+                             # against archive.org's SHA-1; resumable, re-runnable
+make fetch-legion STREAM=1   # no big download: the game reads the copy on archive.org as it
+                             # needs it (a few hundred MB, cached), with curl, online at play time
+make native                  # finds wow-data/ and legion-data/ on its own
+```
+
+Either way the definitions come pinned to one WoWDBDefs commit. To use a Legion install of your
+own, set `WOW_LEGION` (its folder) and `WOW_LEGION_DBD` (`legion-data/dbd`, or any folder of
+WoWDBDefs' `.dbd` files); a variable set wins over what the launcher finds. Without Legion's data
+the game is 1.12.1's alone: Legion's races, classes and zone are not offered.
+
+### A build for players
+
+`make dist` builds the native game (a release player build) into `dist/azeroth-survivors/`: the
+executable, `scripts/fetch-data.sh` and `scripts/fetch-legion.sh`, and a README. No game data goes
+in; a player runs the scripts there once, and the executable finds `wow-data/` and `legion-data/`
+beside itself.
+
 ## How it's built
 
 The survivors mode is `crates/benilla-app/src/survivors/`, running on two upstream projects:

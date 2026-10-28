@@ -1,8 +1,9 @@
 //! A remote copy of an install read by byte ranges with `curl`, each kept in a cache folder, so a
-//! 74 GB install is read a few megabytes at a time; for probes and spikes, never the client.
+//! 74 GB install is read a few megabytes at a time: the probes' and tests' source, and the
+//! client's when a player streams Legion's data (`scripts/fetch-legion.sh --stream`).
 //!
 //! A folder listing comes from `<cache>/<folder>.list` (one name a line), which the caller writes
-//! from the remote copy's file list. Nothing it fetches belongs in git.
+//! from the remote copy's file list (the fetch script does). Nothing it fetches belongs in git.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
