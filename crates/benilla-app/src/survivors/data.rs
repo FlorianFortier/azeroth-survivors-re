@@ -1641,6 +1641,57 @@ pub(crate) struct EnemyDef {
     pub level: u32,
     /// A great beast, which takes more room in the crowd.
     pub big: bool,
+    /// Its look in Legion's data, a Legion `CreatureDisplayInfo` id (0 for none): worn instead of
+    /// [`Self::display`] on a machine that has the data ([`shown_display`]).
+    pub legion: u32,
+}
+
+impl EnemyDef {
+    /// Whether a unit of display `d` wears this creature's look, its 1.12.1 one or its Legion one.
+    pub(crate) fn wears(&self, d: u32) -> bool {
+        d == self.display || (self.legion != 0 && d == LEGION_DISPLAY_BASE + self.legion)
+    }
+
+    /// The display a unit of this creature takes on this machine.
+    pub(crate) fn look(&self) -> u32 {
+        if self.legion != 0 && legion_looks() {
+            LEGION_DISPLAY_BASE + self.legion
+        } else {
+            self.display
+        }
+    }
+}
+
+/// A Legion creature display's id in the client's creature catalog: this plus its own
+/// (`benilla_legion::library::DISPLAY_BASE`; on the wire too). 1.12.1's stop under 16,000.
+pub(crate) const LEGION_DISPLAY_BASE: u32 = 1_000_000;
+
+static LEGION_LOOKS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this machine draws Legion's creature displays: set once they are in the catalog
+/// (`entities::legion`, `WOW_LEGION` and `WOW_LEGION_DBD`), never on the web.
+pub(crate) fn legion_looks() -> bool {
+    LEGION_LOOKS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn set_legion_looks(on: bool) {
+    LEGION_LOOKS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The display a unit streamed with display `d` takes on this machine: a Legion one where the
+/// data is, else the 1.12.1 look of the creature that wears it (a guest without Legion's data
+/// whose host has it).
+pub(crate) fn shown_display(d: u32) -> u32 {
+    if d < LEGION_DISPLAY_BASE || legion_looks() {
+        return d;
+    }
+    (0..MAPS.len())
+        .flat_map(|z| {
+            let r = roster(z);
+            r.enemies.iter().chain(&r.bosses).chain(bonus_boss(z))
+        })
+        .find(|e| e.wears(d))
+        .map_or(d, |e| e.display)
 }
 
 const fn en(
@@ -1662,6 +1713,7 @@ const fn en(
         xp,
         level,
         big: false,
+        legion: 0,
     }
 }
 
@@ -2009,6 +2061,8 @@ pub(crate) struct Foe {
     /// Barrens does: about 2-3.5 yd for the horde, 4-5 for the great beasts, 5-9 for a boss.
     scale: f32,
     big: bool,
+    /// Its look in Legion's data (a Legion display id), 0 for none: see [`EnemyDef::legion`].
+    legion: u32,
 }
 
 const fn foe(name: &'static str, display: u32, level: u32, speed: f32, scale: f32) -> Foe {
@@ -2019,6 +2073,21 @@ const fn foe(name: &'static str, display: u32, level: u32, speed: f32, scale: f3
         speed,
         scale,
         big: false,
+        legion: 0,
+    }
+}
+
+impl Foe {
+    /// Legion's look for this creature: the Legion display `id`.
+    const fn legion(self, id: u32) -> Foe {
+        Foe { legion: id, ..self }
+    }
+
+    /// Legion's remake of this creature's own look: Legion kept 1.12.1's display ids and drew
+    /// many again, at the same scale (Felhound 1913 is `felhound2.m2` there).
+    const fn remade(self) -> Foe {
+        let id = self.display;
+        self.legion(id)
     }
 }
 
@@ -2148,23 +2217,25 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 60.0,
         victory: "Lord Kazzak is banished from the gulch.",
         might: 1.4,
+        // Legion drew its demons again under the same displays (`.remade()`): a machine with
+        // Legion's data shows those.
         foes: &[
             foe("Starving Snickerfang", 8050, 45, 4.6, 1.0),
             foe("Snickerfang Hyena", 2714, 49, 5.0, 1.15),
             foe("Black Slayer", 10824, 47, 5.0, 0.6),
             foe("Redstone Crystalhide", 798, 51, 3.6, 1.3),
             foe("Shadowsworn Cultist", 7838, 51, 3.8, 1.3),
-            foe("Felbeast", 7949, 50, 4.8, 0.85),
-            foe("Felhound", 1913, 54, 5.2, 1.0),
-            foe("Felguard Sentry", 9017, 55, 4.2, 0.9),
-            foe("Manahound", 6173, 60, 5.6, 1.15),
+            foe("Felbeast", 7949, 50, 4.8, 0.85).remade(),
+            foe("Felhound", 1913, 54, 5.2, 1.0).remade(),
+            foe("Felguard Sentry", 9017, 55, 4.2, 0.9).remade(),
+            foe("Manahound", 6173, 60, 5.6, 1.15).remade(),
             giant("Lesser Infernal", 10906, 55, 3.4, 1.0),
-            foe("Felguard Elite", 7970, 61, 4.4, 1.0),
-            giant("Doomguard Commander", 4426, 61, 4.0, 1.1),
+            foe("Felguard Elite", 7970, 61, 4.4, 1.0).remade(),
+            giant("Doomguard Commander", 4426, 61, 4.0, 1.1).remade(),
         ],
         bosses: &[
             foe("Akubar the Seer", 10920, 54, 4.4, 2.6),
-            foe("Lord Azrethoc", 4426, 55, 4.6, 1.35),
+            foe("Lord Azrethoc", 4426, 55, 4.6, 1.35).remade(),
             giant("Teremus the Devourer", 6378, 60, 5.0, 0.55),
             foe("Lord Hel'nurath", 14556, 62, 4.8, 1.65),
             giant("Lord Kazzak", 12449, 63, 4.6, 0.75),
@@ -3358,6 +3429,73 @@ pub(crate) const ELITES: [EliteKind; 4] = [
     },
 ];
 
+/// The bonus boss's kind, after [`ELITES`]': a field mark, a post and an elite's role on the wire,
+/// as an elite's are.
+pub(crate) const BONUS: u8 = ELITES.len() as u8;
+
+/// The bonus boss's mark and reward: a piece of the zone's gear, with [`BONUS_EXTRAS`] and a
+/// boss's gold beside it. It does not come back.
+pub(crate) const BONUS_KIND: EliteKind = EliteKind {
+    title: "Bonus Boss",
+    reward: Reward::Gear { percent: 100 },
+    respawn: f32::INFINITY,
+    // Summon Infernal's icon.
+    icon: 1122,
+    color: [0.35, 1.0, 0.2],
+};
+
+/// What the bonus boss drops besides its gear.
+pub(crate) const BONUS_EXTRAS: [Reward; 2] = [Reward::SpellRank, Reward::RunItem];
+
+/// An elite kind by its number on the field and the wire: one of [`ELITES`], else the bonus boss.
+pub(crate) fn elite_kind(k: u8) -> &'static EliteKind {
+    ELITES.get(usize::from(k)).unwrap_or(&BONUS_KIND)
+}
+
+/// A zone's bonus boss: an optional fight at a post of its own on the field, once a run. It
+/// stands only where the host draws Legion's creatures (its look is Legion's), and a guest
+/// without the data sees it in its 1.12.1 look.
+struct BonusDef {
+    zone: &'static str,
+    foe: Foe,
+}
+
+static BONUS_BOSSES: &[BonusDef] = &[BonusDef {
+    zone: "Warsong Gulch",
+    // Without Legion's data: a Doomguard, as Lord Azrethoc.
+    foe: foe("Illidan Stormrage", 4426, 63, 5.0, 1.3).legion(21135),
+}];
+
+/// The bonus boss's health, damage and experience over its zone's final boss's.
+const BONUS_HEALTH: f32 = 1.5;
+const BONUS_DAMAGE: f32 = 1.2;
+const BONUS_XP: u32 = 2;
+
+/// Zone `zone`'s bonus boss, if it has one.
+pub(crate) fn bonus_boss(zone: usize) -> Option<&'static EnemyDef> {
+    static DEFS: std::sync::LazyLock<Vec<Option<EnemyDef>>> = std::sync::LazyLock::new(|| {
+        (0..MAPS.len())
+            .map(|z| {
+                let b = BONUS_BOSSES.iter().find(|b| b.zone == MAPS[z].name)?;
+                let last = roster(z).bosses.last()?;
+                Some(EnemyDef {
+                    name: b.foe.name,
+                    display: b.foe.display,
+                    hp: (last.hp * BONUS_HEALTH).round(),
+                    speed: b.foe.speed,
+                    damage: (last.damage * BONUS_DAMAGE).round(),
+                    scale: b.foe.scale,
+                    xp: last.xp * BONUS_XP,
+                    level: b.foe.level,
+                    big: b.foe.big,
+                    legion: b.foe.legion,
+                })
+            })
+            .collect()
+    });
+    DEFS.get(zone)?.as_ref()
+}
+
 /// An elite of a zone: the strongest of its horde, grown and toughened, named for what it guards.
 pub(crate) fn elite(zone: usize, kind: usize) -> &'static EnemyDef {
     static ELITE_DEFS: std::sync::LazyLock<Vec<Vec<EnemyDef>>> = std::sync::LazyLock::new(|| {
@@ -3382,6 +3520,7 @@ pub(crate) fn elite(zone: usize, kind: usize) -> &'static EnemyDef {
                             xp: top.xp * 6,
                             level: look.level + 2,
                             big: look.big,
+                            legion: look.legion,
                         }
                     })
                     .collect()
@@ -4880,6 +5019,7 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
                 xp: mix(lo.2, hi.2) as u32,
                 level: f.level,
                 big: f.big,
+                legion: f.legion,
             }
         })
         .collect()
@@ -4888,6 +5028,39 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
 #[cfg(test)]
 mod tests {
     //! The tables' invariants and the run's curves. Pure data: no app, no game files.
+
+    #[test]
+    fn legions_demons_wear_its_looks_only_where_the_data_is() {
+        let gulch = MAPS.iter().position(|m| m.name == "Warsong Gulch").unwrap();
+        let r = roster(gulch);
+        let felhound = r.enemies.iter().find(|e| e.name == "Felhound").unwrap();
+        assert_eq!(
+            felhound.legion, 1913,
+            "Legion's remake, under the same display"
+        );
+        assert!(felhound.wears(1913) && felhound.wears(LEGION_DISPLAY_BASE + 1913));
+        // This machine has no Legion data: a host's Legion display falls back.
+        assert!(!legion_looks());
+        assert_eq!(felhound.look(), 1913);
+        assert_eq!(shown_display(LEGION_DISPLAY_BASE + 1913), 1913);
+        assert_eq!(shown_display(1913), 1913);
+        assert!(r.enemies.iter().filter(|e| e.legion != 0).count() >= 5);
+        // No other zone takes Legion's looks yet.
+        for z in (0..MAPS.len()).filter(|&z| z != gulch) {
+            let r = roster(z);
+            assert!(r.enemies.iter().chain(&r.bosses).all(|e| e.legion == 0));
+        }
+
+        // Illidan, the gulch's bonus boss: tougher than Kazzak, a Doomguard without the data.
+        let illidan = bonus_boss(gulch).unwrap();
+        let kazzak = r.bosses.last().unwrap();
+        assert_eq!(illidan.name, "Illidan Stormrage");
+        assert!(illidan.hp > kazzak.hp && illidan.damage > kazzak.damage);
+        assert_eq!(shown_display(LEGION_DISPLAY_BASE + 21135), 4426);
+        assert!((0..MAPS.len()).filter(|&z| bonus_boss(z).is_some()).count() == 1);
+        assert_eq!(elite_kind(BONUS).title, "Bonus Boss");
+        assert_eq!(elite_kind(0).title, ELITES[0].title);
+    }
 
     use super::*;
     use std::collections::HashSet;

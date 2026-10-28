@@ -229,6 +229,19 @@ upstream merge. Each step is one pull request or a few.
    bosses, in an id range of their own (on the wire too); an Illidan bonus boss, the Legion's
    demons in a zone. In a lobby every player needs the Legion data: the lobby checks it, and
    refuses or falls back to a 1.12.1 display. **The first milestone players see.**
+   **Done**, with a fallback rather than a refusal. Legion kept 1.12.1's creature display ids
+   and drew many again (Felhound 1913 is `felhound2.m2` there, at the same scale), so a
+   creature's Legion look is the Legion display of its own id (`Foe::remade`); Warsong Gulch's
+   felbeasts, felhounds, manahounds, felguards, Doomguard Commander and Lord Azrethoc wear them.
+   Its hyenas, infernals, Kazzak and the rest are the same old models in Legion and keep
+   theirs. A host with the data spawns them at `1,000,000 + id`; a guest without maps them back
+   (`data::shown_display`), so no lobby check is needed. Illidan Stormrage (display 21135,
+   `illidan2.m2`) is the gulch's bonus boss: a post of his own on the field, Kazzak's health
+   ×1.5 and damage ×1.2, once a run, for a piece of the zone's gear, a spell rank, a run item
+   and a boss's gold; a Doomguard to a guest without the data. `PROTOCOL_VERSION` 20. Not seen
+   on screen here: the scales are 1.12.1's own for the remakes, Illidan's chosen as Lord
+   Azrethoc's. Legion remade many more of 1.12.1's creatures under their ids (wolves,
+   murlocs, kobolds…): every zone could take Legion's looks the same way.
 6. **Particles, ribbons, effects.** Legion's emitters and ribbons transcoded (their records
    differ): fel fire, glowing weapons.
 7. **Items.** Weapons first (plain M2s, `ItemDisplayInfo` → `ModelFileData` with its race and sex

@@ -191,7 +191,7 @@ pub(super) fn spawn_enemy(
         commands,
         &UnitSpec {
             serial,
-            display: def.display,
+            display: def.look(),
             scale: def.scale,
             level: def.level,
             faction: units::FACTION_MONSTER,
@@ -725,7 +725,7 @@ pub(super) fn drop_loot(
                     GemKind::Key,
                 );
             }
-            let kind = &data::ELITES[usize::from(k).min(data::ELITES.len() - 1)];
+            let kind = data::elite_kind(k);
             let at = d.pos - Vec3::Z * 0.8;
             match kind.reward {
                 data::Reward::Gear { percent } => {
@@ -751,6 +751,19 @@ pub(super) fn drop_loot(
                     }
                 }
                 reward => spawn_gem(&mut commands, run.guid(), at, GemKind::Reward(reward)),
+            }
+            // The bonus boss: more beside its gear, and a boss's gold.
+            if k == data::BONUS {
+                for (n, reward) in data::BONUS_EXTRAS.into_iter().enumerate() {
+                    let at = d.pos + Vec3::new(n as f32 * 1.6 - 0.8, 0.0, 1.6);
+                    spawn_gem(&mut commands, run.guid(), at, GemKind::Reward(reward));
+                }
+                spawn_gem(
+                    &mut commands,
+                    run.guid(),
+                    d.pos - Vec3::X * 1.6,
+                    GemKind::Gold(data::BOSS_GOLD),
+                );
             }
         }
         if d.boss || rng.f32() < 0.015 {

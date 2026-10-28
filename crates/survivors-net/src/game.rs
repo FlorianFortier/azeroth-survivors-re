@@ -23,7 +23,7 @@ pub enum Role {
     Area,
     /// A chest of the run's field, opened with the run's gold.
     Chest,
-    /// An elite holding a post of the field, by kind (`data::ELITES`).
+    /// An elite holding a post of the field, by kind (`data::ELITES`, then a zone's bonus boss).
     Elite(u8),
     /// A Shrine of Challenge's prize: a chest that opens for nothing.
     FreeChest,

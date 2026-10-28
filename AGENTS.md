@@ -265,6 +265,15 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   and carried with them, and `data::pet_stats` reads it. A companion is a plain unit
   (`Role::Totem` on the wire) that only marks pickups with `Gem::send_to`; the hero's own
   magnet brings them in.
+- **Legion's looks are a machine's own.** A creature with a Legion look (`EnemyDef::legion`, a
+  Legion display; `Foe::remade` for Legion's remake under the same id) takes it only where
+  `data::legion_looks()` (set by `entities::legion` once Legion's displays are in the catalog):
+  `EnemyDef::look` at the spawn. A guest maps a Legion display it cannot draw back to the
+  creature's 1.12.1 one (`data::shown_display`, in `net/client.rs`), and anything that finds a
+  creature by its display uses `EnemyDef::wears`. A zone's bonus boss (`data::bonus_boss`,
+  Illidan in Warsong Gulch) stands only where the host draws Legion's creatures, at a post of
+  the elite kind `data::BONUS` after `data::ELITES` (`data::elite_kind` reads either), and falls
+  once; the balance simulator, without the data, never meets it.
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

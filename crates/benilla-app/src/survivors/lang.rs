@@ -273,6 +273,7 @@ fn french(s: &str) -> Option<&'static str> {
         "Arcane Sentinel" => "Sentinelle arcanique",
         "Relic Keeper" => "Gardien des reliques",
         "Hoard Warden" => "Garde du magot",
+        "Bonus Boss" => "Boss bonus",
         // Options.
         "Master volume" => "Volume général",
         "Music" => "Musique",

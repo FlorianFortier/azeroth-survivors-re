@@ -85,7 +85,7 @@ fn seconds_left(wait: f32) -> u32 {
 
 /// How far a post's elite is on its way back, 0 when it has just fallen, 1 when it is back.
 fn returning(kind: usize, wait: f32) -> f32 {
-    let total = data::ELITES[kind.min(data::ELITES.len() - 1)].respawn;
+    let total = data::elite_kind(kind as u8).respawn;
     if total <= 0.0 {
         return 1.0;
     }
@@ -152,7 +152,7 @@ fn wanted(
                 color: data::MERCHANT_COLOR,
             },
             FieldMark::Elite(k) => {
-                let kind = &data::ELITES[usize::from(k).min(data::ELITES.len() - 1)];
+                let kind = data::elite_kind(k);
                 Shown {
                     at: at + Vec3::Y * 4.2,
                     icon: kind.icon,
@@ -168,7 +168,7 @@ fn wanted(
         if post.wait <= 0.0 || !near(post.pos) {
             continue;
         }
-        let kind = &data::ELITES[post.kind.min(data::ELITES.len() - 1)];
+        let kind = data::elite_kind(post.kind as u8);
         out.push((
             Key::Post(i),
             Shown {
@@ -475,7 +475,7 @@ pub(super) fn draw_rings(
                 );
             }
             FieldMark::Elite(k) => {
-                let kind = &data::ELITES[usize::from(*k).min(data::ELITES.len() - 1)];
+                let kind = data::elite_kind(*k);
                 let r = ELITE_RING * tf.scale.x.max(1.0);
                 ground_ring(&mut gizmos, &world, at, r, srgb(kind.color), false, 1.0);
                 ground_ring(
@@ -494,7 +494,7 @@ pub(super) fn draw_rings(
         if post.wait <= 0.0 || !near(post.pos) {
             continue;
         }
-        let c = data::ELITES[post.kind.min(data::ELITES.len() - 1)].color;
+        let c = data::elite_kind(post.kind as u8).color;
         ground_ring(
             &mut gizmos,
             &world,

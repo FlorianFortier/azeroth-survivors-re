@@ -402,6 +402,20 @@ pub(super) fn tend_field(
                 wait: 0.0,
             });
         }
+        // A zone's bonus boss, where this machine draws Legion's creatures: a post of its own,
+        // between two elites'.
+        let bonus = data::legion_looks()
+            .then(|| data::bonus_boss(zone))
+            .flatten();
+        if bonus.is_some() {
+            let a = turn + 0.5 / data::ELITES.len() as f32 * std::f32::consts::TAU;
+            field.posts.push(Post {
+                kind: usize::from(data::BONUS),
+                pos: spot(&world, center, map.leash, a, 0.55),
+                unit: None,
+                wait: 0.0,
+            });
+        }
         for _ in 0..data::CHESTS {
             let a = rng.range(0.0, std::f32::consts::TAU);
             let t = rng.range(0.25, 0.9);
@@ -429,7 +443,10 @@ pub(super) fn tend_field(
             }
         }
         run.banner = Some((
-            "Elites guard the field, and chests wait for your gold.".into(),
+            match bonus {
+                Some(b) => format!("{} waits on the field, and elites guard it.", b.name),
+                None => "Elites guard the field, and chests wait for your gold.".into(),
+            },
             5.0,
         ));
     }
@@ -442,7 +459,8 @@ pub(super) fn tend_field(
         if down {
             let kind = field.posts[i].kind;
             field.posts[i].unit = None;
-            field.posts[i].wait = data::ELITES[kind].respawn;
+            // The bonus boss's wait never ends: it falls once.
+            field.posts[i].wait = data::elite_kind(kind as u8).respawn;
         }
         if field.posts[i].unit.is_some() {
             continue;
@@ -452,7 +470,10 @@ pub(super) fn tend_field(
             continue;
         }
         let (kind, pos) = (field.posts[i].kind, field.posts[i].pos);
-        let def = data::elite(zone, kind);
+        let def = match data::bonus_boss(zone) {
+            Some(b) if kind == usize::from(data::BONUS) => b,
+            _ => data::elite(zone, kind),
+        };
         let e = enemies::spawn_enemy(
             &mut commands,
             &mut run,
@@ -575,15 +596,22 @@ pub(super) fn tend_field(
     run.shrines.clear();
     run.shrines.extend(field.shrines.iter().map(|s| s.view));
     run.posts.clear();
-    run.posts.extend(field.posts.iter().map(|p| PostView {
-        kind: p.kind,
-        pos: p.pos,
-        wait: if p.unit.is_some() {
-            0.0
-        } else {
-            p.wait.max(0.0)
-        },
-    }));
+    // A fallen bonus boss's post is gone from the field.
+    run.posts.extend(
+        field
+            .posts
+            .iter()
+            .filter(|p| p.unit.is_some() || p.wait.is_finite())
+            .map(|p| PostView {
+                kind: p.kind,
+                pos: p.pos,
+                wait: if p.unit.is_some() {
+                    0.0
+                } else {
+                    p.wait.max(0.0)
+                },
+            }),
+    );
 }
 
 /// Three blessings of different stats, each at a drawn rarity.

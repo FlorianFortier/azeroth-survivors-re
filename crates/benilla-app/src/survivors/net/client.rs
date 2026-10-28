@@ -127,7 +127,8 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8, host_t: f32) -> Entity
         Guid(s.guid),
         NetEntity {
             kind,
-            display_id: s.display,
+            // A Legion look falls back to the creature's 1.12.1 one where the data is not.
+            display_id: s.display.map(crate::survivors::data::shown_display),
             scale: s.scale,
         },
         ObjectStore(ObjectFields::from_pairs(&s.fields)),
