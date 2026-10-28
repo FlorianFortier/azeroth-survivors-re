@@ -14,7 +14,7 @@ mod balance;
 mod cards;
 mod character;
 mod companion;
-mod data;
+pub(crate) mod data;
 mod enemies;
 mod feel;
 mod frames;

@@ -419,11 +419,17 @@ fn target_name(
         .enemies
         .iter()
         .chain(&roster.bosses)
-        .find(|e| e.display == d)
+        .find(|e| e.wears(d))
         .map_or("", |e| e.name);
+    // The bonus boss goes by its own name.
+    if let Some(bonus) = data::bonus_boss(zone).filter(|b| b.wears(d)) {
+        if mark == Some(&FieldMark::Elite(data::BONUS)) {
+            return bonus.name.to_string();
+        }
+    }
     match mark {
         Some(FieldMark::Elite(k)) => {
-            let kind = &data::ELITES[usize::from(*k).min(data::ELITES.len() - 1)];
+            let kind = data::elite_kind(*k);
             format!("{base} {}", tr(kind.title)).trim().to_string()
         }
         _ => base.to_string(),

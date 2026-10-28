@@ -573,7 +573,7 @@ pub(super) fn compose(
                 );
             }
             FieldMark::Elite(k) => {
-                let c = data::ELITES[usize::from(*k).min(data::ELITES.len() - 1)].color;
+                let c = data::elite_kind(*k).color;
                 let size = ELITE_PX * scale;
                 blit(
                     buf,
@@ -588,7 +588,7 @@ pub(super) fn compose(
         if post.wait <= 0.0 {
             continue;
         }
-        let c = data::ELITES[post.kind.min(data::ELITES.len() - 1)].color;
+        let c = data::elite_kind(post.kind as u8).color;
         let off = Vec2::new(post.pos.x - p.x, post.pos.z - p.z).clamp_length_max(edge);
         let size = ELITE_PX * scale;
         blit(buf, center + off / yd_per_px, size, |q| {

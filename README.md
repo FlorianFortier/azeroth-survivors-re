@@ -100,6 +100,12 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   (`WOW_UNLOCK_ALL=1` or `?unlock_all=1` opens them all). Your pick, every run's record and the
   zones won are kept in a saved profile (`benilla-config/survivors-profile.toml`, or the
   browser's storage).
+- **Legion's demons**, natively, with a Legion 7.3.5 install (`WOW_LEGION=<folder>` and
+  `WOW_LEGION_DBD=<WoWDBDefs definitions>`): Warsong Gulch's felhounds, felguards and doomguards
+  wear Legion's models, and **Illidan Stormrage** waits on the field as a bonus boss, an
+  optional fight once a run for a piece of the zone's gear, a spell rank, a run item and a
+  boss's gold. A machine without the data sees the 1.12.1 looks; in a lobby the bonus boss is
+  there when the host has the data.
 - **Your hero is a player character**: the race's own body with character creation's skin, face,
   hair, hair colour and facial hair (set in the Armory), dressed piece by piece in the class's
   starting outfit and its weapons, which the Equipment panel lists.

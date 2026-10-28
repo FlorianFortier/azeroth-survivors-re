@@ -4,7 +4,8 @@
 //! `WOW_LEGION_DBD=<folder>` (WoWDBDefs' `.dbd` definitions, never copied here), every Legion
 //! creature display joins the creature catalog as `DISPLAY_BASE` plus its own id, so a unit of
 //! that display draws the Legion model: `WOW_CAPTURE=fxview WOW_FX_DISPLAY=1061830` stands the
-//! Fel Lord in the effect viewer.
+//! Fel Lord in the effect viewer. The survivors mode then dresses the creatures it has a Legion
+//! look for in it (`survivors::data::legion_looks`).
 //!
 //! `WOW_LEGION` may instead be a remote copy's URL (`https://…`), read by byte ranges into
 //! `WOW_LEGION_CACHE` (`benilla-config/legion-cache` by default), which must hold
@@ -20,6 +21,9 @@ use benilla_casc::Dir;
 use benilla_legion::library::{display_model_path, AnySource, Library, DISPLAY_BASE};
 
 use super::Creatures;
+
+// The survivors mode's Legion looks are this catalog's ids.
+const _: () = assert!(DISPLAY_BASE == crate::survivors::data::LEGION_DISPLAY_BASE);
 
 /// The open install, when `WOW_LEGION` names one.
 #[derive(Resource, Clone)]
@@ -87,4 +91,6 @@ fn add_displays(legion: Res<Legion>, creatures: Option<ResMut<Creatures>>) {
         }
     }
     info!("legion: {added} creature displays, from id {DISPLAY_BASE}");
+    // The survivors mode's creatures may wear them now.
+    crate::survivors::data::set_legion_looks(added > 0);
 }
