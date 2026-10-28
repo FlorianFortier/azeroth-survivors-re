@@ -104,7 +104,28 @@ fn syllables(race: u8) -> &'static Syllables {
             "en", "undu", "aad", "el", "uun", "osh", "aan", "ari", "um", "ek",
         ],
     };
+    const GOBLIN: Syllables = Syllables {
+        start: &[
+            "Gaz", "Riz", "Noz", "Grem", "Kez", "Bix", "Zap", "Fizz", "Glee", "Trix", "Sprock",
+            "Wiz",
+        ],
+        middle: &["", "", "le", "z", "ik", "o"],
+        end: &[
+            "lowe", "zle", "dle", "bolt", "gear", "nix", "sprock", "wick", "spark", "tock",
+        ],
+    };
+    const WORGEN: Syllables = Syllables {
+        start: &[
+            "Gen", "Dar", "Iv", "Liam", "Lor", "Hal", "Cro", "God", "Bel", "Ash", "Wal", "Tess",
+        ],
+        middle: &["", "", "a", "e", "wyn", "fe"],
+        end: &[
+            "ius", "ford", "ric", "na", "wood", "ley", "gate", "more", "ard", "wen",
+        ],
+    };
     match race {
+        9 => &GOBLIN,
+        22 => &WORGEN,
         10 => &BLOOD_ELF,
         11 => &DRAENEI,
         2 => &ORC,

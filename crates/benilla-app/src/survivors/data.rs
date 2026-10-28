@@ -1301,9 +1301,57 @@ pub(crate) fn racials(race: u8) -> &'static [RacialDef; 3] {
             &[Bonus::flat(Stat::DamageReduction, 0.02)],
         ),
     ];
+    static GOBLIN: [RacialDef; 3] = [
+        racial(
+            "best_deals_anywhere",
+            "Best Deals Anywhere",
+            2481,
+            "+5% gold",
+            &[Bonus::pct(Stat::Gold, 0.05)],
+        ),
+        racial(
+            "rocket_barrage",
+            "Rocket Barrage",
+            133,
+            "+4% damage",
+            &[Bonus::flat(Stat::Might, 0.04)],
+        ),
+        racial(
+            "time_is_money",
+            "Time is Money",
+            13750,
+            "+3% movement speed",
+            &[Bonus::pct(Stat::Speed, 0.03)],
+        ),
+    ];
+    static WORGEN: [RacialDef; 3] = [
+        racial(
+            "viciousness",
+            "Viciousness",
+            1082,
+            "+2% critical strike",
+            &[Bonus::flat(Stat::Crit, 0.02)],
+        ),
+        racial(
+            "darkflight",
+            "Darkflight",
+            2983,
+            "+5% movement speed",
+            &[Bonus::pct(Stat::Speed, 0.05)],
+        ),
+        racial(
+            "aberration",
+            "Aberration",
+            976,
+            "+2% damage reduction",
+            &[Bonus::flat(Stat::DamageReduction, 0.02)],
+        ),
+    ];
     match race {
         10 => &BLOOD_ELF,
         11 => &DRAENEI,
+        9 => &GOBLIN,
+        22 => &WORGEN,
         2 => &ORC,
         3 => &DWARF,
         4 => &NIGHT_ELF,
@@ -1342,6 +1390,9 @@ pub(crate) fn race_classes(race: u8) -> &'static [u8] {
         // Legion's races, as The Burning Crusade made them.
         10 => &[2, 3, 4, 5, 8, 9],
         11 => &[1, 2, 3, 5, 7, 8],
+        // And as Cataclysm made these.
+        9 => &[1, 3, 4, 5, 7, 8, 9],
+        22 => &[1, 3, 4, 5, 8, 9, 11],
         _ => &[],
     }
 }
@@ -4782,8 +4833,10 @@ pub(crate) fn appearance(key: &str) -> Option<&'static AppearanceDef> {
 pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /// Legion's playable races the mode takes in their pre-HD bodies where Legion's data is
-/// (`entities::legion`): the Blood Elf and the Draenei, `ChrRaces` ids.
-pub(crate) const LEGION_RACES: [u8; 2] = [10, 11];
+/// (`entities::legion`): the Blood Elf, the Draenei, the Goblin and the Worgen, `ChrRaces` ids.
+/// The Pandaren's bodies wear another texture layout (1024×512, Mists of Pandaria's), which
+/// 1.12.1's 256² compositor cannot hold.
+pub(crate) const LEGION_RACES: [u8; 4] = [10, 11, 9, 22];
 
 static LEGION_RACES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
@@ -4822,11 +4875,13 @@ pub(crate) fn playable_races() -> Vec<u8> {
 }
 
 /// The 1.12.1 race standing in for one 1.12.1 lacks: its portrait, and its body on a machine
-/// without Legion's data. The Blood Elf a Human, the Draenei a Night Elf.
+/// without Legion's data. The Blood Elf a Human, the Draenei a Night Elf, the Goblin a Gnome, the
+/// Worgen a Human.
 pub(crate) fn stand_in(race: u8) -> u8 {
     match race {
-        10 => 1,
+        10 | 22 => 1,
         11 => 4,
+        9 => 7,
         r => r,
     }
 }
@@ -4844,7 +4899,12 @@ const BODIES: [(u32, u32); 8] = [
 ];
 
 /// Legion's body displays of [`LEGION_RACES`] (`ChrRaces`' `MaleDisplayID`, `FemaleDisplayID`).
-const LEGION_BODIES: [(u8, (u32, u32)); 2] = [(10, (15476, 15475)), (11, (16125, 16126))];
+const LEGION_BODIES: [(u8, (u32, u32)); 4] = [
+    (10, (15476, 15475)),
+    (11, (16125, 16126)),
+    (9, (6894, 6895)),
+    (22, (29422, 29423)),
+];
 
 /// A body display a guest without Legion's data cannot draw (a Legion race's, as its host sent
 /// it) as its race's stand-in's body: `(race, display)`, or `None` when it is not one.
@@ -4863,6 +4923,8 @@ pub(crate) fn race_name(race: u8) -> &'static str {
     match race {
         10 => "Blood Elf",
         11 => "Draenei",
+        9 => "Goblin",
+        22 => "Worgen",
         r => crate::char_select::race_name(r),
     }
 }
@@ -5253,6 +5315,11 @@ mod tests {
         // A host's Blood Elf body, on a machine without the data: a Human's, of the same sex.
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 15476), Some((1, 49)));
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 16126), Some((4, 56)));
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 6895), Some((7, 1564)));
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 29422), Some((1, 49)));
+        assert_eq!((race_name(9), race_name(22)), ("Goblin", "Worgen"));
+        // The Worgen's druid and the Goblin's shaman, as Cataclysm made them.
+        assert!(race_classes(22).contains(&11) && race_classes(9).contains(&7));
         assert_eq!(stand_in_body(49), None);
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 1913), None);
     }

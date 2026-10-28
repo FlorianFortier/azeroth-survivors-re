@@ -277,7 +277,7 @@ fn legion_weapons_answer_where_the_client_looks_for_them() {
 
 #[test]
 #[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
-fn the_blood_elf_and_the_draenei_read_as_1_12_1_races() {
+fn legions_races_read_as_1_12_1_races() {
     let source: AnySource = Box::new(Remote {
         url: std::env::var("LEGION_URL").expect("LEGION_URL"),
         cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
@@ -287,6 +287,8 @@ fn the_blood_elf_and_the_draenei_read_as_1_12_1_races() {
     for (id, file, models, horde) in [
         (10u8, "BloodElf", [117170, 116921], true),
         (11, "Draenei", [117721, 117437], false),
+        (9, "Goblin", [119376, 119369], true),
+        (22, "Worgen", [307454, 307453], false),
     ] {
         let race = library.race(id).unwrap();
         println!(
