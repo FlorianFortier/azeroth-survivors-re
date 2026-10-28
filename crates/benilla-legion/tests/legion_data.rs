@@ -458,4 +458,54 @@ fn the_broken_isles_read_as_a_1_12_1_map() {
         failed.len()
     );
     assert!(failed.is_empty());
+    // Its buildings, through the client's own WMO readers: each root, its groups' render batches
+    // with their textures, its doodads.
+    let mut wmos: Vec<&String> = mesh.wmos.iter().map(|w| &w.model).collect();
+    wmos.sort();
+    wmos.dedup();
+    println!(
+        "{} placed buildings, {} distinct",
+        mesh.wmos.len(),
+        wmos.len()
+    );
+    assert!(!wmos.is_empty());
+    let (mut groups, mut batches, mut missing) = (0, 0, 0);
+    let mut wmo_textures = std::collections::BTreeSet::new();
+    for w in &wmos {
+        let p = w.to_lowercase().replace('\\', "/");
+        let root = library.read(&p).unwrap().unwrap();
+        let root = benilla_formats::parse_wmo_root(&root).unwrap();
+        let stem = p.strip_suffix(".wmo").unwrap();
+        for gi in 0..root.group_count() {
+            let Some(Ok(g)) = library.read(&format!("{stem}_{gi:03}.wmo")) else {
+                missing += 1;
+                continue;
+            };
+            let subs = benilla_formats::wmo_group_submeshes(&g, &root).unwrap();
+            groups += 1;
+            batches += subs.len();
+            for s in &subs {
+                assert!(!s.positions.is_empty() && s.uvs.len() == s.positions.len());
+                let t = s.texture.as_deref().unwrap_or("");
+                assert!(
+                    t.is_empty() || t.to_lowercase().starts_with("legion"),
+                    "{t}"
+                );
+                if !t.is_empty() {
+                    wmo_textures.insert(t.to_lowercase().replace('\\', "/"));
+                }
+            }
+        }
+        for d in root.doodads().iter().filter(|d| !d.model.is_empty()) {
+            assert!(d.model.starts_with("Legion\\"), "{}", d.model);
+        }
+    }
+    println!(
+        "{groups} groups ({missing} without data), {batches} batches, {} textures",
+        wmo_textures.len()
+    );
+    for t in &wmo_textures {
+        benilla_blp::decode(&library.read(t).unwrap().unwrap()).unwrap();
+    }
+    assert!(groups >= wmos.len() && batches > groups);
 }

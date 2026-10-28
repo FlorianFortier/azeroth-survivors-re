@@ -24,6 +24,8 @@
 //! [`Library::weapon_looks`]. The class tables give a spell's name and icon and each class's
 //! specializations with their talents ([`crate::classes`]).
 //!
+//! - `legion/<its own path>.wmo`: a building, its root or one of its groups, as 1.12.1's
+//!   ([`crate::wmo`]);
 //! - `world/maps/<map>/<map>.wdt` and `…/<map>_<x>_<y>.adt`, for each of [`LEGION_MAPS`]: its
 //!   tile table and its tiles, each written as one 1.12.1 ADT ([`crate::terrain`]).
 //!
@@ -149,6 +151,17 @@ impl Library {
         // A map's tile table or one of its tiles.
         if let Some(r) = self.map_file(path) {
             return Some(r);
+        }
+        // A building, root or group, by its own path under ours.
+        if let Some(own) = path.strip_prefix(PREFIX).filter(|p| p.ends_with(".wmo")) {
+            return Some(self.casc.read_path(own).map_err(Error::from).map(|b| {
+                if crate::wmo::is_group(&b) {
+                    crate::wmo::group(&b)
+                } else {
+                    let resolve = |p: &str| self.file_id(p).filter(|&id| self.casc.has_id(id));
+                    crate::wmo::root(&b, &resolve)
+                }
+            }));
         }
         // An item's model, wherever the client looks for it.
         let base = path.rsplit('/').next().unwrap_or(path);

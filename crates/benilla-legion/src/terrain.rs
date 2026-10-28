@@ -6,12 +6,13 @@
 //! height textures (`MAMP`, `MTXP`), the far doodads (`_obj1`), the level of detail (`_lod`). The
 //! alpha is decoded whatever its form (Legion's big alpha, 8-bit, raw or run-length) and written
 //! run-length, which the 1.12.1 reader takes in either alpha mode; a high-resolution hole map
-//! becomes the 4×4 one (a block open where any of its four cells is). Placed buildings (`MWMO`,
-//! `MODF`) and liquids (`MH2O`) are not carried yet.
+//! becomes the 4×4 one (a block open where any of its four cells is). The liquids (`MH2O`) are
+//! not carried yet.
 //!
 //! Names become the library's: a texture `Legion\<file data id>.blp`, a model
 //! `Legion\<file data id>.mdx` (the client reads `.mdx` names as `.m2`), resolved by `resolve`; a
-//! model or texture the install does not name is dropped (a texture for a 1.12.1 one).
+//! model or texture the install does not name is dropped (a texture for a 1.12.1 one); a building
+//! `Legion\<its own path>`, which the library answers as 1.12.1's ([`crate::wmo`]).
 
 use crate::{Error, Result};
 
@@ -42,6 +43,16 @@ fn chunks(b: &[u8]) -> Vec<Chunk<'_>> {
 /// The first chunk `m` among `cs`.
 fn find<'a>(cs: &[Chunk<'a>], m: &[u8; 4]) -> Option<&'a [u8]> {
     cs.iter().find(|c| &c.magic == m).map(|c| c.data)
+}
+
+/// A table of `u32`s.
+fn u32s(b: Option<&[u8]>) -> Vec<u32> {
+    b.unwrap_or(&[])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect()
 }
 
 fn u32_at(b: &[u8], at: usize) -> u32 {
@@ -229,13 +240,7 @@ pub fn adt(
     // Models: each placement's name through MMID; a model the install lacks drops its
     // placements, the rest renumbered.
     let mmdx = find(&obj_chunks, b"MMDX").map(names).unwrap_or_default();
-    let mmid: Vec<u32> = find(&obj_chunks, b"MMID")
-        .unwrap_or(&[])
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|c| u32::from_le_bytes(*c))
-        .collect();
+    let mmid = u32s(find(&obj_chunks, b"MMID"));
     let mut models: Vec<String> = Vec::new();
     // Legion's MMID index to ours.
     let mut model_of: Vec<Option<u32>> = Vec::new();
@@ -275,6 +280,48 @@ pub fn adt(
         }));
     }
 
+    // Buildings likewise: each named by its own path under the library's (`Legion\<path>`),
+    // which answers its root and groups as 1.12.1's ([`crate::wmo`]).
+    let mwmo = find(&obj_chunks, b"MWMO").map(names).unwrap_or_default();
+    let mut wmos: Vec<String> = Vec::new();
+    let mut wmo_of: Vec<Option<u32>> = Vec::new();
+    for &ofs in &u32s(find(&obj_chunks, b"MWID")) {
+        let name = mwmo
+            .iter()
+            .find(|(o, _)| *o == ofs)
+            .map(|(_, n)| n.as_str())
+            .filter(|n| resolve.file_id(n).is_some());
+        wmo_of.push(name.map(|n| {
+            let path = format!("Legion\\{n}");
+            match wmos.iter().position(|m| *m == path) {
+                Some(i) => i as u32,
+                None => {
+                    wmos.push(path);
+                    wmos.len() as u32 - 1
+                }
+            }
+        }));
+    }
+    let mut wmo_placement_of: Vec<Option<u32>> = Vec::new();
+    let mut modf = Vec::new();
+    for r in find(&obj_chunks, b"MODF")
+        .unwrap_or(&[])
+        .as_chunks::<64>()
+        .0
+    {
+        let ours = wmo_of.get(u32_at(r, 0) as usize).copied().flatten();
+        wmo_placement_of.push(ours.map(|w| {
+            let mut rec = r.to_vec();
+            rec[0..4].copy_from_slice(&w.to_le_bytes());
+            // Legion's flags past 1.12.1's (a level of detail, a scale, a file data id name)
+            // are cleared, and its scale with them.
+            rec[56..58].copy_from_slice(&(u16::from_le_bytes([r[56], r[57]]) & 0x1).to_le_bytes());
+            rec[62..64].copy_from_slice(&[0, 0]);
+            modf.extend_from_slice(&rec);
+            (modf.len() / 64 - 1) as u32
+        }));
+    }
+
     let mut out = Vec::new();
     put(&mut out, b"MVER", &18u32.to_le_bytes());
     put(&mut out, b"MHDR", &[0u8; 64]);
@@ -292,10 +339,16 @@ pub fn adt(
     }
     put(&mut out, b"MMDX", &blob);
     put(&mut out, b"MMID", &ids);
-    put(&mut out, b"MWMO", &[]);
-    put(&mut out, b"MWID", &[]);
+    let (mut blob, mut ids) = (Vec::new(), Vec::new());
+    for w in &wmos {
+        ids.extend_from_slice(&(blob.len() as u32).to_le_bytes());
+        blob.extend_from_slice(w.as_bytes());
+        blob.push(0);
+    }
+    put(&mut out, b"MWMO", &blob);
+    put(&mut out, b"MWID", &ids);
     put(&mut out, b"MDDF", &mddf);
-    put(&mut out, b"MODF", &[]);
+    put(&mut out, b"MODF", &modf);
 
     let root_mcnk: Vec<&[u8]> = root_chunks
         .iter()
@@ -321,7 +374,14 @@ pub fn adt(
     for (i, r) in root_mcnk.iter().enumerate() {
         let tex = tex_mcnk.get(i).copied().unwrap_or(&[]);
         let obj = obj_mcnk.get(i).copied().unwrap_or(&[]);
-        out.extend(mcnk(r, tex, obj, big_alpha, &placement_of)?);
+        out.extend(mcnk(
+            r,
+            tex,
+            obj,
+            big_alpha,
+            &placement_of,
+            &wmo_placement_of,
+        )?);
     }
     Ok(out)
 }
@@ -334,6 +394,7 @@ fn mcnk(
     obj: &[u8],
     big_alpha: bool,
     placement_of: &[Option<u32>],
+    wmo_placement_of: &[Option<u32>],
 ) -> Result<Vec<u8>> {
     let header = root
         .get(..128)
@@ -363,21 +424,21 @@ fn mcnk(
         layers.extend_from_slice(&rec);
     }
 
-    // Doodad references, through the placements kept.
+    // Doodad references, then building references, through the placements kept.
     let obj_sub = chunks(obj);
-    let refs: Vec<u32> = find(&obj_sub, b"MCRD")
-        .unwrap_or(&[])
-        .as_chunks::<4>()
-        .0
+    let kept = |refs: Option<&[u8]>, of: &[Option<u32>]| -> Vec<u32> {
+        u32s(refs)
+            .into_iter()
+            .filter_map(|i| of.get(i as usize).copied().flatten())
+            .collect()
+    };
+    let doodad_refs = kept(find(&obj_sub, b"MCRD"), placement_of);
+    let wmo_refs = kept(find(&obj_sub, b"MCRW"), wmo_placement_of);
+    let refs: Vec<u8> = doodad_refs
         .iter()
-        .filter_map(|c| {
-            placement_of
-                .get(u32::from_le_bytes(*c) as usize)
-                .copied()
-                .flatten()
-        })
+        .chain(&wmo_refs)
+        .flat_map(|r| r.to_le_bytes())
         .collect();
-    let refs: Vec<u8> = refs.iter().flat_map(|r| r.to_le_bytes()).collect();
 
     let holes = if flags & HIGH_RES_HOLES != 0 {
         low_res_holes(&header[0x14..0x1c])
@@ -410,7 +471,7 @@ fn mcnk(
     set(0x04, u32_at(header, 0x04));
     set(0x08, u32_at(header, 0x08));
     set(0x0c, (layers.len() / 16) as u32);
-    set(0x10, (refs.len() / 4) as u32);
+    set(0x10, doodad_refs.len() as u32);
     set(0x14, ofs_height);
     set(0x18, ofs_normal);
     set(0x1c, ofs_layer);
@@ -421,7 +482,7 @@ fn mcnk(
     set(0x30, size_shadow);
     // Legion's area ids are not 1.12.1's: none.
     set(0x34, 0);
-    set(0x38, 0);
+    set(0x38, wmo_refs.len() as u32);
     set(0x3c, u32::from(holes));
     set(0x58, ofs_sound);
     // The chunk's corner, as Legion's.
