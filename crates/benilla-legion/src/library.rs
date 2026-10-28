@@ -21,7 +21,8 @@
 //! With the definitions, the item tables give each item display its model and skin files
 //! (`ItemDisplayInfo` → `ModelFileData`, `TextureFileData`), and each weapon its family (`Item`'s
 //! class and subclass, through `ItemModifiedAppearance` and `ItemAppearance`): [`ItemLook`],
-//! [`Library::weapon_looks`].
+//! [`Library::weapon_looks`]. The class tables give a spell's name and icon and each class's
+//! specializations with their talents ([`crate::classes`]).
 //!
 //! The paths come as the asset reader holds them: lowercase, `/` between folders. A creature
 //! display joins the client's catalog as [`DISPLAY_BASE`] plus its Legion id, its model named
@@ -99,6 +100,7 @@ pub struct Library {
     fallbacks: Vec<u16>,
     items: Option<Items>,
     races: Option<crate::races::Races>,
+    classes: Option<crate::classes::Classes>,
 }
 
 impl Library {
@@ -126,12 +128,16 @@ impl Library {
         let races = dbd
             .map(|dir| crate::races::Races::load(&casc, dir))
             .transpose()?;
+        let classes = dbd
+            .map(|dir| crate::classes::Classes::load(&casc, dir))
+            .transpose()?;
         Ok(Self {
             casc,
             displays,
             fallbacks,
             items,
             races,
+            classes,
         })
     }
 
@@ -204,6 +210,18 @@ impl Library {
             |m| items.textures.get(&m).copied().unwrap_or(0),
             |d| self.display(d).map_or(0, |d| d.model_file),
         )
+    }
+
+    /// Spell `id`'s name and icon; none without the definitions.
+    pub fn spell(&self, id: u32) -> Option<crate::classes::LegionSpell> {
+        self.classes.as_ref()?.spell(id)
+    }
+
+    /// Class `class`'s specializations and their talents; none without the definitions.
+    pub fn specs(&self, class: u8) -> Vec<crate::classes::LegionSpec> {
+        self.classes
+            .as_ref()
+            .map_or_else(Vec::new, |c| c.specs(class))
     }
 
     /// A creature display by its Legion id.

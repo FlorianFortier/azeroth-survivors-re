@@ -5,6 +5,9 @@
 //! takes less), and each talent gives one of them per rank, an exceptional talent (the tree's big
 //! abilities) three times as much.
 //!
+//! A Legion class's trees are its specializations (`entities::legion`): seven tiers of three
+//! talents, three ranks each and the last tier's one, so its tiers open by the same rule.
+//!
 //! Points are trained with the gold the runs earn ([`point_cost`]); they are the account's, and
 //! each class spends them on its own trees.
 
@@ -77,6 +80,10 @@ pub(super) fn theme(background: &str) -> [Stat; 3] {
         "druidbalance" => [Area, Might, Crit],
         "druidferalcombat" => [Armor, Speed, Crit],
         "druidrestoration" => [Regen, MaxHp, Magnet],
+        // Legion's specializations, their tabs named `<Class><Spec>` (`entities::legion`).
+        "deathknightblood" => [MaxHp, Regen, Armor],
+        "deathknightfrost" => [Might, Haste, Crit],
+        "deathknightunholy" => [Might, Area, Haste],
         _ => [Might, MaxHp, Crit],
     }
 }

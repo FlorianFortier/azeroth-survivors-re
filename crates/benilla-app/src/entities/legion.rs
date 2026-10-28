@@ -13,6 +13,10 @@
 //! client composites them), their skin, face and hair textures at 1.12.1's size, their geosets
 //! and their create-screen entry with its dial ranges.
 //!
+//! Legion's classes (`survivors::data::LEGION_CLASSES`) bring their spells' names and icons
+//! (`survivors::data::legion_spell`), their icon, and their specializations as talent tabs
+//! beside 1.12.1's.
+//!
 //! `WOW_LEGION` may instead be a remote copy's URL (`https://…`), read by byte ranges into
 //! `WOW_LEGION_CACHE` (`benilla-config/legion-cache` by default), which must hold
 //! `Data/data.list`, the names in the copy's `Data/data/`: for a test without the 74 GB install.
@@ -52,10 +56,13 @@ impl Plugin for LegionPlugin {
         };
         let library = Arc::new(library);
         benilla_formats::set_extra_files(Box::new(Files(library.clone())));
-        app.insert_resource(Legion(library)).add_systems(
-            Startup,
-            (add_displays, add_item_displays, add_races).after(super::setup_entities),
-        );
+        app.insert_resource(Legion(library))
+            .add_systems(
+                Startup,
+                (add_displays, add_item_displays, add_races).after(super::setup_entities),
+            )
+            // After every startup system, the talent catalog's loading among them.
+            .add_systems(PostStartup, add_classes);
     }
 }
 
@@ -270,4 +277,107 @@ fn ranges(race: &LegionRace, sex: u8) -> Option<DialRanges> {
         hair_color: byte(hair_color),
         facial_hair: byte(facial),
     })
+}
+
+/// A Legion specialization's talent tab id in the client's catalog: this plus its own, past
+/// 1.12.1's tabs; a talent's likewise.
+pub(crate) const TALENT_BASE: u32 = 100_000;
+
+/// Points a talent of tiers 1 to 6 takes, so that a tree of seven tiers of three opens its next
+/// tier at five points, as vanilla's do; the seventh tier's are one point, exceptional.
+const TALENT_RANKS: usize = 3;
+
+/// Legion's classes: their specializations as talent tabs, their spells' names and icons, their
+/// own icons. A class whose specializations the install lacks is not offered.
+fn add_classes(legion: Res<Legion>, talents: Option<ResMut<crate::ui_talent::Talents>>) {
+    let library = &legion.0;
+    let mut spells: std::collections::HashMap<u32, data::LegionSpell> = Default::default();
+    let mut note = |id: u32| {
+        if spells.contains_key(&id) {
+            return true;
+        }
+        let Some(s) = library.spell(id).filter(|s| s.icon != 0) else {
+            return false;
+        };
+        spells.insert(
+            id,
+            data::LegionSpell {
+                name: s.name,
+                icon: format!("Legion\\{}", s.icon),
+            },
+        );
+        true
+    };
+    let own: Vec<u32> = data::legion_spell_ids();
+    if !own.iter().all(|&id| note(id)) {
+        warn!("legion: its class spells are not all in the install; no Legion classes");
+        return;
+    }
+    let mut catalog = talents;
+    let mut added = Vec::new();
+    for class in data::LEGION_CLASSES {
+        let specs = library.specs(class);
+        if specs.is_empty() {
+            continue;
+        }
+        for spec in &specs {
+            let tab = benilla_formats::TalentTabInfo {
+                id: TALENT_BASE + spec.id,
+                name: spec.name.clone(),
+                race_mask: u32::MAX,
+                class_mask: 1 << (class - 1),
+                background: format!("{}{}", class_file(class), spec.name.replace(' ', "")),
+            };
+            let list = spec
+                .talents
+                .iter()
+                .filter(|t| note(t.spell))
+                .map(|t| {
+                    let last = t.tier == 6;
+                    let n = if last { 1 } else { TALENT_RANKS };
+                    let mut ranks = [0; benilla_formats::MAX_TALENT_RANK];
+                    ranks[..n].fill(t.spell);
+                    benilla_formats::Talent {
+                        id: TALENT_BASE + t.id,
+                        tab: tab.id,
+                        row: u32::from(t.tier),
+                        col: u32::from(t.column),
+                        ranks,
+                        prereq_talent: 0,
+                        prereq_rank: 0,
+                        required_spell: 0,
+                        exceptional: last,
+                    }
+                })
+                .collect();
+            if let Some(c) = catalog.as_deref_mut() {
+                c.catalog.add_tab(tab, list);
+            }
+        }
+        added.push(class);
+    }
+    let icons = added
+        .iter()
+        .filter_map(|&class| {
+            let path = format!(
+                "interface/icons/classicon_{}.blp",
+                class_file(class).to_lowercase()
+            );
+            Some((class, format!("Legion\\{}.blp", library.file_id(&path)?)))
+        })
+        .collect();
+    info!("legion: classes {added:?}, {} spells", spells.len());
+    data::set_legion_spells(spells);
+    data::set_legion_class_icons(icons);
+    data::set_legion_classes(&added);
+}
+
+/// A Legion class's file name, as its icons and talent art name it.
+fn class_file(class: u8) -> &'static str {
+    match class {
+        6 => "DeathKnight",
+        10 => "Monk",
+        12 => "DemonHunter",
+        _ => "",
+    }
 }

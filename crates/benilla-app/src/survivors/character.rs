@@ -851,6 +851,9 @@ fn refresh_class_column(
     commands.entity(column).with_children(|p| {
         kit::grid(p, 3, 10.0, |g| {
             for (i, c) in data::CLASSES.iter().enumerate() {
+                if !data::class_shown(c) {
+                    continue;
+                }
                 kit::icon_button(
                     g,
                     f,
@@ -918,8 +921,12 @@ fn refresh_class_column(
     });
 }
 
-/// The class's icon from the character-create sheet, `CLASS_ICON_TCOORDS`.
+/// The class's icon from the character-create sheet, `CLASS_ICON_TCOORDS`; a Legion class's
+/// own (`ClassIcon_<Class>`), which the sheet lacks.
 fn class_icon(class: &ClassDef) -> IconSource {
+    if let Some(path) = data::legion_class_icon(class.id) {
+        return IconSource::Texture(path.into());
+    }
     match crate::glue::art::class_tc(class.id) {
         Some(tc) => IconSource::Atlas(
             "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes".into(),
@@ -3647,7 +3654,11 @@ mod tests {
 
     #[test]
     fn every_class_has_its_icon_from_the_sheet() {
-        for c in data::CLASSES {
+        // Legion's take theirs from its data.
+        for c in data::CLASSES
+            .iter()
+            .filter(|c| !data::LEGION_CLASSES.contains(&c.id))
+        {
             assert!(
                 matches!(class_icon(c), IconSource::Atlas(..)),
                 "{} has no cell on the class sheet",

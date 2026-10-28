@@ -1519,7 +1519,7 @@ runs = 2
     #[test]
     fn a_renamed_class_or_zone_falls_back_instead_of_landing_elsewhere() {
         let hero = HeroPick {
-            class: "Death Knight".into(),
+            class: "Necromancer".into(),
             zone: "Northrend".into(),
             ..HeroPick::default()
         };

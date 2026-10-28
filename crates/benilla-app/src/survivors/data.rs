@@ -97,6 +97,20 @@ pub(crate) struct AbilityDef {
     /// The area's own visual hangs overhead and would hide the field from the camera, so the
     /// area plays the spell's impact on whatever it hits instead.
     pub overhead: bool,
+    /// The 1.12.1 spell whose visuals it plays, when `spell` is a later client's (shown for its
+    /// icon and name, [`legion_spell`]); 0 plays `spell`'s own.
+    pub visual: u32,
+}
+
+impl AbilityDef {
+    /// The spell whose visuals it plays.
+    pub(crate) fn visual(&self) -> u32 {
+        if self.visual != 0 {
+            self.visual
+        } else {
+            self.spell
+        }
+    }
 }
 
 const fn ab(key: &'static str, spell: u32, kind: Kind) -> AbilityDef {
@@ -115,6 +129,7 @@ const fn ab(key: &'static str, spell: u32, kind: Kind) -> AbilityDef {
         mark: 0,
         totem: (0, 0),
         overhead: false,
+        visual: 0,
     }
 }
 
@@ -890,6 +905,105 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             duration: 10.0
         }
     ),
+    // --- Death Knight: Legion's spells, shown where its data is; 1.12.1's visuals ---
+    ability!(
+        "obliterate",
+        49020,
+        Melee {
+            damage: 30.0,
+            cooldown: 1.7,
+            range: 5.5,
+            visual: 12294
+        }
+    ),
+    ability!(
+        "frost_strike",
+        49143,
+        Strike {
+            damage: 18.0,
+            cooldown: 2.6,
+            range: 18.0,
+            effect: Effect::Slow(0.6, 2.0),
+            visual: 8056
+        }
+    ),
+    ability!(
+        "howling_blast",
+        49184,
+        Cone {
+            damage: 14.0,
+            cooldown: 4.5,
+            radius: 11.0,
+            effect: Effect::Slow(0.5, 3.0),
+            mark: 120,
+            visual: 120
+        }
+    ),
+    ability!(
+        "death_coil_dk",
+        47541,
+        Bolt {
+            damage: 24.0,
+            cooldown: 4.5,
+            range: 22.0,
+            visual: 6789
+        }
+    ),
+    ability!(
+        "remorseless_winter",
+        196770,
+        Aura {
+            damage: 9.0,
+            cooldown: 2.0,
+            radius: 7.0,
+            effect: Effect::Slow(0.7, 1.5),
+            visual: 122
+        }
+    ),
+    ability!(
+        "outbreak",
+        77575,
+        Dot {
+            dot: 4.0,
+            cooldown: 3.0,
+            range: 20.0,
+            count: 3,
+            duration: 10.0,
+            mark: 172,
+            visual: 172
+        }
+    ),
+    ability!(
+        "blood_boil",
+        50842,
+        Nova {
+            damage: 12.0,
+            cooldown: 4.0,
+            radius: 7.5,
+            visual: 6343
+        }
+    ),
+    ability!(
+        "death_strike",
+        49998,
+        Melee {
+            damage: 26.0,
+            cooldown: 3.0,
+            range: 5.5,
+            effect: Effect::Drain(0.4),
+            visual: 78
+        }
+    ),
+    ability!(
+        "anti_magic_shell",
+        48707,
+        Shield {
+            damage: 30.0,
+            cooldown: 14.0,
+            duration: 10.0,
+            visual: 17
+        }
+    ),
 ];
 
 pub(crate) fn ability(key: &str) -> &'static AbilityDef {
@@ -1376,23 +1490,24 @@ pub(crate) fn racial_bonuses(race: u8) -> (Vec<Bonus>, Vec<&'static ProcDef>) {
 }
 
 /// The classes (`ChrClasses.dbc` ids) a race could be in vanilla, for when the client's own
-/// table of looks is not loaded.
+/// table of looks is not loaded; Legion's races also as later clients made them, and the death
+/// knight (6) for every race, as Wrath of the Lich King made it.
 pub(crate) fn race_classes(race: u8) -> &'static [u8] {
     match race {
-        1 => &[1, 2, 4, 5, 8, 9],
-        2 => &[1, 3, 4, 7, 9],
-        3 => &[1, 2, 3, 4, 5],
-        4 => &[1, 3, 4, 5, 11],
-        5 => &[1, 4, 5, 8, 9],
-        6 => &[1, 3, 7, 11],
-        7 => &[1, 4, 8, 9],
-        8 => &[1, 3, 4, 5, 7, 8],
+        1 => &[1, 2, 4, 5, 6, 8, 9],
+        2 => &[1, 3, 4, 6, 7, 9],
+        3 => &[1, 2, 3, 4, 5, 6],
+        4 => &[1, 3, 4, 5, 6, 11],
+        5 => &[1, 4, 5, 6, 8, 9],
+        6 => &[1, 3, 6, 7, 11],
+        7 => &[1, 4, 6, 8, 9],
+        8 => &[1, 3, 4, 5, 6, 7, 8],
         // Legion's races, as The Burning Crusade made them.
-        10 => &[2, 3, 4, 5, 8, 9],
-        11 => &[1, 2, 3, 5, 7, 8],
+        10 => &[2, 3, 4, 5, 6, 8, 9],
+        11 => &[1, 2, 3, 5, 6, 7, 8],
         // And as Cataclysm made these.
-        9 => &[1, 3, 4, 5, 7, 8, 9],
-        22 => &[1, 3, 4, 5, 8, 9, 11],
+        9 => &[1, 3, 4, 5, 6, 7, 8, 9],
+        22 => &[1, 3, 4, 5, 6, 8, 9, 11],
         _ => &[],
     }
 }
@@ -1403,7 +1518,7 @@ pub(crate) fn class_bonuses(class_id: u8) -> &'static [Bonus] {
     const MAIL: &[Bonus] = &[Bonus::flat(Stat::MaxHp, 15.0)];
     const CLOTH: &[Bonus] = &[Bonus::flat(Stat::Speed, 0.5)];
     match class_id {
-        1 | 2 => TANKY,
+        1 | 2 | 6 => TANKY,
         7 | 11 | 3 | 4 => MAIL,
         _ => CLOTH,
     }
@@ -1528,11 +1643,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "retaliation",
             "revenge",
         ],
-        looks: &[
-            1300, 1374, 1375, 1504, 1578, 1599, 1707, 1721, 1880, 2096, 2103, 2113, 2196, 2198,
-            2614, 2620, 2658, 3053, 3054, 3055, 3280, 3287, 3343, 3399, 3431, 3743, 3793, 3794,
-            4242, 4556, 6071, 11037,
-        ],
+        looks: WARRIOR_LOOKS,
         weapons: &[(0, 7483, 2, 7, 1, 13, 3), (1, 1706, 4, 6, 1, 14, 4)],
         sheath: 1,
     },
@@ -1729,6 +1840,38 @@ pub(crate) static CLASSES: &[ClassDef] = &[
         weapons: &[(0, 22391, 2, 10, 2, 17, 2)],
         sheath: 1,
     },
+    // Legion's classes, shown only where its data is ([`class_shown`]).
+    ClassDef {
+        id: 6,
+        name: "Death Knight",
+        blurb: "Runeblades and the grave's cold: cut the horde down, and feed on its fall.",
+        color: 0xC41F3B,
+        power: 1,
+        start: "obliterate",
+        pool: &[
+            "obliterate",
+            "frost_strike",
+            "howling_blast",
+            "death_coil_dk",
+            "remorseless_winter",
+            "outbreak",
+            "blood_boil",
+            "death_strike",
+            "anti_magic_shell",
+        ],
+        // No trainer of its own in 1.12.1: the warrior's, every race of them.
+        looks: WARRIOR_LOOKS,
+        // A runeblade in each hand.
+        weapons: &[(0, 7483, 2, 7, 1, 13, 3), (1, 7483, 2, 7, 1, 13, 3)],
+        sheath: 1,
+    },
+];
+
+/// The warrior trainers' looks, which the death knight shares.
+const WARRIOR_LOOKS: &[u32] = &[
+    1300, 1374, 1375, 1504, 1578, 1599, 1707, 1721, 1880, 2096, 2103, 2113, 2196, 2198, 2614, 2620,
+    2658, 3053, 3054, 3055, 3280, 3287, 3343, 3399, 3431, 3743, 3793, 3794, 4242, 4556, 6071,
+    11037,
 ];
 
 #[derive(Clone, Copy)]
@@ -4874,6 +5017,90 @@ pub(crate) fn playable_races() -> Vec<u8> {
         .collect()
 }
 
+/// Legion's classes the mode takes where Legion's data is (`entities::legion`): the death
+/// knight, `ChrClasses` ids. Their spells are Legion's, shown by their icon and name
+/// ([`legion_spell`]) and played with 1.12.1's visuals ([`AbilityDef::visual`]); their talents
+/// are their specializations' (`entities::legion`'s trees).
+pub(crate) const LEGION_CLASSES: [u8; 1] = [6];
+
+static LEGION_CLASSES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+/// Note which of [`LEGION_CLASSES`] this machine's data took.
+pub(crate) fn set_legion_classes(classes: &[u8]) {
+    let _ = LEGION_CLASSES_IN.set(classes.to_vec());
+}
+
+/// Whether this machine offers class `class`: 1.12.1's always, Legion's where the data is.
+pub(crate) fn class_shown(class: &ClassDef) -> bool {
+    !LEGION_CLASSES.contains(&class.id)
+        || LEGION_CLASSES_IN
+            .get()
+            .is_some_and(|c| c.contains(&class.id))
+}
+
+/// A Legion spell as an icon slot shows it: its name and its icon's texture path.
+pub(crate) struct LegionSpell {
+    pub name: String,
+    /// Without its extension, as `SpellIcon.dbc` names an icon.
+    pub icon: String,
+}
+
+static LEGION_SPELLS: std::sync::OnceLock<std::collections::HashMap<u32, LegionSpell>> =
+    std::sync::OnceLock::new();
+
+/// Note the Legion spells the mode shows, by id.
+pub(crate) fn set_legion_spells(spells: std::collections::HashMap<u32, LegionSpell>) {
+    let _ = LEGION_SPELLS.set(spells);
+}
+
+/// A Legion spell's name and icon, where the data has it. Legion's class spells are past
+/// 1.12.1's ids, so an id is one or the other.
+pub(crate) fn legion_spell(id: u32) -> Option<&'static LegionSpell> {
+    LEGION_SPELLS.get()?.get(&id)
+}
+
+/// The Legion spells the mode's own tables name: [`LEGION_CLASSES`]' abilities and movement
+/// spells.
+pub(crate) fn legion_spell_ids() -> Vec<u32> {
+    let mut ids: Vec<u32> = CLASSES
+        .iter()
+        .filter(|c| LEGION_CLASSES.contains(&c.id))
+        .flat_map(|c| c.pool.iter().map(|k| ability(k).spell))
+        .collect();
+    ids.extend(
+        LEGION_CLASSES
+            .iter()
+            .filter_map(|&c| super::mobility::for_class(c))
+            .map(|m| m.spell),
+    );
+    ids
+}
+
+static LEGION_CLASS_ICONS: std::sync::OnceLock<Vec<(u8, String)>> = std::sync::OnceLock::new();
+
+/// Note the icons of Legion's classes (`ClassIcon_<Class>`), class to a texture path.
+pub(crate) fn set_legion_class_icons(icons: Vec<(u8, String)>) {
+    let _ = LEGION_CLASS_ICONS.set(icons);
+}
+
+/// A Legion class's icon, where the data has it.
+pub(crate) fn legion_class_icon(class: u8) -> Option<&'static str> {
+    LEGION_CLASS_ICONS
+        .get()?
+        .iter()
+        .find(|(c, _)| *c == class)
+        .map(|(_, p)| p.as_str())
+}
+
+/// The class whose starting outfit a class wears: its own, or for a class 1.12.1's
+/// `CharStartOutfit.dbc` lacks (the death knight), the warrior's.
+pub(crate) fn outfit_class(class: u8) -> u8 {
+    match class {
+        6 => 1,
+        c => c,
+    }
+}
+
 /// The 1.12.1 race standing in for one 1.12.1 lacks: its portrait, and its body on a machine
 /// without Legion's data. The Blood Elf a Human, the Draenei a Night Elf, the Goblin a Gnome, the
 /// Worgen a Human.
@@ -4933,7 +5160,7 @@ pub(crate) fn race_name(race: u8) -> &'static str {
 pub(crate) fn race_opens(race: u8) -> impl Iterator<Item = &'static ClassDef> {
     CLASSES
         .iter()
-        .filter(move |c| !race_classes(race).contains(&c.id))
+        .filter(move |c| !race_classes(race).contains(&c.id) && class_shown(c))
 }
 
 /// Every achievement, in the order the tab lists them.
@@ -6078,6 +6305,24 @@ mod tests {
         assert_eq!((berserking.every, berserking.duration), (35.0, 10.0));
         assert_eq!(r[1].bonuses, &[Bonus::flat(Stat::Regen, 1.5)]);
         assert_eq!(r[2].bonuses, &[Bonus::flat(Stat::Crit, 0.03)]);
+    }
+
+    #[test]
+    fn legions_classes_are_offered_only_where_the_data_is() {
+        let dk = CLASSES.iter().find(|c| c.id == 6).unwrap();
+        // No Legion data in a test: its tables hold, but it is not offered.
+        assert!(!class_shown(dk));
+        assert!(CLASSES.iter().filter(|c| c.id != 6).all(class_shown));
+        // Its spells are Legion's, past 1.12.1's ids, each playing a 1.12.1 spell's visual.
+        for k in dk.pool {
+            let a = ability(k);
+            assert!(a.spell > 30_000 && a.visual() < 30_000, "{k}");
+        }
+        assert!(legion_spell_ids().contains(&48265));
+        assert_eq!(outfit_class(6), 1);
+        for r in RACES.into_iter().chain(LEGION_RACES) {
+            assert!(race_classes(r).contains(&6), "race {r}");
+        }
     }
 
     #[test]

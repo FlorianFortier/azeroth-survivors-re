@@ -334,7 +334,7 @@ fn cast_for(
             duration: o.duration(),
             cooldown: o.cooldown(&stats),
         };
-        let speed = speed_of(def.spell);
+        let speed = speed_of(def.visual());
         let fired = match def.kind {
             Kind::Bolt | Kind::Strike | Kind::Melee => {
                 let reach = if def.kind == Kind::Melee {
@@ -356,10 +356,10 @@ fn cast_for(
                     if def.kind == Kind::Melee {
                         fx.swing(me, targets[0].e, p.dmg);
                         for f in &targets {
-                            fx.impact(f.e, def.spell);
+                            fx.impact(f.e, def.visual());
                         }
                     } else {
-                        fx.cast(me, def.spell, &entities(&targets), None);
+                        fx.cast(me, def.visual(), &entities(&targets), None);
                     }
                     for f in &targets {
                         let (dmg, crit) = roll(rng, stats.crit, p.dmg);
@@ -389,7 +389,7 @@ fn cast_for(
                 if targets.is_empty() {
                     false
                 } else {
-                    fx.cast(me, def.spell, &entities(&targets), None);
+                    fx.cast(me, def.visual(), &entities(&targets), None);
                     for f in &targets {
                         let (dmg, crit) = roll(rng, stats.crit, p.dmg);
                         let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
@@ -415,14 +415,20 @@ fn cast_for(
                 match center {
                     None => false,
                     Some(center) => {
-                        fx.cast(me, def.spell, &[], Some(center));
+                        fx.cast(me, def.visual(), &[], Some(center));
                         let area = if def.overhead {
                             commands
                                 .spawn((Transform::from_translation(center), RunEntity))
                                 .id()
                         } else {
                             let serial = run.guid();
-                            units::spawn_area_object(commands, serial, def.spell, p.radius, center)
+                            units::spawn_area_object(
+                                commands,
+                                serial,
+                                def.visual(),
+                                p.radius,
+                                center,
+                            )
                         };
                         let burst = def.duration <= 0.0;
                         commands.entity(area).insert(GroundArea {
@@ -436,7 +442,7 @@ fn cast_for(
                             next_tick: if burst { 0.0 } else { 0.4 },
                             effect: def.effect,
                             mark: def.mark,
-                            impact: if def.overhead { def.spell } else { 0 },
+                            impact: if def.overhead { def.visual() } else { 0 },
                             spell: def.spell,
                         });
                         true
@@ -463,7 +469,7 @@ fn cast_for(
                             None => break,
                         }
                     }
-                    fx.cast(me, def.spell, &entities(&chain), None);
+                    fx.cast(me, def.visual(), &entities(&chain), None);
                     for (k, f) in chain.iter().enumerate() {
                         let (dmg, crit) = roll(rng, stats.crit, p.dmg * 0.85f32.powi(k as i32));
                         schedule(
@@ -491,7 +497,7 @@ fn cast_for(
                     while targets.len() < p.count && !pool.is_empty() {
                         targets.push(pool.swap_remove(rng.index(pool.len())));
                     }
-                    fx.cast(me, def.spell, &entities(&targets), None);
+                    fx.cast(me, def.visual(), &entities(&targets), None);
                     for f in &targets {
                         let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
                         schedule(
@@ -511,7 +517,7 @@ fn cast_for(
                     false
                 } else {
                     for f in targets.iter().take(6) {
-                        fx.impact(f.e, def.spell);
+                        fx.impact(f.e, def.visual());
                     }
                     for f in &targets {
                         let (dmg, crit) = roll(rng, stats.crit, p.dmg);
@@ -536,13 +542,13 @@ fn cast_for(
             Kind::Shield => {
                 hero.shield = p.dmg;
                 hero.shield_t = p.duration;
-                fx.cast(me, def.spell, &[me], None);
+                fx.cast(me, def.visual(), &[me], None);
                 true
             }
             Kind::Immune => {
                 if foes.first().is_some_and(|f| f.dist <= 5.0) {
                     hero.immune_t = p.duration;
-                    fx.cast(me, def.spell, &[me], None);
+                    fx.cast(me, def.visual(), &[me], None);
                     true
                 } else {
                     false
@@ -552,8 +558,8 @@ fn cast_for(
                 if foes.first().is_some_and(|f| f.dist <= 8.0) {
                     hero.thorns = p.dmg;
                     hero.thorns_t = p.duration;
-                    hero.thorns_spell = def.spell;
-                    fx.cast(me, def.spell, &[me], None);
+                    hero.thorns_spell = def.visual();
+                    fx.cast(me, def.visual(), &[me], None);
                     true
                 } else {
                     false
@@ -563,7 +569,7 @@ fn cast_for(
                 if hero.hp < stats.max_hp * 0.85 {
                     hero.heal_rate = p.dmg / p.duration.max(1.0);
                     hero.heal_t = p.duration;
-                    fx.cast(me, def.spell, &[me], None);
+                    fx.cast(me, def.visual(), &[me], None);
                     fx.number(me, p.dmg, false, COLOR_HEAL);
                     true
                 } else {
@@ -575,7 +581,7 @@ fn cast_for(
                     .first()
                     .is_some_and(|f| f.dist <= def.range.max(p.radius) + 6.0)
                 {
-                    fx.cast(me, def.spell, &[], None);
+                    fx.cast(me, def.visual(), &[], None);
                     let a = rng.range(0.0, std::f32::consts::TAU);
                     let pos = hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 2.0;
                     let serial = run.guid();

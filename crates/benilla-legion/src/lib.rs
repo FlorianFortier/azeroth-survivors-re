@@ -18,6 +18,7 @@
 //! form the client's renderer already draws; [`library`] answers the client's `legion/` paths
 //! from an install with them.
 
+pub mod classes;
 pub mod db2;
 pub mod dbd;
 pub mod display;

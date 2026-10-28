@@ -106,7 +106,8 @@ pub(super) fn restore_pick(
         selection.stage = map;
         selection.version += 1;
     }
-    if let Some(class) = class {
+    // A class this machine does not offer (Legion's, without its data) is not picked.
+    if let Some(class) = class.filter(|&c| data::class_shown(&data::CLASSES[c])) {
         let all = all_looks(creatures, &store.profile.opened_races());
         if let Some(l) = find(&all[class], Some(hero.race), Some(hero.sex)) {
             set(&mut selection, &all, class, l);
@@ -443,6 +444,9 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
             })
             .with_children(|grid| {
                 for (i, class) in data::CLASSES.iter().enumerate() {
+                    if !data::class_shown(class) {
+                        continue;
+                    }
                     let face = art.classes.as_ref().and_then(|(sheet, size)| {
                         class_tc(class.id).map(|tc| (sheet.clone(), tc_rect(*size, tc)))
                     });
