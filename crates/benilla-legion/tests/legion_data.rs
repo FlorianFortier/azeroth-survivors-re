@@ -38,7 +38,14 @@ fn illidan_transcodes_to_a_model_the_client_reads() {
             .map(|f| f.map(virtual_path))
             .collect();
     let shows = |id: u16| id == 0 || id % 100 == 1;
-    let vanilla = transcode::to_vanilla(&chunks.md20, &skin_file, &names, shows).unwrap();
+    let vanilla = transcode::to_vanilla(
+        &chunks.md20,
+        &skin_file,
+        &names,
+        shows,
+        &transcode::Animation::default(),
+    )
+    .unwrap();
 
     let f = benilla_m2::parse_m2(&mut Cursor::new(&vanilla[..])).unwrap();
     let m = f.model();
@@ -71,11 +78,11 @@ fn illidan_transcodes_to_a_model_the_client_reads() {
         }
     }
 
-    // The client's own loader builds its draw from it: two batches, not the glow over the
-    // body, whose colour is transparent in every sequence but two, and so at its first key.
+    // The client's own loader builds its draw from it: every batch, the glow over the body too,
+    // which is transparent but in two sequences, and so animated, not culled.
     let draws = benilla_formats::parse_m2_render_submeshes(&vanilla, "", &[]).unwrap();
     println!("{} render submeshes", draws.len());
-    assert_eq!((kept, draws.len()), (3, 2));
+    assert_eq!((kept, draws.len()), (3, 3));
     assert!(draws.iter().all(|d| !d.indices.is_empty()));
 }
 
@@ -91,10 +98,11 @@ fn the_library_answers_the_clients_legion_paths() {
     assert!(library.read("world/azeroth/foo.blp").is_none());
     assert!(library.displays().count() > 60_000);
 
-    // The Fel Lord's display, in its own skins, as the client's model loader reads it.
+    // The Fel Lord's display, in its own skins, as the client's model loader reads it: eleven
+    // draws, one of them a layer transparent at its first key and animated after.
     let model = library.read("legion/display/61830.m2").unwrap().unwrap();
     let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
-    assert_eq!(draws.len(), 10);
+    assert_eq!(draws.len(), 11);
     let textures: Vec<&str> = draws.iter().filter_map(|d| d.texture.as_deref()).collect();
     assert!(textures.contains(&"Legion\\1089901.blp"), "{textures:?}");
     // Each texture it names is there, a BLP2.
@@ -106,4 +114,57 @@ fn the_library_answers_the_clients_legion_paths() {
     // The bare model reads too, and a path that names nothing is an error, not a miss.
     assert!(library.read("legion/1089899.m2").unwrap().is_ok());
     assert!(library.read("legion/display/x.m2").unwrap().is_err());
+}
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn illidan_walks_strikes_and_dies_as_the_client_reads_him() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    let casc = casc();
+    let id = casc.id_of("creature/illidan2/illidan2.m2").unwrap();
+    let model = library.read(&format!("legion/{id}.m2")).unwrap().unwrap();
+
+    let clips = benilla_formats::parse_m2_animations(&model);
+    let moving = |anim: u16| {
+        clips
+            .iter()
+            .find(|c| c.anim_id == anim)
+            .map(|c| c.bones.iter().filter(|b| b.rotation.len() > 1).count())
+    };
+    for (anim, what) in [
+        (0, "stand"),
+        (4, "walk"),
+        (5, "run"),
+        (16, "attack unarmed"),
+        (17, "attack one-handed"),
+        (1, "death"),
+        // In an .anim file of its own.
+        (60, "spell kneel"),
+        // An alias of 193.
+        (108, "an alias"),
+    ] {
+        let bones = moving(anim).unwrap_or_else(|| panic!("no {what} ({anim})"));
+        println!("{what} ({anim}): {bones} bones turn");
+        assert!(bones > 10, "{what} ({anim}) moves {bones} bones");
+    }
+    let death = clips.iter().find(|c| c.anim_id == 1).unwrap();
+    assert!(!death.looping, "death holds its last pose");
+    assert!(clips.iter().find(|c| c.anim_id == 0).unwrap().looping);
+
+    // An animation he lacks falls back as Legion would: none here is never a bare stand for all.
+    let playable = benilla_formats::parse_m2_playable_animation_lookup(&model).unwrap();
+    assert!(playable.len() > 500, "{}", playable.len());
+    let owns = benilla_formats::parse_m2_animation_lookup(&model).unwrap();
+    for (i, p) in playable.iter().enumerate().take(200) {
+        let r = p.resolved_id as usize;
+        assert!(
+            owns.get(r).is_some_and(|&s| s != 0xffff),
+            "{i} plays {r}, not his"
+        );
+    }
 }

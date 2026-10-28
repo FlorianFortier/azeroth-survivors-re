@@ -209,6 +209,22 @@ upstream merge. Each step is one pull request or a few.
    its ranges; the sequences kept in `.anim` files; Legion's animation ids mapped to 1.12.1's
    (stand, walk, run, attacks, death, casts), the nearest one where 1.12.1 has none. Done when
    Illidan walks, strikes and dies in the test scene.
+   **Done**: `transcode` keys the bones (translation, rotation, scale), the colours and the
+   texture weights. Each sequence's keys go on its band of one timeline, a window of key indices
+   per sequence as 1.12.1 reads them. A sequence with none for a track that others animate gets
+   its rest value (a bone's bind pose), as Legion means by none. The keys come from the model,
+   or from the sequence's `.anim` file (flag `0x20` clear, named by `AFID`; build 26972's are
+   raw, a chunked one's `AFM2` is read too); an alias (flag `0x40`) plays the keys of the
+   sequence it names, on its own band. Rotations are widened from four `i16` to four floats; a
+   spline track keeps its values and plays linear. The animation ids are 1.12.1's where they
+   meet (0 stand, 1 death, 4 walk, 5 run, 16 and 17 attacks…). The animation lookup is rebuilt
+   direct, as Legion's is a hash table, and the playable lookup is made from `AnimationData`'s
+   `Fallback` (with `WOW_LEGION_DBD`): an animation the model lacks plays the one Legion would,
+   else the stand. Read back with the client's own `parse_m2_animations`, Illidan's stand, walk,
+   run, both attacks, death (held, not looped), the spell in his `.anim` file and an alias each
+   turn 63 to 87 bones (`illidan_walks_strikes_and_dies_as_the_client_reads_him`). His glow,
+   transparent at its first key, is now animated, not culled: three draws. A transcoded model
+   is about 1.4 times its source. Not seen on screen here.
 5. **The first Legion content in a run.** Legion creature displays in `data.rs`'s rosters and
    bosses, in an id range of their own (on the wire too); an Illidan bonus boss, the Legion's
    demons in a zone. In a lobby every player needs the Legion data: the lobby checks it, and
