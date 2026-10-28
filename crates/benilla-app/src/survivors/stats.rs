@@ -213,7 +213,8 @@ mod tests {
                     match class.id {
                         // The death knight, new, starts as tough as these.
                         1 | 2 | 6 => hp += 40.0,
-                        7 | 11 | 3 | 4 => hp += 15.0,
+                        // The monk and the demon hunter, new, as these in leather.
+                        7 | 11 | 3 | 4 | 10 | 12 => hp += 15.0,
                         _ => speed += 0.5,
                     }
                     let mut old = Stats {

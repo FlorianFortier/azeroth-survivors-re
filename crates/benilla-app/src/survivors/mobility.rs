@@ -165,6 +165,30 @@ static MOBILITY: &[(u8, Mobility)] = &[
         },
     ),
     (
+        10,
+        Mobility {
+            spell: 109132,
+            name: "Roll",
+            kind: Move::Blink(14.0),
+            cooldown: 8.0,
+            secs: 0.0,
+            desc: "Roll 14 yards forward.",
+            visual: 2983,
+        },
+    ),
+    (
+        12,
+        Mobility {
+            spell: 195072,
+            name: "Fel Rush",
+            kind: Move::Blink(18.0),
+            cooldown: 8.0,
+            secs: 0.0,
+            desc: "Rush 18 yards forward.",
+            visual: 100,
+        },
+    ),
+    (
         11,
         Mobility {
             spell: 1850,

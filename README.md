@@ -108,11 +108,13 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   weapons join the looks your gear's weapons draw from, and the **Blood Elf**, the **Draenei**,
   the **Goblin** and the **Worgen** are playable, in their pre-HD bodies, for the classes they
   were in The Burning Crusade and Cataclysm. A machine without the data sees the 1.12.1 looks (a
-  Human for a Blood Elf or a Worgen, a Night Elf for a Draenei, a Gnome for a Goblin). The
-  **Death Knight** is playable too, for every race: Legion's spells (Obliterate, Howling Blast,
-  Death Coil…), shown with their own icons and names and played with 1.12.1's visuals, Death's
-  Advance on `F`, and its three specializations (Blood, Frost, Unholy) as talent trees of
-  Legion's talents; in a lobby the bonus boss is there when the host has the data.
+  Human for a Blood Elf or a Worgen, a Night Elf for a Draenei, a Gnome for a Goblin). Legion's
+  classes are playable too: the **Death Knight** for every race (Obliterate, Howling Blast, Death
+  Coil…, Death's Advance on `F`), the **Monk** for all but the Goblin and the Worgen (Tiger Palm,
+  Rising Sun Kick, Fists of Fury…, Roll on `F`) and the **Demon Hunter** for Night Elves and
+  Blood Elves, a Warglaive of Azzinoth in each hand (Chaos Strike, Blade Dance, Eye Beam…, Fel
+  Rush on `F`). Their spells show Legion's icons and names and play 1.12.1's visuals, and their
+  specializations are talent trees of Legion's talents; in a lobby the bonus boss is there when the host has the data.
 - **Your hero is a player character**: the race's own body with character creation's skin, face,
   hair, hair colour and facial hair (set in the Armory), dressed piece by piece in the class's
   starting outfit and its weapons, which the Equipment panel lists.

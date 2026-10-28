@@ -338,6 +338,8 @@ fn french(s: &str) -> Option<&'static str> {
         "Warlock" => "Démoniste",
         "Druid" => "Druide",
         "Death Knight" => "Chevalier de la mort",
+        "Monk" => "Moine",
+        "Demon Hunter" => "Chasseur de démons",
         "Human" => "Humain",
         "Orc" => "Orc",
         "Dwarf" => "Nain",

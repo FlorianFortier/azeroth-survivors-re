@@ -1004,6 +1004,222 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             visual: 17
         }
     ),
+    // --- Monk: likewise ---
+    ability!(
+        "tiger_palm",
+        100780,
+        Melee {
+            damage: 26.0,
+            cooldown: 1.1,
+            range: 5.5,
+            visual: 1752
+        }
+    ),
+    ability!(
+        "blackout_kick",
+        100784,
+        Melee {
+            damage: 34.0,
+            cooldown: 2.6,
+            range: 5.5,
+            visual: 78
+        }
+    ),
+    ability!(
+        "rising_sun_kick",
+        107428,
+        Strike {
+            damage: 44.0,
+            cooldown: 3.5,
+            range: 10.0,
+            effect: Effect::Weaken(0.7, 3.0),
+            visual: 12294
+        }
+    ),
+    ability!(
+        "spinning_crane_kick",
+        101546,
+        Nova {
+            damage: 14.0,
+            cooldown: 3.0,
+            radius: 7.0,
+            visual: 1680
+        }
+    ),
+    ability!(
+        "fists_of_fury",
+        113656,
+        Cone {
+            damage: 20.0,
+            cooldown: 4.0,
+            radius: 10.0,
+            effect: Effect::Stun(0.8),
+            visual: 845
+        }
+    ),
+    ability!(
+        "breath_of_fire",
+        115181,
+        Cone {
+            damage: 12.0,
+            dot: 3.0,
+            cooldown: 5.0,
+            radius: 9.0,
+            duration: 4.0,
+            visual: 2136
+        }
+    ),
+    ability!(
+        "chi_wave",
+        115098,
+        Chain {
+            damage: 18.0,
+            cooldown: 4.0,
+            range: 20.0,
+            radius: 8.0,
+            count: 4,
+            effect: Effect::Drain(0.2),
+            visual: 421
+        }
+    ),
+    ability!(
+        "crackling_jade_lightning",
+        117952,
+        Bolt {
+            damage: 20.0,
+            cooldown: 1.5,
+            range: 24.0,
+            visual: 403
+        }
+    ),
+    ability!(
+        "rushing_jade_wind",
+        116847,
+        Aura {
+            damage: 7.0,
+            cooldown: 1.0,
+            radius: 6.5,
+            visual: 1680
+        }
+    ),
+    ability!(
+        "vivify",
+        116670,
+        Heal {
+            damage: 40.0,
+            cooldown: 12.0,
+            duration: 6.0,
+            visual: 774
+        }
+    ),
+    // --- Demon Hunter: likewise ---
+    ability!(
+        "demons_bite",
+        162243,
+        Melee {
+            damage: 24.0,
+            cooldown: 1.2,
+            range: 5.5,
+            visual: 1752
+        }
+    ),
+    ability!(
+        "chaos_strike",
+        162794,
+        Melee {
+            damage: 36.0,
+            cooldown: 2.2,
+            range: 5.5,
+            count: 2,
+            visual: 845
+        }
+    ),
+    ability!(
+        "blade_dance",
+        188499,
+        Nova {
+            damage: 16.0,
+            cooldown: 3.5,
+            radius: 7.0,
+            visual: 1680
+        }
+    ),
+    ability!(
+        "eye_beam",
+        198013,
+        Cone {
+            damage: 16.0,
+            cooldown: 5.0,
+            radius: 12.0,
+            visual: 17877
+        }
+    ),
+    ability!(
+        "throw_glaive",
+        185123,
+        Strike {
+            damage: 14.0,
+            cooldown: 3.0,
+            range: 20.0,
+            count: 3,
+            effect: Effect::Slow(0.6, 2.0),
+            visual: 5676
+        }
+    ),
+    ability!(
+        "immolation_aura",
+        178740,
+        Aura {
+            damage: 6.0,
+            cooldown: 1.0,
+            radius: 7.0,
+            visual: 5857
+        }
+    ),
+    ability!(
+        "sigil_of_flame",
+        204596,
+        Ground {
+            damage: 14.0,
+            cooldown: 8.0,
+            range: 20.0,
+            radius: 5.0,
+            duration: 4.0,
+            visual: 2120
+        }
+    ),
+    ability!(
+        "fel_barrage",
+        211053,
+        Bolt {
+            damage: 8.0,
+            cooldown: 2.2,
+            range: 22.0,
+            count: 4,
+            visual: 686
+        }
+    ),
+    ability!(
+        "chaos_nova",
+        179057,
+        Nova {
+            damage: 10.0,
+            cooldown: 8.0,
+            radius: 8.0,
+            effect: Effect::Stun(1.5),
+            visual: 1449
+        }
+    ),
+    ability!(
+        "demon_spikes",
+        203720,
+        Shield {
+            damage: 30.0,
+            cooldown: 14.0,
+            duration: 10.0,
+            visual: 17
+        }
+    ),
 ];
 
 pub(crate) fn ability(key: &str) -> &'static AbilityDef {
@@ -1490,21 +1706,22 @@ pub(crate) fn racial_bonuses(race: u8) -> (Vec<Bonus>, Vec<&'static ProcDef>) {
 }
 
 /// The classes (`ChrClasses.dbc` ids) a race could be in vanilla, for when the client's own
-/// table of looks is not loaded; Legion's races also as later clients made them, and the death
-/// knight (6) for every race, as Wrath of the Lich King made it.
+/// table of looks is not loaded; Legion's races also as later clients made them, and Legion's
+/// classes as Legion has them: the death knight (6) for every race, the monk (10) for all but
+/// the Goblin and the Worgen, the demon hunter (12) for Night Elves and Blood Elves.
 pub(crate) fn race_classes(race: u8) -> &'static [u8] {
     match race {
-        1 => &[1, 2, 4, 5, 6, 8, 9],
-        2 => &[1, 3, 4, 6, 7, 9],
-        3 => &[1, 2, 3, 4, 5, 6],
-        4 => &[1, 3, 4, 5, 6, 11],
-        5 => &[1, 4, 5, 6, 8, 9],
-        6 => &[1, 3, 6, 7, 11],
-        7 => &[1, 4, 6, 8, 9],
-        8 => &[1, 3, 4, 5, 6, 7, 8],
+        1 => &[1, 2, 4, 5, 6, 8, 9, 10],
+        2 => &[1, 3, 4, 6, 7, 9, 10],
+        3 => &[1, 2, 3, 4, 5, 6, 10],
+        4 => &[1, 3, 4, 5, 6, 10, 11, 12],
+        5 => &[1, 4, 5, 6, 8, 9, 10],
+        6 => &[1, 3, 6, 7, 10, 11],
+        7 => &[1, 4, 6, 8, 9, 10],
+        8 => &[1, 3, 4, 5, 6, 7, 8, 10],
         // Legion's races, as The Burning Crusade made them.
-        10 => &[2, 3, 4, 5, 6, 8, 9],
-        11 => &[1, 2, 3, 5, 6, 7, 8],
+        10 => &[2, 3, 4, 5, 6, 8, 9, 10, 12],
+        11 => &[1, 2, 3, 5, 6, 7, 8, 10],
         // And as Cataclysm made these.
         9 => &[1, 3, 4, 5, 6, 7, 8, 9],
         22 => &[1, 3, 4, 5, 6, 8, 9, 11],
@@ -1519,7 +1736,7 @@ pub(crate) fn class_bonuses(class_id: u8) -> &'static [Bonus] {
     const CLOTH: &[Bonus] = &[Bonus::flat(Stat::Speed, 0.5)];
     match class_id {
         1 | 2 | 6 => TANKY,
-        7 | 11 | 3 | 4 => MAIL,
+        7 | 11 | 3 | 4 | 10 | 12 => MAIL,
         _ => CLOTH,
     }
 }
@@ -1833,10 +2050,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "thorns",
             "rejuvenation",
         ],
-        looks: &[
-            1706, 1732, 2106, 2115, 2121, 2250, 2255, 2261, 3300, 3301, 3302, 3819, 3820, 7357,
-            10738, 12053,
-        ],
+        looks: DRUID_LOOKS,
         weapons: &[(0, 22391, 2, 10, 2, 17, 2)],
         sheath: 1,
     },
@@ -1865,9 +2079,69 @@ pub(crate) static CLASSES: &[ClassDef] = &[
         weapons: &[(0, 7483, 2, 7, 1, 13, 3), (1, 7483, 2, 7, 1, 13, 3)],
         sheath: 1,
     },
+    ClassDef {
+        id: 10,
+        name: "Monk",
+        blurb: "Fists, feet and the flow of chi: dance through the horde, and mend as you go.",
+        color: 0x00FF96,
+        power: 3,
+        start: "tiger_palm",
+        pool: &[
+            "tiger_palm",
+            "blackout_kick",
+            "rising_sun_kick",
+            "spinning_crane_kick",
+            "fists_of_fury",
+            "breath_of_fire",
+            "chi_wave",
+            "crackling_jade_lightning",
+            "rushing_jade_wind",
+            "vivify",
+        ],
+        // The warrior's trainers again, held to the monk's races (`menu::all_looks`).
+        looks: WARRIOR_LOOKS,
+        // A staff.
+        weapons: &[(0, 22391, 2, 10, 2, 17, 2)],
+        sheath: 1,
+    },
+    ClassDef {
+        id: 12,
+        name: "Demon Hunter",
+        blurb: "Twin glaives and the fel within: tear through the horde before it closes.",
+        color: 0xA330C9,
+        power: 1,
+        start: "demons_bite",
+        pool: &[
+            "demons_bite",
+            "chaos_strike",
+            "blade_dance",
+            "eye_beam",
+            "throw_glaive",
+            "immolation_aura",
+            "sigil_of_flame",
+            "fel_barrage",
+            "chaos_nova",
+            "demon_spikes",
+        ],
+        // The druid's trainers, held to the Night Elf's (`menu::all_looks`).
+        looks: DRUID_LOOKS,
+        // A warglaive of Azzinoth in each hand: Legion's look, which the class is never offered
+        // without.
+        weapons: &[
+            (0, LEGION_ITEM_FIRST, 2, 7, 1, 13, 3),
+            (1, LEGION_ITEM_FIRST, 2, 7, 1, 13, 3),
+        ],
+        sheath: 1,
+    },
 ];
 
-/// The warrior trainers' looks, which the death knight shares.
+/// The druid trainers' looks (Night Elves and Tauren), which the demon hunter shares.
+const DRUID_LOOKS: &[u32] = &[
+    1706, 1732, 2106, 2115, 2121, 2250, 2255, 2261, 3300, 3301, 3302, 3819, 3820, 7357, 10738,
+    12053,
+];
+
+/// The warrior trainers' looks, which the death knight and the monk share.
 const WARRIOR_LOOKS: &[u32] = &[
     1300, 1374, 1375, 1504, 1578, 1599, 1707, 1721, 1880, 2096, 2103, 2113, 2196, 2198, 2614, 2620,
     2658, 3053, 3054, 3055, 3280, 3287, 3343, 3399, 3431, 3743, 3793, 3794, 4242, 4556, 6071,
@@ -5018,10 +5292,10 @@ pub(crate) fn playable_races() -> Vec<u8> {
 }
 
 /// Legion's classes the mode takes where Legion's data is (`entities::legion`): the death
-/// knight, `ChrClasses` ids. Their spells are Legion's, shown by their icon and name
+/// knight, the monk and the demon hunter, `ChrClasses` ids. Their spells are Legion's, shown by their icon and name
 /// ([`legion_spell`]) and played with 1.12.1's visuals ([`AbilityDef::visual`]); their talents
 /// are their specializations' (`entities::legion`'s trees).
-pub(crate) const LEGION_CLASSES: [u8; 1] = [6];
+pub(crate) const LEGION_CLASSES: [u8; 3] = [6, 10, 12];
 
 static LEGION_CLASSES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
@@ -5093,10 +5367,12 @@ pub(crate) fn legion_class_icon(class: u8) -> Option<&'static str> {
 }
 
 /// The class whose starting outfit a class wears: its own, or for a class 1.12.1's
-/// `CharStartOutfit.dbc` lacks (the death knight), the warrior's.
+/// `CharStartOutfit.dbc` lacks, the warrior's (the death knight) or the rogue's (the monk and the
+/// demon hunter, in leather).
 pub(crate) fn outfit_class(class: u8) -> u8 {
     match class {
         6 => 1,
+        10 | 12 => 4,
         c => c,
     }
 }
@@ -6312,7 +6588,10 @@ mod tests {
         let dk = CLASSES.iter().find(|c| c.id == 6).unwrap();
         // No Legion data in a test: its tables hold, but it is not offered.
         assert!(!class_shown(dk));
-        assert!(CLASSES.iter().filter(|c| c.id != 6).all(class_shown));
+        assert!(CLASSES
+            .iter()
+            .filter(|c| !LEGION_CLASSES.contains(&c.id))
+            .all(class_shown));
         // Its spells are Legion's, past 1.12.1's ids, each playing a 1.12.1 spell's visual.
         for k in dk.pool {
             let a = ability(k);
@@ -6323,6 +6602,28 @@ mod tests {
         for r in RACES.into_iter().chain(LEGION_RACES) {
             assert!(race_classes(r).contains(&6), "race {r}");
         }
+        // Every Legion class likewise, its races as Legion has them.
+        for &id in &LEGION_CLASSES {
+            let c = CLASSES.iter().find(|c| c.id == id).unwrap();
+            assert!(!class_shown(c));
+            for k in c.pool {
+                let a = ability(k);
+                assert!(a.spell > 30_000 && a.visual() < 30_000, "{k}");
+            }
+            let m = super::super::mobility::for_class(id).unwrap();
+            assert!(m.spell > 30_000 && m.visual() < 30_000);
+            assert_ne!(outfit_class(id), id);
+        }
+        let monk: Vec<u8> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22]
+            .into_iter()
+            .filter(|&r| race_classes(r).contains(&10))
+            .collect();
+        assert_eq!(monk, [1, 2, 3, 4, 5, 6, 7, 8, 10, 11]);
+        let dh: Vec<u8> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22]
+            .into_iter()
+            .filter(|&r| race_classes(r).contains(&12))
+            .collect();
+        assert_eq!(dh, [4, 10]);
     }
 
     #[test]
