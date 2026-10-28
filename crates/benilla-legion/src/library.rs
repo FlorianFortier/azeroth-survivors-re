@@ -8,13 +8,22 @@
 //! - `legion/display/<display id>.m2`: a creature display's model in its own textures and geosets,
 //!   from `CreatureDisplayInfo` (WoWDBDefs' definitions needed, [`Library::open`]).
 //!
+//! - `…/legion_item_<item display id>_<side>.m2`, in any folder: an item display's model (its
+//!   left or right one), its skin from the display's material ([`item_model_name`]).
+//!
 //! A model comes with its keys, its `.anim` files read in, and, with the definitions, the
 //! fallbacks `AnimationData` gives the animations it lacks.
+//!
+//! With the definitions, the item tables give each item display its model and skin files
+//! (`ItemDisplayInfo` → `ModelFileData`, `TextureFileData`), and each weapon its family (`Item`'s
+//! class and subclass, through `ItemModifiedAppearance` and `ItemAppearance`): [`ItemLook`],
+//! [`Library::weapon_looks`].
 //!
 //! The paths come as the asset reader holds them: lowercase, `/` between folders. A creature
 //! display joins the client's catalog as [`DISPLAY_BASE`] plus its Legion id, its model named
 //! [`display_model_path`].
 
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use benilla_casc::{Casc, Source};
@@ -39,6 +48,35 @@ pub fn display_model_path(id: u32) -> String {
     format!("Legion\\Display\\{id}.mdx")
 }
 
+/// The model file name the client is given for item display `id`'s `side` (0 left, 1 right);
+/// [`Library::read`] answers it in whatever folder the client puts it.
+pub fn item_model_name(id: u32, side: usize) -> String {
+    format!("legion_item_{id}_{side}.m2")
+}
+
+/// An item display's look: its models and their skins, left and right (0 for none), and the
+/// class and subclass of an item that wears it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ItemLook {
+    pub id: u32,
+    pub class: u8,
+    pub subclass: u8,
+    pub models: [u32; 2],
+    pub textures: [u32; 2],
+}
+
+/// The item tables, as far as looks go.
+struct Items {
+    displays: Table,
+    /// `ModelResourcesID` to its first model file.
+    models: HashMap<u32, u32>,
+    /// `ModelMaterialResourcesID` to its first texture file.
+    textures: HashMap<u32, u32>,
+    /// Each item display some item wears, with that item's class and subclass and the item's id
+    /// (the lowest item wearing it).
+    worn: BTreeMap<u32, (u8, u8, u32)>,
+}
+
 /// A source any thread may read: an install on disk or a remote copy.
 pub type AnySource = Box<dyn Source + Send + Sync>;
 
@@ -55,6 +93,7 @@ pub struct Library {
     displays: Option<Displays>,
     /// `AnimationData`'s `Fallback`, by animation id; empty without the definitions.
     fallbacks: Vec<u16>,
+    items: Option<Items>,
 }
 
 impl Library {
@@ -78,15 +117,31 @@ impl Library {
             }
             None => (None, Vec::new()),
         };
+        let items = dbd.map(|dir| items(&casc, dir)).transpose()?;
         Ok(Self {
             casc,
             displays,
             fallbacks,
+            items,
         })
     }
 
     /// The file at `path`, `None` when it is not a Legion path.
     pub fn read(&self, path: &str) -> Option<Result<Vec<u8>>> {
+        // An item's model, wherever the client looks for it.
+        let base = path.rsplit('/').next().unwrap_or(path);
+        if let Some(rest) = base.strip_prefix("legion_item_") {
+            let parsed = rest
+                .strip_suffix(".m2")
+                .and_then(|r| r.rsplit_once('_'))
+                .and_then(|(id, side)| {
+                    Some((id.parse::<u32>().ok()?, side.parse::<usize>().ok()?))
+                });
+            return Some(match parsed {
+                Some((id, side)) if side < 2 => self.item_model(id, side),
+                _ => Err(Error::Format(format!("no item model at {path}"))),
+            });
+        }
         let rest = path.strip_prefix(PREFIX)?;
         let number = |s: &str, ext: &str| s.strip_suffix(ext)?.parse::<u32>().ok();
         Some(if let Some(id) = rest.strip_prefix("display/") {
@@ -121,8 +176,92 @@ impl Library {
         })
     }
 
+    /// An item display's look; none without the definitions.
+    pub fn item_look(&self, id: u32) -> Option<ItemLook> {
+        let items = self.items.as_ref()?;
+        let row = items.displays.get(id)?;
+        let pick = |ids: Vec<i64>, map: &HashMap<u32, u32>| {
+            [0, 1].map(|s| {
+                ids.get(s)
+                    .and_then(|&r| map.get(&(r as u32)))
+                    .copied()
+                    .unwrap_or(0)
+            })
+        };
+        let (class, subclass, _) = items.worn.get(&id).copied().unwrap_or((0, 0, 0));
+        Some(ItemLook {
+            id,
+            class,
+            subclass,
+            models: pick(row.ints("ModelResourcesID"), &items.models),
+            textures: pick(row.ints("ModelMaterialResourcesID"), &items.textures),
+        })
+    }
+
+    /// Up to `per_family` of Legion's own weapon looks for each `(class, subclass)` of
+    /// `families`, in that order: looks worn by an item of Legion's (id from 121,000) whose model
+    /// was made for it (file data id from 1,100,000) and skinned by the display, one per model,
+    /// the lowest display ids first. The same list wherever the same install is read.
+    pub fn weapon_looks(&self, families: &[(u8, u8)], per_family: usize) -> Vec<ItemLook> {
+        let Some(items) = self.items.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for &family in families {
+            let mut models = HashSet::new();
+            let looks = items
+                .worn
+                .iter()
+                .filter(|(_, &(c, s, item))| (c, s) == family && item >= 121_000)
+                .filter_map(|(&id, _)| self.item_look(id))
+                .filter(|l| l.models[0] >= 1_100_000 && l.textures[0] != 0)
+                .filter(|l| models.insert(l.models[0]))
+                .take(per_family);
+            out.extend(looks);
+        }
+        out
+    }
+
+    /// Item display `id`'s `side` model as a 1.12.1 MD20, its skin (texture type 2) the
+    /// display's.
+    pub fn item_model(&self, id: u32, side: usize) -> Result<Vec<u8>> {
+        let look = self
+            .item_look(id)
+            .ok_or_else(|| Error::Format(format!("no item display {id}")))?;
+        let file = look.models[side];
+        if file == 0 {
+            return Err(Error::Format(format!(
+                "item display {id} has no model {side}"
+            )));
+        }
+        let skin = look.textures[side];
+        self.transcode(
+            file,
+            |kind| (kind == 2 && skin != 0).then_some(skin),
+            |g| g == 0 || g % 100 == 1,
+        )
+    }
+
     /// The model in file `file` as a 1.12.1 MD20, worn as `display` has it.
     pub fn model(&self, file: u32, display: Option<&CreatureDisplay>) -> Result<Vec<u8>> {
+        self.transcode(
+            file,
+            |k| display.and_then(|d| d.texture_for(k)),
+            |id| match display {
+                Some(d) => d.shows(id),
+                None => id == 0 || id % 100 == 1,
+            },
+        )
+    }
+
+    /// The model in file `file` as a 1.12.1 MD20: `replace` fills its replaceable textures by
+    /// type, `shows` picks its geosets.
+    fn transcode(
+        &self,
+        file: u32,
+        replace: impl Fn(u32) -> Option<u32>,
+        shows: impl Fn(u16) -> bool,
+    ) -> Result<Vec<u8>> {
         let chunks = md21::split(&self.casc.read_id(file)?)?;
         let m = model::parse(&chunks.md20)?;
         let skin = chunks
@@ -131,14 +270,10 @@ impl Library {
             .ok_or_else(|| Error::Format(format!("model {file} names no skin")))?;
         let skin = self.casc.read_id(*skin)?;
         let names: Vec<Option<String>> =
-            transcode::texture_files(&m, &chunks.textures, display, |p| self.casc.id_of(p))
+            transcode::texture_files(&m, &chunks.textures, replace, |p| self.casc.id_of(p))
                 .into_iter()
                 .map(|f| f.map(virtual_path))
                 .collect();
-        let shows = |id: u16| match display {
-            Some(d) => d.shows(id),
-            None => id == 0 || id % 100 == 1,
-        };
         // The sequences kept out of the model, in their `.anim` files; one missing leaves its
         // sequence in the bind pose.
         let files: Vec<(u16, u16, Vec<u8>)> = chunks
@@ -153,6 +288,54 @@ impl Library {
         };
         transcode::to_vanilla(&chunks.md20, &skin, &names, shows, &animation)
     }
+}
+
+/// The item tables: the displays kept, the rest folded into what a look needs.
+fn items<S: Source>(casc: &Casc<S>, dir: &Path) -> Result<Items> {
+    let first_of = |t: Table, key: &str| -> HashMap<u32, u32> {
+        let mut out = HashMap::new();
+        for (&file, row) in &t.rows {
+            if let Some(r) = row.int(key) {
+                let e = out.entry(r as u32).or_insert(file);
+                *e = (*e).min(file);
+            }
+        }
+        out
+    };
+    let models = first_of(table(casc, dir, "ModelFileData")?, "ModelResourcesID");
+    let textures = first_of(table(casc, dir, "TextureFileData")?, "MaterialResourcesID");
+    let appearances = table(casc, dir, "ItemAppearance")?;
+    let kinds = table(casc, dir, "Item")?;
+    let mut worn = BTreeMap::new();
+    for m in table(casc, dir, "ItemModifiedAppearance")?.rows.values() {
+        let (Some(item), Some(app)) = (m.int("ItemID"), m.int("ItemAppearanceID")) else {
+            continue;
+        };
+        let Some(display) = appearances
+            .get(app as u32)
+            .and_then(|a| a.int("ItemDisplayInfoID"))
+            .filter(|&d| d > 0)
+        else {
+            continue;
+        };
+        let Some(kind) = kinds.get(item as u32) else {
+            continue;
+        };
+        let class = kind.int("ClassID").unwrap_or(0) as u8;
+        let subclass = kind.int("SubclassID").unwrap_or(0) as u8;
+        let e = worn
+            .entry(display as u32)
+            .or_insert((class, subclass, item as u32));
+        if (item as u32) < e.2 {
+            *e = (class, subclass, item as u32);
+        }
+    }
+    Ok(Items {
+        displays: table(casc, dir, "ItemDisplayInfo")?,
+        models,
+        textures,
+        worn,
+    })
 }
 
 /// A DB2 table from the install, typed by its definition in `dir`.

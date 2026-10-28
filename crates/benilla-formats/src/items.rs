@@ -14,6 +14,10 @@ use benilla_dbc::{FieldType, RecordSet, Schema, SchemaField};
 use crate::dbc::{parse, str_at, u32_at};
 use crate::models::model_path;
 
+// Displays a later client's data adds (`benilla-legion`, native only): ours, in a file of its own.
+#[cfg(not(target_arch = "wasm32"))]
+mod added;
+
 const ITEM_DISPLAY_INFO: &str = "DBFilesClient\\ItemDisplayInfo.dbc";
 
 /// One `ItemDisplayInfo` row: the visual identity of a held item or worn equipment. Basenames carry

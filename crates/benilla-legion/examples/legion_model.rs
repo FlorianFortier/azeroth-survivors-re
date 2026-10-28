@@ -212,13 +212,15 @@ fn main() -> Res<()> {
     write_obj(&out, &m, &s, &shown)?;
 
     // The model as 1.12.1 reads it, its textures by their virtual paths.
-    let names: Vec<Option<String>> =
-        transcode::texture_files(&m, &chunks.textures, shown_display.as_ref(), |p| {
-            casc.id_of(p)
-        })
-        .into_iter()
-        .map(|f| f.map(transcode::virtual_path))
-        .collect();
+    let names: Vec<Option<String>> = transcode::texture_files(
+        &m,
+        &chunks.textures,
+        |k| shown_display.as_ref().and_then(|d| d.texture_for(k)),
+        |p| casc.id_of(p),
+    )
+    .into_iter()
+    .map(|f| f.map(transcode::virtual_path))
+    .collect();
     let files: Vec<(u16, u16, Vec<u8>)> = chunks
         .anims
         .iter()

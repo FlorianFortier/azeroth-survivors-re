@@ -798,8 +798,7 @@ impl Profile {
 
     /// The items owned for a slot, in the campaign's order.
     pub fn owned_for(&self, slot: data::GearSlot) -> Vec<&'static data::ItemDef> {
-        data::ITEMS
-            .iter()
+        data::gear_items()
             .filter(|i| i.slot == slot && self.inventory.get(&i.name).is_some_and(|n| *n > 0))
             .collect()
     }

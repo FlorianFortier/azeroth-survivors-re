@@ -33,7 +33,7 @@ fn illidan_transcodes_to_a_model_the_client_reads() {
     let skin_file = casc.read_id(chunks.skins[0]).unwrap();
     let legion_skin = skin::parse(&skin_file).unwrap();
     let names: Vec<Option<String>> =
-        transcode::texture_files(&legion, &chunks.textures, None, |p| casc.id_of(p))
+        transcode::texture_files(&legion, &chunks.textures, |_| None, |p| casc.id_of(p))
             .into_iter()
             .map(|f| f.map(virtual_path))
             .collect();
@@ -224,4 +224,53 @@ fn fel_fire_trails_and_glows_read_as_the_clients() {
     assert_eq!(t.len(), 1);
     assert!(t[0].translation.keys.len() + t[0].rotation.keys.len() + t[0].scaling.keys.len() > 1);
     assert!(f.model().texture_transform_lookup.contains(&0));
+}
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn legion_weapons_answer_where_the_client_looks_for_them() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+
+    // Illidan's Warglaive of Azzinoth (item 32837): display 45150, its model and skin.
+    let glaive = library.item_look(45150).unwrap();
+    assert_eq!((glaive.models[0], glaive.textures[0]), (145562, 145561));
+    let path = format!(
+        "item/objectcomponents/weapon/{}",
+        benilla_legion::library::item_model_name(45150, 0)
+    );
+    let model = library.read(&path).unwrap().unwrap();
+    let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
+    assert!(!draws.is_empty());
+    assert!(
+        draws
+            .iter()
+            .any(|d| d.texture.as_deref() == Some("Legion\\145561.blp")),
+        "{:?}",
+        draws.iter().map(|d| d.texture.clone()).collect::<Vec<_>>()
+    );
+
+    // Legion's own looks, four a family, the same list every time.
+    let families = [(2, 7), (2, 10), (2, 0), (2, 15), (4, 6)];
+    let looks = library.weapon_looks(&families, 4);
+    println!(
+        "{:?}",
+        looks
+            .iter()
+            .map(|l| (l.id, l.class, l.subclass, l.models[0]))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(looks.len(), 20);
+    assert_eq!(looks, library.weapon_looks(&families, 4));
+    for l in &looks {
+        assert!(l.models[0] >= 1_100_000 && l.textures[0] != 0, "{l:?}");
+        let model = library.item_model(l.id, 0).unwrap();
+        assert!(!benilla_formats::parse_m2_render_submeshes(&model, "", &[])
+            .unwrap()
+            .is_empty());
+    }
 }

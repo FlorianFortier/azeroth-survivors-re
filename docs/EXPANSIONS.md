@@ -259,6 +259,27 @@ upstream merge. Each step is one pull request or a few.
    keyed transform (`fel_fire_trails_and_glows_read_as_the_clients`). Not seen on screen here.
 7. **Items.** Weapons first (plain M2s, `ItemDisplayInfo` → `ModelFileData` with its race and sex
    variants), as loot in `data::ITEMS` and on the hero; armour after step 8, which composites it.
+   **Done**, for weapons. `library` reads the item tables. `ItemDisplayInfo`'s model and material
+   resources become files through `ModelFileData` and `TextureFileData` (`ItemLook`). Each display
+   gets the class and subclass of an item wearing it (`Item` through `ItemModifiedAppearance` and
+   `ItemAppearance`, as Legion names no file in its tables). `weapon_looks` draws Legion's own
+   per family: an item from id 121,000, a model from file data id 1,100,000,
+   skinned by its display, one per model, the lowest display ids first. The client asks for an
+   item's model as `Item\ObjectComponents\<dir>\legion_item_<display>_<side>.m2`, which the
+   library answers in any folder, its type 2 skin the display's. In the client's item catalog
+   (`ItemDisplayCatalog::add_display`, a file of our own), Legion's looks take ids from 0xF000:
+   a worn piece's entry carries its display in sixteen bits, so 1,000,000 + id cannot travel.
+   Illidan's glaive is first, then four a family for axes, maces, polearms, swords, staves,
+   daggers, bows, guns, crossbows, wands and shields, each with a 1.12.1 icon of its family. The
+   survivors mode's gear draws its looks by icon (`outfit::pool`), so these join their family's,
+   on every machine with the data and in the same order. A machine whose catalog lacks one, a
+   guest without the data, draws the family's first 1.12.1 look (`outfit::legion_fallback`, at
+   `queue_templates`). Illidan drops the **Warglaive of Azzinoth** (`data::BONUS_ITEMS`, display
+   45150: item 32837's), a legendary main hand of the gulch beyond the sixty: kept and worn as
+   the rest (`data::gear_items`, the Armory), never in the collection. Read through the library
+   as the client asks: the glaive in its own skin, twenty looks of five families read by the
+   client's loader (`legion_weapons_answer_where_the_client_looks_for_them`). Not seen on screen
+   here.
 8. **Characters, races, classes.** The races' HD bodies (another texture layout, Legion's
    `CharSections` and geosets); then the new races (Pandaren, Worgen, Goblin, Draenei, Blood Elf,
    the first allied races) and classes (Demon Hunter, Monk, Death Knight) in `data.rs`, with

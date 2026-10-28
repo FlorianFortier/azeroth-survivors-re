@@ -728,6 +728,13 @@ pub(super) fn drop_loot(
             let kind = data::elite_kind(k);
             let at = d.pos - Vec3::Z * 0.8;
             match kind.reward {
+                // The bonus boss drops its own piece.
+                data::Reward::Gear { .. } if k == data::BONUS => {
+                    if let Some(item) = data::bonus_item(selection.stage) {
+                        spawn_gem(&mut commands, run.guid(), at, GemKind::Item(item));
+                        run.banner = Some((format!("{} dropped!", item.name), 4.0));
+                    }
+                }
                 data::Reward::Gear { percent } => {
                     let gear = (rng.index(100) < usize::from(percent))
                         .then(|| {
