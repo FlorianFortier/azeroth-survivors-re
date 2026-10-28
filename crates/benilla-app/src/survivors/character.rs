@@ -941,11 +941,27 @@ fn spell_tip(
 
 /// The Alliance's races; the rest are the Horde's.
 fn alliance(race: u8) -> bool {
-    matches!(race, 1 | 3 | 4 | 7)
+    matches!(race, 1 | 3 | 4 | 7 | 11)
 }
 
 /// The races in the character-create order.
 const RACES: [u8; 8] = [1, 3, 7, 4, 2, 5, 6, 8];
+
+/// The races this machine shows, in the character-create order: Legion's after each side's.
+fn shown_races() -> Vec<u8> {
+    let legion: Vec<u8> = data::playable_races()
+        .into_iter()
+        .filter(|r| !RACES.contains(r))
+        .collect();
+    let (a, h): (Vec<u8>, Vec<u8>) = legion.into_iter().partition(|&r| alliance(r));
+    RACES[..4]
+        .iter()
+        .copied()
+        .chain(a)
+        .chain(RACES[4..].iter().copied())
+        .chain(h)
+        .collect()
+}
 
 /// The portrait's size, and how far its frame sits in from the column's edge.
 const PORTRAIT: Vec2 = Vec2::new(150.0, 210.0);
@@ -1552,15 +1568,18 @@ fn refresh_hero_card(
         return;
     };
     let class = selection.class_def();
-    let race_name = tr(crate::char_select::race_name(race));
+    let race_name = tr(super::data::race_name(race));
     let sex_name = tr(if sex == 1 { "Female" } else { "Male" });
     let race_icon = |race_id: u8| {
-        crate::glue::art::race_tc(race_id, sex).map(|tc| {
-            IconSource::Atlas(
-                "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races".into(),
-                tc,
-            )
-        })
+        crate::glue::art::race_tc(race_id, sex)
+            .map(|tc| {
+                IconSource::Atlas(
+                    "Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races".into(),
+                    tc,
+                )
+            })
+            // A Legion race's own icon.
+            .or_else(|| data::legion_race_icon(race_id, sex).map(|p| IconSource::Texture(p.into())))
     };
 
     commands.entity(faction).with_children(|b| {
@@ -1702,8 +1721,9 @@ fn refresh_hero_card(
                             ..default()
                         })
                         .with_children(|r| {
-                            for race_id in
-                                RACES.into_iter().filter(|&r| alliance(r) == side_alliance)
+                            for race_id in shown_races()
+                                .into_iter()
+                                .filter(|&r| alliance(r) == side_alliance)
                             {
                                 race_button(
                                     r,
@@ -1806,7 +1826,7 @@ fn race_button(
     if !playable {
         r.commands().entity(e).insert(Visibility::Hidden);
     }
-    let name = tr(crate::char_select::race_name(race_id));
+    let name = tr(super::data::race_name(race_id));
     let class = selection.class_def();
     // The client's looks decide; without them, vanilla's own pairs.
     let keeps_class = if all.is_empty() {

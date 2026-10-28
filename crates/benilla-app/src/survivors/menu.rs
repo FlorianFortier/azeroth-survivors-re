@@ -8,10 +8,10 @@
 use bevy::prelude::*;
 use bevy::ui_render::ui_material::MaterialNode;
 
+use super::data::race_name;
 use super::hud::{looks_for, rgb, start_run, HudFont, MenuRoot};
 use super::profile::{HeroPick, ProfileStore};
 use super::{data, Phase, Rng, Run, Selection};
-use crate::char_select::race_name;
 use crate::glue::art::{class_tc, race_tc, tc_rect, GlueArt, DIM, GOLD, NAME_EDGE};
 use crate::glue::backdrop::{backdrop_border, tiled_bg_node};
 use crate::glue::widgets::{
@@ -122,7 +122,16 @@ pub(super) fn all_looks(
 ) -> Vec<Vec<(u32, u8, u8)>> {
     data::CLASSES
         .iter()
-        .map(|c| open_looks(looks_for(c, creatures), opened))
+        .map(|c| {
+            // Legion's races drawn here join the classes they could be, as an opened race does.
+            let mut races = opened.to_vec();
+            races.extend(
+                data::LEGION_RACES
+                    .into_iter()
+                    .filter(|&r| data::legion_race(r) && data::race_classes(r).contains(&c.id)),
+            );
+            open_looks(looks_for(c, creatures), &races)
+        })
         .collect()
 }
 

@@ -1,11 +1,17 @@
 //! A Legion (7.3.5) install beside the 1.12.1 data, native only. `WOW_LEGION=<folder>` opens it
-//! (`benilla-legion`'s `Library`), which then answers the `mpq://legion/…` paths: a model
-//! transcoded to 1.12.1, a texture as it is (`benilla_assets::set_extra_source`). With
+//! (`benilla-legion`'s `Library`), which then answers the `legion/…` paths beside the patch
+//! chain's archives (`benilla_formats::set_extra_files`): a model transcoded to 1.12.1, a texture
+//! as it is. With
 //! `WOW_LEGION_DBD=<folder>` (WoWDBDefs' `.dbd` definitions, never copied here), every Legion
 //! creature display joins the creature catalog as `DISPLAY_BASE` plus its own id, so a unit of
 //! that display draws the Legion model: `WOW_CAPTURE=fxview WOW_FX_DISPLAY=1061830` stands the
 //! Fel Lord in the effect viewer. The survivors mode then dresses the creatures it has a Legion
 //! look for in it (`survivors::data::legion_looks`).
+//!
+//! Legion's playable races join the character tables in their pre-HD bodies
+//! (`survivors::data::LEGION_RACES`): their body displays (a `Character\…` model path, so the
+//! client composites them), their skin, face and hair textures at 1.12.1's size, their geosets
+//! and their create-screen entry with its dial ranges.
 //!
 //! `WOW_LEGION` may instead be a remote copy's URL (`https://…`), read by byte ranges into
 //! `WOW_LEGION_CACHE` (`benilla-config/legion-cache` by default), which must hold
@@ -23,7 +29,11 @@ use benilla_legion::library::{
     display_model_path, item_model_name, AnySource, ItemLook, Library, DISPLAY_BASE,
 };
 
-use super::{Creatures, ItemDisplays};
+use benilla_formats::DialRanges;
+use benilla_legion::races::LegionRace;
+
+use super::skin_composite::SkinSections;
+use super::{CharCreate, Characters, Creatures, ItemDisplays};
 use crate::survivors::{data, outfit};
 
 // The survivors mode's Legion looks are this catalog's ids.
@@ -41,16 +51,27 @@ impl Plugin for LegionPlugin {
             return;
         };
         let library = Arc::new(library);
-        let reader = library.clone();
-        benilla_assets::set_extra_source(Box::new(move |path| {
-            reader
-                .read(path)
-                .map(|r| r.map_err(|e| std::io::Error::other(format!("{path}: {e}"))))
-        }));
+        benilla_formats::set_extra_files(Box::new(Files(library.clone())));
         app.insert_resource(Legion(library)).add_systems(
             Startup,
-            (add_displays, add_item_displays).after(super::setup_entities),
+            (add_displays, add_item_displays, add_races).after(super::setup_entities),
         );
+    }
+}
+
+/// The install as files beside the archives.
+struct Files(Arc<Library>);
+
+impl benilla_formats::ExtraFiles for Files {
+    fn claims(&self, path: &str) -> bool {
+        self.0.claims(path)
+    }
+
+    fn read(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        match self.0.read(path) {
+            Some(r) => r.map_err(|e| std::io::Error::other(format!("{path}: {e}"))),
+            None => Err(std::io::Error::other(format!("{path}: not a Legion file"))),
+        }
     }
 }
 
@@ -143,4 +164,110 @@ fn add_item_displays(legion: Res<Legion>, items: Option<ResMut<ItemDisplays>>) {
     if added > 0 {
         data::set_legion_looks(true);
     }
+}
+
+/// Legion's playable races into the character tables, in their pre-HD bodies.
+fn add_races(
+    legion: Res<Legion>,
+    creatures: Option<ResMut<Creatures>>,
+    sections: Option<ResMut<SkinSections>>,
+    geosets: Option<ResMut<Characters>>,
+    create: Option<ResMut<CharCreate>>,
+) {
+    let (Some(mut creatures), Some(mut sections), Some(mut geosets), Some(mut create)) =
+        (creatures, sections, geosets, create)
+    else {
+        return;
+    };
+    let mut added = Vec::new();
+    for id in data::LEGION_RACES {
+        let Some(race) = legion.0.race(id) else {
+            continue;
+        };
+        if race.models.contains(&0) {
+            warn!("legion: race {id} has no body model");
+            continue;
+        }
+        let mut bodies = [0u32; 2];
+        for sex in 0..2 {
+            let display = DISPLAY_BASE + race.displays[sex];
+            let path = format!(
+                "Character\\{}\\{}\\legion_char_{}.mdx",
+                race.file,
+                if sex == 0 { "Male" } else { "Female" },
+                race.models[sex]
+            );
+            creatures.catalog.add_display(display, &path, 1.0, 0.0);
+            bodies[sex] = display;
+        }
+        for &((sex, section, variation, color), files) in &race.sections {
+            let paths = files.map(|f| {
+                if f == 0 {
+                    String::new()
+                } else {
+                    format!("Legion\\Half\\{f}.blp")
+                }
+            });
+            sections
+                .tables
+                .add_section((id, sex, section, variation, color), paths);
+        }
+        for &((sex, style), geoset) in &race.hair {
+            geosets.0.add_hair((id, sex, style), geoset);
+        }
+        for &((sex, style), g) in &race.facial {
+            geosets.0.add_facial((id, sex, style), g);
+        }
+        create.0.add_race(
+            id,
+            (bodies[0], bodies[1]),
+            &race.file,
+            data::race_classes(id),
+            [0, 1].map(|sex| ranges(&race, sex)),
+        );
+        added.push(id);
+    }
+    info!("legion: races {added:?}");
+    // Their icons, Legion's own: `Achievement_Character_<Race>_<Sex>`.
+    let icons = added
+        .iter()
+        .flat_map(|&id| [(id, 0u8), (id, 1u8)])
+        .filter_map(|(id, sex)| {
+            let file = legion.0.race(id)?.file;
+            let path = format!(
+                "interface/icons/achievement_character_{}_{}.blp",
+                file.to_lowercase(),
+                if sex == 0 { "male" } else { "female" }
+            );
+            let fdid = legion.0.file_id(&path)?;
+            Some(((id, sex), format!("Legion\\{fdid}.blp")))
+        })
+        .collect();
+    data::set_legion_race_icons(icons);
+    data::set_legion_races(&added);
+}
+
+/// A race's five dial counts for `sex`, counted as 1.12.1's create screen offers them: skin
+/// colours, faces (on the first skin), hair styles, hair colours (of the first style), facial
+/// hair.
+fn ranges(race: &LegionRace, sex: u8) -> Option<DialRanges> {
+    let count = |f: &dyn Fn(&(u8, u8, u8, u8)) -> bool| {
+        race.sections
+            .iter()
+            .filter(|(k, t)| k.0 == sex && t[0] != 0 && f(k))
+            .count()
+    };
+    let skin = count(&|k| k.1 == 0 && k.2 == 0);
+    let face = count(&|k| k.1 == 1 && k.3 == 0);
+    let hair_color = count(&|k| k.1 == 3 && k.2 == 0);
+    let hair_style = race.hair.iter().filter(|(k, _)| k.0 == sex).count();
+    let facial = race.facial.iter().filter(|(k, _)| k.0 == sex).count();
+    let byte = |n: usize| n.clamp(1, 255) as u8;
+    (skin > 0).then(|| DialRanges {
+        skin: byte(skin),
+        face: byte(face),
+        hair_style: byte(hair_style),
+        hair_color: byte(hair_color),
+        facial_hair: byte(facial),
+    })
 }

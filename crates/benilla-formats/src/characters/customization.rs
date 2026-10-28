@@ -13,6 +13,10 @@ use benilla_dbc::{FieldType, Schema, SchemaField};
 use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
 
+// Rows a later client's races add (`benilla-legion`, native only): ours, in a file of its own.
+#[cfg(not(target_arch = "wasm32"))]
+mod added;
+
 const CHR_RACES: &str = "DBFilesClient\\ChrRaces.dbc";
 const CHAR_BASE_INFO: &str = "DBFilesClient\\CharBaseInfo.dbc";
 const CHAR_START_OUTFIT: &str = "DBFilesClient\\CharStartOutfit.dbc";

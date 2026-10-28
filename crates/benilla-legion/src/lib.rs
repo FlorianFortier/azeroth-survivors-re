@@ -24,6 +24,7 @@ pub mod display;
 pub mod library;
 pub mod md21;
 pub mod model;
+pub mod races;
 pub mod skin;
 pub mod transcode;
 

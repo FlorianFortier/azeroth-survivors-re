@@ -271,7 +271,7 @@ fn reward_clicks(
             if store.profile.race_open(race) {
                 return;
             }
-            let name = crate::char_select::race_name(race).to_string();
+            let name = super::data::race_name(race).to_string();
             let mut races = draft.races(&store.profile).clone();
             if !races.remove(&name) {
                 races.insert(name);
@@ -617,7 +617,7 @@ fn refresh_rewards(
             let races = draft.races(p);
             grid(m, |grid| {
                 for race in data::RACES {
-                    let name = crate::char_select::race_name(race);
+                    let name = super::data::race_name(race);
                     let state = if p.races.contains(name) {
                         RaceState::Open
                     } else if races.contains(name) {
@@ -950,7 +950,7 @@ fn look_card(
 
 /// One race: its face, name, the classes it opens to, and Open.
 fn race_card(p: &mut ChildSpawnerCommands, f: &KitFonts, race: u8, state: RaceState, left: u32) {
-    let name = tr(crate::char_select::race_name(race));
+    let name = tr(super::data::race_name(race));
     let opens: Vec<&str> = data::race_opens(race).map(|c| tr(c.name)).collect();
     let opens = opens.join(", ");
     p.spawn(card_node(state != RaceState::Closed))
@@ -1202,7 +1202,7 @@ mod tests {
     #[test]
     fn an_opened_race_costs_its_points_and_outlives_a_reset() {
         let mut p = earned(2 * data::RACE_POINTS);
-        let name = |r| crate::char_select::race_name(r).to_string();
+        let name = |r| super::data::race_name(r).to_string();
         // Orc: no paladin in vanilla, every class once opened.
         assert!(data::race_opens(2).any(|c| c.id == 2));
         assert!(!data::race_opens(1).any(|c| c.id == 1));

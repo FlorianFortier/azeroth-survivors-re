@@ -341,6 +341,8 @@ fn french(s: &str) -> Option<&'static str> {
         "Orc" => "Orc",
         "Dwarf" => "Nain",
         "Night Elf" => "Elfe de la nuit",
+        "Blood Elf" => "Elfe de sang",
+        "Draenei" => "Draeneï",
         "Undead" => "Mort-vivant",
         "Tauren" => "Tauren",
         "Gnome" => "Gnome",

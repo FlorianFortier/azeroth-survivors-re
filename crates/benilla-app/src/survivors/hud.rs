@@ -1735,7 +1735,7 @@ pub(super) fn refresh_hud(
     }
     let summary = format!(
         "{} {} in {}   —   press Enter to play again",
-        crate::char_select::race_name(run.race),
+        super::data::race_name(run.race),
         run.class.name,
         selection.map_def().name,
     );

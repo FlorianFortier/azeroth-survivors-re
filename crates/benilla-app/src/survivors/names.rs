@@ -86,7 +86,27 @@ fn syllables(race: u8) -> &'static Syllables {
             "jin", "zan", "dar", "kah", "jai", "rak", "zo", "mah", "shed", "tik",
         ],
     };
+    const BLOOD_ELF: Syllables = Syllables {
+        start: &[
+            "Kael", "Lor", "Sil", "Ael", "Val", "Ly", "Hal", "Rom", "Fael", "Quel", "Ana", "Ely",
+        ],
+        middle: &["", "", "thas", "ia", "an", "dor"],
+        end: &[
+            "thas", "lia", "vanna", "duin", "orin", "dris", "riel", "athor", "tharas", "nei",
+        ],
+    };
+    const DRAENEI: Syllables = Syllables {
+        start: &[
+            "Vel", "Nob", "Mar", "Iri", "Ama", "Dur", "Kur", "Nah", "Ved", "Zor", "Ish", "Tor",
+        ],
+        middle: &["", "", "a", "u", "aa", "e"],
+        end: &[
+            "en", "undu", "aad", "el", "uun", "osh", "aan", "ari", "um", "ek",
+        ],
+    };
     match race {
+        10 => &BLOOD_ELF,
+        11 => &DRAENEI,
         2 => &ORC,
         3 => &DWARF,
         4 => &NIGHT_ELF,

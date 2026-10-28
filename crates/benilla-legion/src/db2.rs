@@ -274,6 +274,13 @@ impl Row {
         }
     }
 
+    pub fn text(&self, name: &str) -> Option<&str> {
+        match self.values.get(name)? {
+            Value::Str(v) => Some(v),
+            _ => None,
+        }
+    }
+
     pub fn float(&self, name: &str) -> Option<f32> {
         match self.values.get(name)? {
             Value::Float(v) => Some(*v),

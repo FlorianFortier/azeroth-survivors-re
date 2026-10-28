@@ -492,6 +492,10 @@ pub(super) fn body(
                     worn.push(Worn::armour(at, display, inv));
                 }
             }
+            // 1.12.1's helms are a model per race: a race it never had (Legion's) wears none.
+            if !super::data::RACES.contains(&race) {
+                worn.retain(|o| o.slot != slot::HEAD);
+            }
             Body::Player {
                 display,
                 appearance: clamp(appearance, counts(Some(c), race, sex)),
