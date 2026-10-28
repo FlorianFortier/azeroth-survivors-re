@@ -388,6 +388,20 @@ upstream merge. Each step is one pull request or a few.
 10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's
     SHA256) or each player's own install; the menu shows Legion content only when the data is
     there; `make dist` for the native executable.
+    **Done**: `scripts/fetch-legion.sh` (`make fetch-legion`) reads the archive.org item's file
+    list (`_files.xml`: archive.org keeps a SHA-1 a file, not the uploader's SHA-256) and
+    downloads what the client reads of the install, 71.1 GB of its 72 (`.build.info`,
+    `Data/config`, `Data/data` but its `shmem`), each file resumed and checked against its
+    SHA-1, once; or, with `--stream` (`STREAM=1`), only the copy's `Data/data` names, the game
+    then reading archive.org by byte ranges into `legion-data/cache` as it needs (the tests'
+    whole run of the Broken Isles, the races, the classes and the creatures took 314 MB of it).
+    Both fetch the 22 WoWDBDefs definitions `benilla-legion` reads, pinned to one commit. The
+    launcher (`warcraft-survivors`) finds `wow-data/` and `legion-data/` beside itself or in
+    the folder it runs from, and sets `WOW_DATA`, `WOW_LEGION` (and `WOW_LEGION_CACHE`) and
+    `WOW_LEGION_DBD` where they are not set. Every Legion addition was already offered only
+    where its data is (races, classes, the bonus boss, the zone). `scripts/dist.sh` (`make
+    dist`) builds the player build (release, without `dev`) into `dist/azeroth-survivors/` with
+    the two fetch scripts and a README, no game data.
 
 The order: 1 to 5 for the first milestone (a Legion boss, animated, in a run), then 6 and 7, then
 8, and 9 last. Unit tests run on synthetic data; tests on real data read a local `LEGION_DATA`

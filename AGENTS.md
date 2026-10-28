@@ -37,6 +37,7 @@ catalog); their examples draw a model to a PNG without a GPU. See [docs/EXPANSIO
 | `crates/wenilla-host` | local dev server: static files, `/data/*`, and the lobby at `/lobby`. Loopback by default. | wenilla's |
 | `web/` | the page side: `index.html`, `boot.js`, `platform.js`, `bridge.js`, `examples/`, `wasi_stubs.js` | wenilla's |
 | `scripts/fetch-data.sh` | downloads the 1.12.1 client and extracts its MPQs into `wow-data/` | ours |
+| `scripts/fetch-legion.sh`, `scripts/dist.sh` | Legion 7.3.5's game files (or a streamed copy's list) and WoWDBDefs' definitions, pinned, into `legion-data/`; the player build into `dist/`. The launcher (`crates/warcraft-survivors`) finds `wow-data/` and `legion-data/` beside itself or in the folder it runs from, a set variable winning | ours |
 | `scripts/web-setup.sh`, `scripts/web-build.sh` | toolchain and build for the wasm | wenilla's |
 | `third_party/` | patched `lua-src`, `mlua-sys` and `kira`; each has a `BENILLA.md` | vendored |
 | `.github/workflows/check.yml` | the PR gate: wasm check, host and UI tests, client-carry and survivors-table tests | ours |
@@ -103,7 +104,7 @@ string (`crate::webenv::var`: the prefix dropped, lowercased).
 | `WOW_LOBBY=…` | `?lobby=…` | the lobby server's address |
 | `WOW_SURVIVORS_AUTO=<class>[:idle\|:all\|:late]` | — | a hands-off test run; `WOW_SURVIVORS_MAP=<index or name>` picks the zone, `WOW_SURVIVORS_SHOTS=<dir>` saves screenshots |
 | `WOW_DATA=…` | — | the 1.12.1 client's `Data` folder |
-| `WOW_LEGION=…` | — | a Legion 7.3.5 install's folder (or a remote copy's URL, cached in `WOW_LEGION_CACHE`): its models and textures as `mpq://legion/…` |
+| `WOW_LEGION=…` | — | a Legion 7.3.5 install's folder (or a remote copy's URL, cached in `WOW_LEGION_CACHE`): its models and textures as `mpq://legion/…`; the launcher sets it (and the cache, and `WOW_LEGION_DBD`) from `legion-data/` when unset |
 | `WOW_LEGION_DBD=…` | — | a folder of WoWDBDefs' `.dbd` definitions (never copied here): Legion's creature displays join the catalog as 1,000,000 plus their id |
 
 ## Commands
@@ -111,7 +112,10 @@ string (`crate::webenv::var`: the prefix dropped, lowercased).
 ```bash
 make build                  # fetch-data + web-setup + web-build (~5.5 GB download the first time)
 make start                  # http://127.0.0.1:8090/ — the browser build
-make native                 # the native desktop build
+make native                 # the native desktop build (finds wow-data/ and legion-data/)
+make fetch-legion           # Legion 7.3.5's game files into legion-data/ (71 GB, SHA-1 checked);
+                            # STREAM=1: read from archive.org as needed instead
+make dist                   # dist/azeroth-survivors/: the player build, the fetch scripts, a README
 scripts/web-build.sh        # → web/dist (WebGPU build). WEB_DEBUG=1 keeps symbols for readable stack traces.
 cargo check --target wasm32-unknown-unknown -p wenilla --no-default-features --features webgpu
                             # the wasm build without linking; what check.yml runs
