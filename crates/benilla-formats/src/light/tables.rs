@@ -9,6 +9,8 @@ use benilla_dbc::{FieldType, Schema, SchemaField};
 use crate::dbc::{f32_at, parse, u32_at};
 use crate::Chain;
 
+mod added;
+
 /// Half-minutes in a game day (band time axis); `1440` = noon.
 pub(super) const DAY: u32 = 2880;
 

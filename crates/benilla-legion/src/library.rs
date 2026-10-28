@@ -106,6 +106,11 @@ pub struct Library {
     items: Option<Items>,
     races: Option<crate::races::Races>,
     classes: Option<crate::classes::Classes>,
+    /// `LiquidType` id to its sound bank and its material's vertex format; empty without the
+    /// definitions.
+    liquids: HashMap<u16, (u8, u8)>,
+    /// The definitions' folder, for the tables read on demand.
+    dbd: Option<std::path::PathBuf>,
 }
 
 impl Library {
@@ -136,6 +141,10 @@ impl Library {
         let classes = dbd
             .map(|dir| crate::classes::Classes::load(&casc, dir))
             .transpose()?;
+        let liquids = dbd
+            .map(|dir| liquid_kinds(&casc, dir))
+            .transpose()?
+            .unwrap_or_default();
         Ok(Self {
             casc,
             displays,
@@ -143,6 +152,8 @@ impl Library {
             items,
             races,
             classes,
+            liquids,
+            dbd: dbd.map(Path::to_path_buf),
         })
     }
 
@@ -248,9 +259,25 @@ impl Library {
                 let obj0 = tile("_obj0").ok();
                 // A name the install holds no data for is left out.
                 let resolve = |p: &str| self.file_id(p).filter(|&id| self.casc.has_id(id));
-                crate::terrain::adt(&root, &tex0, obj0.as_deref(), big, &resolve)
+                let liquids = |kind: u16| self.liquids.get(&kind).copied();
+                crate::terrain::adt(&root, &tex0, obj0.as_deref(), big, &resolve, &liquids)
             })(),
         })
+    }
+
+    /// Map `map`'s lights and the params they name, in 1.12.1's layout ([`crate::lights`]); none
+    /// without the definitions.
+    pub fn map_lights(
+        &self,
+        map: u32,
+    ) -> Result<(
+        Vec<crate::lights::LegionLight>,
+        Vec<crate::lights::LegionLightParams>,
+    )> {
+        match &self.dbd {
+            Some(dir) => crate::lights::map_lights(&self.casc, dir, map),
+            None => Ok((Vec::new(), Vec::new())),
+        }
     }
 
     /// Spell `id`'s name and icon; none without the definitions.
@@ -487,6 +514,27 @@ fn map_path(path: &str) -> Option<(&'static LegionMap, MapFile)> {
         .strip_suffix(".adt")?
         .split_once('_')?;
     Some((map, MapFile::Tile(x.parse().ok()?, y.parse().ok()?)))
+}
+
+/// `LiquidType` id to its sound bank (0 water, 1 ocean, 2 magma, 3 slime) and its material's
+/// vertex format (`LiquidMaterial`'s `LVF`).
+fn liquid_kinds<S: Source>(casc: &Casc<S>, dir: &Path) -> Result<HashMap<u16, (u8, u8)>> {
+    let materials = table(casc, dir, "LiquidMaterial")?;
+    Ok(table(casc, dir, "LiquidType")?
+        .rows
+        .values()
+        .map(|r| {
+            let lvf = r
+                .int("MaterialID")
+                .and_then(|m| materials.get(m as u32))
+                .and_then(|m| m.int("LVF"))
+                .unwrap_or(0);
+            (
+                r.id as u16,
+                (r.int("SoundBank").unwrap_or(0) as u8, lvf as u8),
+            )
+        })
+        .collect())
 }
 
 /// A DB2 table from the install, typed by its definition in `dir`.

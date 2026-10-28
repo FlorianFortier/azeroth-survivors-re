@@ -18,7 +18,8 @@
 //! beside 1.12.1's.
 //!
 //! Legion's maps (`benilla_legion::library::LEGION_MAPS`: the Broken Isles) join the client's
-//! map table, their terrain and doodads answered by the library as 1.12.1 tiles.
+//! map table, their terrain, doodads, buildings and water answered by the library as 1.12.1
+//! tiles, their lights added to the client's light catalog.
 //!
 //! `WOW_LEGION` may instead be a remote copy's URL (`https://…`), read by byte ranges into
 //! `WOW_LEGION_CACHE` (`benilla-config/legion-cache` by default), which must hold
@@ -65,7 +66,7 @@ impl Plugin for LegionPlugin {
                 (add_displays, add_item_displays, add_races).after(super::setup_entities),
             )
             // After every startup system, the talent catalog's loading among them.
-            .add_systems(PostStartup, (add_classes, add_maps));
+            .add_systems(PostStartup, (add_classes, add_maps, add_lights));
     }
 }
 
@@ -295,6 +296,57 @@ fn add_maps(maps: Option<ResMut<benilla_assets::MapCatalogRes>>) {
         "legion: maps {:?}",
         LEGION_MAPS.iter().map(|m| m.id).collect::<Vec<_>>()
     );
+}
+
+/// A Legion light's and light params' id in the client's catalog: this plus its own, past
+/// 1.12.1's.
+pub(crate) const LIGHT_BASE: u32 = 100_000;
+
+/// Legion's maps' lights join the client's catalog: each map's global and spheres, each params'
+/// colours and fog in 1.12.1's bands (`benilla_legion::lights`).
+fn add_lights(world: &mut World) {
+    let Some(legion) = world.get_resource::<Legion>().map(|l| l.0.clone()) else {
+        return;
+    };
+    let mut read = Vec::new();
+    for m in LEGION_MAPS {
+        match legion.map_lights(m.id) {
+            Ok(l) => read.push((m.id, l)),
+            Err(e) => warn!("legion: map {} lights: {e}", m.id),
+        }
+    }
+    let added = benilla_world::lighting::with_light_catalog(world, |catalog| {
+        for (map, (lights, params)) in read {
+            for p in params {
+                catalog.add_params(
+                    LIGHT_BASE + p.id,
+                    benilla_formats::AddedParams {
+                        int_bands: p.int_bands,
+                        float_bands: p.float_bands,
+                        glow: p.glow,
+                        highlight_sky: p.highlight_sky,
+                        water_alpha: p.water_alpha,
+                    },
+                );
+            }
+            let count = lights.len();
+            for l in lights {
+                catalog.add_light(benilla_formats::AddedLight {
+                    id: LIGHT_BASE + l.id,
+                    map,
+                    pos: l.pos,
+                    falloff_start: l.falloff_start,
+                    falloff_end: l.falloff_end,
+                    global: l.global,
+                    params: l.params.map(|p| if p == 0 { 0 } else { LIGHT_BASE + p }),
+                });
+            }
+            info!("legion: map {map}, {count} lights");
+        }
+    });
+    if !added {
+        warn!("legion: no light catalog to add the maps' lights to");
+    }
 }
 
 /// A Legion specialization's talent tab id in the client's catalog: this plus its own, past

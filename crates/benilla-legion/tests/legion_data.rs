@@ -509,3 +509,74 @@ fn the_broken_isles_read_as_a_1_12_1_map() {
     }
     assert!(groups >= wmos.len() && batches > groups);
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn the_broken_isles_water_and_light_read_as_1_12_1s() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    let dir = "world/maps/legionbrokenisles/legionbrokenisles";
+    // A lake in the hills and the open sea, through the client's own liquid mesher.
+    for (x, y, kind) in [
+        (22, 26, benilla_formats::LiquidKind::Still),
+        (30, 22, benilla_formats::LiquidKind::Ocean),
+    ] {
+        let adt = library
+            .read(&format!("{dir}_{x}_{y}.adt"))
+            .unwrap()
+            .unwrap();
+        let mesh = benilla_formats::adt_to_tile_mesh(&adt).unwrap();
+        let wet: Vec<_> = mesh
+            .chunks
+            .iter()
+            .filter(|c| !c.liquids.is_empty())
+            .collect();
+        assert!(wet.len() > 30, "{x}_{y}: {} chunks with water", wet.len());
+        // The water stands over the ground where it is drawn: each wet cell's corners against
+        // the ground's at the same corners (the outer grid, row × 17 + column), and against the
+        // ground's with rows and columns swapped, which a wrong orientation would match better.
+        let (mut corners, mut over, mut over_swapped) = (0, 0, 0);
+        for c in &wet {
+            let l = &c.liquids[0];
+            assert_eq!(l.kind, kind);
+            for row in 0..8 {
+                for col in 0..8 {
+                    if !l.wet[row * 8 + col] {
+                        continue;
+                    }
+                    for (r, k) in [
+                        (row, col),
+                        (row + 1, col),
+                        (row, col + 1),
+                        (row + 1, col + 1),
+                    ] {
+                        let water = l.positions[r * 9 + k][2];
+                        corners += 1;
+                        over += usize::from(water + 0.5 >= c.positions[r * 17 + k][2]);
+                        over_swapped += usize::from(water + 0.5 >= c.positions[k * 17 + r][2]);
+                    }
+                }
+            }
+        }
+        println!(
+            "{x}_{y}: {} chunks with water, corners over their ground {over} of {corners} \
+             ({over_swapped} if turned)",
+            wet.len()
+        );
+        // A shore cell has corners on the land: four in five, not all.
+        assert!(over * 5 >= corners * 4 && over > over_swapped);
+    }
+    // The map's light: its global and spheres, each params' eighteen colours and its fog.
+    let (lights, params) = library.map_lights(1220).unwrap();
+    println!("{} lights, {} params", lights.len(), params.len());
+    assert!(lights.iter().any(|l| l.global));
+    assert!(lights.len() > 100 && params.len() > 50);
+    for p in &params {
+        assert!(p.int_bands.iter().all(|b| !b.is_empty()), "params {}", p.id);
+        assert!(p.float_bands[0].iter().all(|&(_, e)| e >= 1000.0));
+    }
+}
