@@ -299,32 +299,68 @@ pub fn to_vanilla(
 fn transcode_skin(out: &mut Out, skin: &[u8], shows: &dyn Fn(u16) -> bool) -> Result<Vec<u8>> {
     let s = Src(skin);
     let mut view = Vec::with_capacity(44);
-    // The model vertices the skin's vertices are, the triangles, the bone properties: as they are.
-    for (at, stride) in [(4, 2), (12, 2), (20, 4)] {
-        let (bytes, n) = s.records(at, stride)?;
-        let (count, ofs) = out.put_array(n, bytes);
+    let (secs, n) = s.records(28, 48)?;
+    let secs = secs.as_chunks::<48>().0;
+    let ids: Vec<u16> = secs
+        .iter()
+        .map(|x| u16::from_le_bytes([x[0], x[1]]))
+        .collect();
+    // The triangles' start with its high bits (`level`) folded back.
+    let start = |x: &[u8; 48]| {
+        u32::from(u16::from_le_bytes([x[8], x[9]]))
+            + (u32::from(u16::from_le_bytes([x[2], x[3]])) << 16)
+    };
+    let (indices, _) = s.records(12, 2)?;
+    // Past 65535 indices, 1.12.1's starts cannot reach the last sections: the shown sections'
+    // triangles alone are kept, back to back, and a hidden section points at none.
+    let compact = secs.iter().any(|x| start(x) > u32::from(u16::MAX));
+    let mut kept_indices = Vec::new();
+    let mut index_starts = Vec::with_capacity(n);
+    for (x, &id) in secs.iter().zip(&ids) {
+        if !compact {
+            index_starts.push(Some(start(x)));
+        } else if shows(id) {
+            let (at, count) = (
+                start(x) as usize,
+                usize::from(u16::from_le_bytes([x[10], x[11]])),
+            );
+            index_starts.push(Some((kept_indices.len() / 2) as u32));
+            kept_indices.extend_from_slice(
+                indices
+                    .get(at * 2..(at + count) * 2)
+                    .ok_or(Error::Truncated("skin indices"))?,
+            );
+        } else {
+            index_starts.push(None);
+        }
+    }
+    let indices = if compact { &kept_indices[..] } else { indices };
+    // The model vertices the skin's vertices are, the triangles, the bone properties.
+    for (at, bytes) in [
+        (4, s.records(4, 2)?.0),
+        (12, indices),
+        (20, s.records(20, 4)?.0),
+    ] {
+        let stride = if at == 20 { 4 } else { 2 };
+        let (count, ofs) = out.put_array(bytes.len() / stride, bytes);
         view.extend_from_slice(&count.to_le_bytes());
         view.extend_from_slice(&ofs.to_le_bytes());
     }
-    // Sections: 48 bytes to 32, the starts' high bits (`level`) folded back, which 1.12.1 cannot
-    // hold past 65535.
-    let (secs, n) = s.records(28, 48)?;
+    // Sections: 48 bytes to 32, their triangles' start in 1.12.1's 16 bits.
     let mut recs = Vec::with_capacity(n * 32);
-    let mut ids = Vec::with_capacity(n);
-    for x in secs.as_chunks::<48>().0 {
-        let level = u32::from(u16::from_le_bytes([x[2], x[3]])) << 16;
-        let start = |at: usize| -> Result<[u8; 2]> {
-            u16::try_from(u32::from(u16::from_le_bytes([x[at], x[at + 1]])) + level)
-                .map(u16::to_le_bytes)
-                .map_err(|_| Error::Format("a skin past 65535 vertices or indices".into()))
-        };
-        ids.push(u16::from_le_bytes([x[0], x[1]]));
+    let past = || Error::Format("a skin past 65535 indices".into());
+    for (x, index_start) in secs.iter().zip(&index_starts) {
         recs.extend_from_slice(&x[0..2]);
         recs.extend_from_slice(&[0, 0]);
-        recs.extend_from_slice(&start(4)?);
-        recs.extend_from_slice(&x[6..8]);
-        recs.extend_from_slice(&start(8)?);
-        recs.extend_from_slice(&x[10..32]);
+        recs.extend_from_slice(&x[4..8]);
+        match index_start {
+            Some(at) => {
+                recs.extend_from_slice(&u16::try_from(*at).map_err(|_| past())?.to_le_bytes());
+                recs.extend_from_slice(&x[10..12]);
+            }
+            None => recs.extend_from_slice(&[0, 0, 0, 0]),
+        }
+        recs.extend_from_slice(&x[12..32]);
     }
     let (count, ofs) = out.put_array(n, &recs);
     view.extend_from_slice(&count.to_le_bytes());

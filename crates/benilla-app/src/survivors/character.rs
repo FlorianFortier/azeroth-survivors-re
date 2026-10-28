@@ -949,27 +949,35 @@ fn spell_tip(
     hud::ability_tip(&owned, stats, spells)
 }
 
-/// The Alliance's races; the rest are the Horde's.
+/// The Alliance's races; the rest are the Horde's, but the neutral ones.
 fn alliance(race: u8) -> bool {
     matches!(race, 1 | 3 | 4 | 7 | 11 | 22)
+}
+
+/// The races of neither faction: the Pandaren.
+fn neutral(race: u8) -> bool {
+    race == 24
 }
 
 /// The races in the character-create order.
 const RACES: [u8; 8] = [1, 3, 7, 4, 2, 5, 6, 8];
 
-/// The races this machine shows, in the character-create order: Legion's after each side's.
+/// The races this machine shows, in the character-create order: Legion's after each side's,
+/// the neutral ones last.
 fn shown_races() -> Vec<u8> {
     let legion: Vec<u8> = data::playable_races()
         .into_iter()
         .filter(|r| !RACES.contains(r))
         .collect();
-    let (a, h): (Vec<u8>, Vec<u8>) = legion.into_iter().partition(|&r| alliance(r));
+    let (n, sided): (Vec<u8>, Vec<u8>) = legion.into_iter().partition(|&r| neutral(r));
+    let (a, h): (Vec<u8>, Vec<u8>) = sided.into_iter().partition(|&r| alliance(r));
     RACES[..4]
         .iter()
         .copied()
         .chain(a)
         .chain(RACES[4..].iter().copied())
         .chain(h)
+        .chain(n)
         .collect()
 }
 
@@ -1715,7 +1723,15 @@ fn refresh_hero_card(
             ..default()
         })
         .with_children(|sides| {
-            for side_alliance in [true, false] {
+            // Each faction's, then the neutral races' where there are any.
+            for side_race in [1, 2, 24] {
+                let side_races: Vec<u8> = shown_races()
+                    .into_iter()
+                    .filter(|&r| faction_tag(r).0 == faction_tag(side_race).0)
+                    .collect();
+                if side_races.is_empty() {
+                    continue;
+                }
                 sides
                     .spawn(Node {
                         flex_direction: FlexDirection::Column,
@@ -1724,17 +1740,14 @@ fn refresh_hero_card(
                         ..default()
                     })
                     .with_children(|side| {
-                        let tag = faction_tag(if side_alliance { 1 } else { 2 });
+                        let tag = faction_tag(side_race);
                         side.spawn(kit::text(&f.body, tag.0, 11.0, tag.1));
                         side.spawn(Node {
                             column_gap: Val::Px(3.0),
                             ..default()
                         })
                         .with_children(|r| {
-                            for race_id in shown_races()
-                                .into_iter()
-                                .filter(|&r| alliance(r) == side_alliance)
-                            {
+                            for race_id in side_races {
                                 race_button(
                                     r,
                                     f,
@@ -1801,9 +1814,11 @@ fn refresh_hero_card(
     });
 }
 
-/// "ALLIANCE" in blue or "HORDE" in red, for a race.
+/// "ALLIANCE" in blue, "HORDE" in red or "NEUTRAL" in gold, for a race.
 fn faction_tag(race: u8) -> (&'static str, Color) {
-    if alliance(race) {
+    if neutral(race) {
+        ("NEUTRAL", Color::srgb(0.9, 0.75, 0.35))
+    } else if alliance(race) {
         ("ALLIANCE", Color::srgb(0.3, 0.55, 1.0))
     } else {
         ("HORDE", Color::srgb(0.95, 0.25, 0.2))

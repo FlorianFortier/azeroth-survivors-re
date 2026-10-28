@@ -11,7 +11,10 @@
 //! - `legion/half/<file data id>.blp`: a texture at half its size (a race's skins, for 1.12.1's
 //!   256² body atlas, [`crate::races`]);
 //! - `…/legion_char_<file data id>.m2`, in any folder: a character body, every geoset kept for the
-//!   client's own selection;
+//!   client's own selection (a wide layout's skin coordinates moved to 1.12.1's atlas);
+//! - `legion/layout2/skin/<id>.blp`, `legion/layout2/face/<id>_<upper|lower>.blp`: a Pandaren
+//!   skin as 1.12.1's 256² atlas, a Pandaren face as one of its two face tiles
+//!   ([`crate::layout`]);
 //! - `…/legion_item_<item display id>_<side>.m2`, in any folder: an item display's model (its
 //!   left or right one), its skin from the display's material ([`item_model_name`]).
 //!
@@ -111,6 +114,9 @@ pub struct Library {
     liquids: HashMap<u16, (u8, u8)>,
     /// The definitions' folder, for the tables read on demand.
     dbd: Option<std::path::PathBuf>,
+    /// The body models of the races whose texture layout is not the old one ([`crate::layout`]):
+    /// their skin coordinates move to 1.12.1's atlas.
+    wide_bodies: HashSet<u32>,
 }
 
 impl Library {
@@ -145,7 +151,7 @@ impl Library {
             .map(|dir| liquid_kinds(&casc, dir))
             .transpose()?
             .unwrap_or_default();
-        Ok(Self {
+        let mut library = Self {
             casc,
             displays,
             fallbacks,
@@ -154,7 +160,15 @@ impl Library {
             classes,
             liquids,
             dbd: dbd.map(Path::to_path_buf),
-        })
+            wide_bodies: HashSet::new(),
+        };
+        library.wide_bodies = WIDE_RACES
+            .iter()
+            .filter_map(|&r| library.race(r))
+            .filter(|r| r.layout == 2)
+            .flat_map(|r| r.models)
+            .collect();
+        Ok(library)
     }
 
     /// The file at `path`, `None` when it is not a Legion path.
@@ -162,6 +176,26 @@ impl Library {
         // A map's tile table or one of its tiles.
         if let Some(r) = self.map_file(path) {
             return Some(r);
+        }
+        // A wide layout's skin as 1.12.1's atlas, or its face as one of the two face tiles.
+        if let Some(rest) = path.strip_prefix("legion/layout2/") {
+            let parsed = rest.strip_suffix(".blp").and_then(|r| r.split_once('/'));
+            return Some(match parsed {
+                Some(("skin", id)) => id
+                    .parse::<u32>()
+                    .map_err(|_| Error::Format(format!("no skin at {path}")))
+                    .and_then(|id| self.casc.read_id(id).map_err(Error::from))
+                    .and_then(|b| crate::layout::skin_atlas(&b)),
+                Some(("face", name)) => match name.split_once('_') {
+                    Some((id, half @ ("upper" | "lower"))) => id
+                        .parse::<u32>()
+                        .map_err(|_| Error::Format(format!("no face at {path}")))
+                        .and_then(|id| self.casc.read_id(id).map_err(Error::from))
+                        .and_then(|b| crate::layout::face_tile(&b, half == "upper")),
+                    _ => Err(Error::Format(format!("no face at {path}"))),
+                },
+                _ => Err(Error::Format(format!("nothing at {path}"))),
+            });
         }
         // A building, root or group, by its own path under ours.
         if let Some(own) = path.strip_prefix(PREFIX).filter(|p| p.ends_with(".wmo")) {
@@ -176,11 +210,15 @@ impl Library {
         }
         // An item's model, wherever the client looks for it.
         let base = path.rsplit('/').next().unwrap_or(path);
-        // A character body, every geoset kept for the client's own selection.
+        // A character body, every geoset kept for the client's own selection; a wide layout's
+        // only those of 1.12.1's groups it can hold ([`WIDE_GROUPS`]).
         if let Some(rest) = base.strip_prefix("legion_char_") {
             return Some(
                 match rest.strip_suffix(".m2").and_then(|r| r.parse::<u32>().ok()) {
-                    Some(file) => self.transcode(file, |_| None, |_| true),
+                    Some(file) if self.wide_bodies.contains(&file) => {
+                        self.transcode(file, |_| None, |id| WIDE_GROUPS.contains(&(id / 100)), true)
+                    }
+                    Some(file) => self.transcode(file, |_| None, |_| true, false),
                     None => Err(Error::Format(format!("no character model at {path}"))),
                 },
             );
@@ -371,6 +409,7 @@ impl Library {
             file,
             |kind| (kind == 2 && skin != 0).then_some(skin),
             |g| g == 0 || g % 100 == 1,
+            false,
         )
     }
 
@@ -383,6 +422,7 @@ impl Library {
                 Some(d) => d.shows(id),
                 None => id == 0 || id % 100 == 1,
             },
+            false,
         )
     }
 
@@ -393,14 +433,19 @@ impl Library {
         file: u32,
         replace: impl Fn(u32) -> Option<u32>,
         shows: impl Fn(u16) -> bool,
+        wide: bool,
     ) -> Result<Vec<u8>> {
-        let chunks = md21::split(&self.casc.read_id(file)?)?;
+        let mut chunks = md21::split(&self.casc.read_id(file)?)?;
         let m = model::parse(&chunks.md20)?;
         let skin = chunks
             .skins
             .first()
             .ok_or_else(|| Error::Format(format!("model {file} names no skin")))?;
         let skin = self.casc.read_id(*skin)?;
+        // A body of a wide layout: its skin coordinates onto 1.12.1's atlas.
+        if wide {
+            crate::layout::remap_body_uvs(&mut chunks.md20, &crate::skin::parse(&skin)?)?;
+        }
         let names: Vec<Option<String>> =
             transcode::texture_files(&m, &chunks.textures, replace, |p| self.casc.id_of(p))
                 .into_iter()
@@ -536,6 +581,14 @@ fn liquid_kinds<S: Source>(casc: &Casc<S>, dir: &Path) -> Result<HashMap<u16, (u
         })
         .collect())
 }
+
+/// The races whose body texture layout [`Library::open`] checks: Legion's playable races past
+/// 1.12.1's and the Burning Crusade's.
+const WIDE_RACES: [u8; 5] = [9, 22, 24, 25, 26];
+
+/// The geoset groups a wide layout's body keeps: 1.12.1's, but the robe's skirt (13) and the
+/// cape (15). A Pandaren's every geoset passes 1.12.1's 65535 triangle indices; these fit.
+const WIDE_GROUPS: [u16; 13] = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17];
 
 /// A DB2 table from the install, typed by its definition in `dir`.
 pub fn table<S: Source>(casc: &Casc<S>, dir: &Path, name: &str) -> Result<Table> {

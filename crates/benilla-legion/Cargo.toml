@@ -6,12 +6,12 @@ license.workspace = true
 description = "Legion (7.3.5) M2 models, MD21 and external .skin files: a spike toward later clients' data (docs/EXPANSIONS.md)"
 
 [dependencies]
+benilla-blp = { path = "../benilla-blp" }
 benilla-casc = { path = "../benilla-casc" }
 
 [dev-dependencies]
 benilla-formats = { path = "../benilla-formats" }
 benilla-m2 = { path = "../benilla-m2" }
-benilla-blp = { path = "../benilla-blp" }
 benilla-wdt = { path = "../benilla-wdt" }
 benilla-casc = { path = "../benilla-casc", features = ["remote"] }
 image = { version = "0.25", default-features = false, features = ["png"] }

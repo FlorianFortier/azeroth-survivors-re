@@ -212,13 +212,26 @@ fn add_races(
             *body = display;
         }
         for &((sex, section, variation, color), files) in &race.sections {
-            let paths = files.map(|f| {
+            let mut paths = files.map(|f| {
                 if f == 0 {
                     String::new()
                 } else {
                     format!("Legion\\Half\\{f}.blp")
                 }
             });
+            // The Pandaren's layout: its skin as 1.12.1's atlas, its one face square cut into
+            // the face's two tiles (the lower first, as 1.12.1's face rows hold them).
+            if race.layout == 2 {
+                match (section, files) {
+                    (0, [f, ..]) if f != 0 => paths[0] = format!("Legion\\Layout2\\Skin\\{f}.blp"),
+                    (1, [a, b, _]) if a != 0 || b != 0 => {
+                        let f = if b != 0 { b } else { a };
+                        paths[0] = format!("Legion\\Layout2\\Face\\{f}_lower.blp");
+                        paths[1] = format!("Legion\\Layout2\\Face\\{f}_upper.blp");
+                    }
+                    _ => {}
+                }
+            }
             sections
                 .tables
                 .add_section((id, sex, section, variation, color), paths);

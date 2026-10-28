@@ -110,9 +110,11 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   optional fight once a run for his **Warglaive of Azzinoth** (a legendary main hand, kept and
   worn like the rest, in his Legion look), a spell rank, a run item and a boss's gold. Legion's
   weapons join the looks your gear's weapons draw from, and the **Blood Elf**, the **Draenei**,
-  the **Goblin** and the **Worgen** are playable, in their pre-HD bodies, for the classes they
-  were in The Burning Crusade and Cataclysm. A machine without the data sees the 1.12.1 looks (a
-  Human for a Blood Elf or a Worgen, a Night Elf for a Draenei, a Gnome for a Goblin). Legion's
+  the **Goblin**, the **Worgen** and the **Pandaren** (neutral, without a cape or a robe's skirt)
+  are playable, in their pre-HD bodies, for the classes they were in The Burning Crusade,
+  Cataclysm and Mists of Pandaria. A machine without the data sees the 1.12.1 looks (a Human for
+  a Blood Elf or a Worgen, a Night Elf for a Draenei, a Gnome for a Goblin, a Tauren for a
+  Pandaren). Legion's
   classes are playable too: the **Death Knight** for every race (Obliterate, Howling Blast, Death
   Coil…, Death's Advance on `F`), the **Monk** for all but the Goblin and the Worgen (Tiger Palm,
   Rising Sun Kick, Fists of Fury…, Roll on `F`) and the **Demon Hunter** for Night Elves and

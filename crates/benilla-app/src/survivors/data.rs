@@ -1677,11 +1677,35 @@ pub(crate) fn racials(race: u8) -> &'static [RacialDef; 3] {
             &[Bonus::flat(Stat::DamageReduction, 0.02)],
         ),
     ];
+    static PANDAREN: [RacialDef; 3] = [
+        racial(
+            "epicurean",
+            "Epicurean",
+            433,
+            "+1.5 health per second",
+            &[Bonus::flat(Stat::Regen, 1.5)],
+        ),
+        racial(
+            "quaking_palm",
+            "Quaking Palm",
+            1776,
+            "+4% damage",
+            &[Bonus::flat(Stat::Might, 0.04)],
+        ),
+        racial(
+            "bouncy",
+            "Bouncy",
+            130,
+            "+20 health",
+            &[Bonus::flat(Stat::MaxHp, 20.0)],
+        ),
+    ];
     match race {
         10 => &BLOOD_ELF,
         11 => &DRAENEI,
         9 => &GOBLIN,
         22 => &WORGEN,
+        24 => &PANDAREN,
         2 => &ORC,
         3 => &DWARF,
         4 => &NIGHT_ELF,
@@ -1725,6 +1749,8 @@ pub(crate) fn race_classes(race: u8) -> &'static [u8] {
         // And as Cataclysm made these.
         9 => &[1, 3, 4, 5, 6, 7, 8, 9],
         22 => &[1, 3, 4, 5, 6, 8, 9, 11],
+        // And the Pandaren as Mists of Pandaria did.
+        24 => &[1, 3, 4, 5, 6, 7, 8, 10],
         _ => &[],
     }
 }
@@ -5361,10 +5387,10 @@ pub(crate) fn appearance(key: &str) -> Option<&'static AppearanceDef> {
 pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /// Legion's playable races the mode takes in their pre-HD bodies where Legion's data is
-/// (`entities::legion`): the Blood Elf, the Draenei, the Goblin and the Worgen, `ChrRaces` ids.
-/// The Pandaren's bodies wear another texture layout (1024×512, Mists of Pandaria's), which
-/// 1.12.1's 256² compositor cannot hold.
-pub(crate) const LEGION_RACES: [u8; 4] = [10, 11, 9, 22];
+/// (`entities::legion`): the Blood Elf, the Draenei, the Goblin, the Worgen and the Pandaren,
+/// `ChrRaces` ids. The Pandaren's bodies wear Mists of Pandaria's texture layout (1024×512),
+/// which `benilla_legion::layout` puts on 1.12.1's 256² atlas.
+pub(crate) const LEGION_RACES: [u8; 5] = [10, 11, 9, 22, 24];
 
 static LEGION_RACES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
@@ -5490,12 +5516,13 @@ pub(crate) fn outfit_class(class: u8) -> u8 {
 
 /// The 1.12.1 race standing in for one 1.12.1 lacks: its portrait, and its body on a machine
 /// without Legion's data. The Blood Elf a Human, the Draenei a Night Elf, the Goblin a Gnome, the
-/// Worgen a Human.
+/// Worgen a Human, the Pandaren a Tauren.
 pub(crate) fn stand_in(race: u8) -> u8 {
     match race {
         10 | 22 => 1,
         11 => 4,
         9 => 7,
+        24 => 6,
         r => r,
     }
 }
@@ -5513,11 +5540,12 @@ const BODIES: [(u32, u32); 8] = [
 ];
 
 /// Legion's body displays of [`LEGION_RACES`] (`ChrRaces`' `MaleDisplayID`, `FemaleDisplayID`).
-const LEGION_BODIES: [(u8, (u32, u32)); 4] = [
+const LEGION_BODIES: [(u8, (u32, u32)); 5] = [
     (10, (15476, 15475)),
     (11, (16125, 16126)),
     (9, (6894, 6895)),
     (22, (29422, 29423)),
+    (24, (38551, 38552)),
 ];
 
 /// A body display a guest without Legion's data cannot draw (a Legion race's, as its host sent
@@ -5539,6 +5567,7 @@ pub(crate) fn race_name(race: u8) -> &'static str {
         11 => "Draenei",
         9 => "Goblin",
         22 => "Worgen",
+        24 => "Pandaren",
         r => crate::char_select::race_name(r),
     }
 }
@@ -5935,6 +5964,10 @@ mod tests {
         assert_eq!((race_name(9), race_name(22)), ("Goblin", "Worgen"));
         // The Worgen's druid and the Goblin's shaman, as Cataclysm made them.
         assert!(race_classes(22).contains(&11) && race_classes(9).contains(&7));
+        // The Pandaren, a neutral race in Mists of Pandaria's layout, stands in as a Tauren.
+        assert_eq!(race_name(24), "Pandaren");
+        assert!(race_classes(24).contains(&10) && race_classes(24).contains(&7));
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 38552), Some((6, 60)));
         assert_eq!(stand_in_body(49), None);
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 1913), None);
     }

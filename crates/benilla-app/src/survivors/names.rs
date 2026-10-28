@@ -123,7 +123,17 @@ fn syllables(race: u8) -> &'static Syllables {
             "ius", "ford", "ric", "na", "wood", "ley", "gate", "more", "ard", "wen",
         ],
     };
+    const PANDAREN: Syllables = Syllables {
+        start: &[
+            "Chen", "Li", "Mei", "Lo", "Tai", "Shu", "Jin", "Ken", "Mu", "Ping", "Yu", "Hao",
+        ],
+        middle: &["", "", "", "an", "o", "li"],
+        end: &[
+            "", "lan", "shi", "po", "ming", "fu", "zhi", "tao", "ning", "wei",
+        ],
+    };
     match race {
+        24 => &PANDAREN,
         9 => &GOBLIN,
         22 => &WORGEN,
         10 => &BLOOD_ELF,

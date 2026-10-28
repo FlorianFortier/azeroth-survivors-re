@@ -296,7 +296,8 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   pools draw it (`entities::legion`); a piece with `ItemDef::look` wears that one where the
   catalog has it, and an entry whose look the catalog lacks takes its family's first 1.12.1
   one (`outfit::legion_fallback`). Legion's races (`data::LEGION_RACES`: the Blood Elf, the
-  Draenei, the Goblin and the Worgen) join `data::playable_races` only where `entities::legion` put them into the client's
+  Draenei, the Goblin, the Worgen and the Pandaren, whose 1024×512 skins `benilla_legion::layout`
+  puts on 1.12.1's atlas) join `data::playable_races` only where `entities::legion` put them into the client's
   character tables (`data::legion_race`); they are stored by name (`data::race_name`), never
   opened in the Rewards tab, wear no helm, and a guest without them draws their stand-in
   (`data::stand_in`, `data::stand_in_body`, in `net/client.rs`). Legion's classes
