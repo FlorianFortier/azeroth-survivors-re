@@ -307,10 +307,18 @@ upstream merge. Each step is one pull request or a few.
    (`legions_races_read_as_1_12_1_races`). Not seen on screen here. **Second part done**: the
    Goblin and the Worgen, the same way (Cataclysm's bodies, the old layout at twice the size;
    race 9, the Goblin, is in 1.12.1's `ChrRaces` but not playable there, so its create entry is
-   ours); a Gnome and a Human stand in for them. **The Pandaren stay out**: Mists of Pandaria
-   gave their bodies a texture layout of their own (a 1024×512 skin), which 1.12.1's 256²
-   compositor cannot hold; they would need a compositor for that layout, as the HD bodies
-   would.
+   ours); a Gnome and a Human stand in for them. **Third part done**: the Pandaren. Mists of
+   Pandaria gave their bodies a texture layout of their own (`CharComponentTextureLayoutID` 2: a
+   1024×512 skin whose left half is the old layout at twice the size, the face a 512² square on
+   the right), which 1.12.1's 256² compositor cannot hold. So the layout is brought to 1.12.1's
+   instead (`benilla_legion::layout`): the skin's left half at 256², the face square shrunk into
+   the face block 1.12.1's atlas keeps for it (128×96 at (0, 160)), the face cut into its two
+   tiles; the body's skin coordinates follow (`layout::remap_body_uvs`). Their body passes
+   1.12.1's 65535 triangle indices (a skin's section starts are 16 bits; Legion's `level` word
+   carries the triangles' high bits, never the vertices'): it keeps only 1.12.1's geoset groups
+   without the cape and the robe's skirt (`library::WIDE_GROUPS`), and the shown sections'
+   triangles are packed back to back. Neutral, they show in a group of their own; a Tauren
+   stands in for them (`the_pandaren_reads_onto_1_12_1s_atlas`). Not seen on screen here.
    **The classes, first part done**: the Death Knight. Its spells are Legion's: `Spell`'s name
    and `SpellMisc`'s icon (`library::Library::spell`), played with the visuals of a 1.12.1 spell
    of the same kind (`AbilityDef::visual`: Obliterate swings as Mortal Strike, Howling Blast

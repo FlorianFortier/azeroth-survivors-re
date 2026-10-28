@@ -32,6 +32,9 @@ pub struct LegionRace {
     pub file: String,
     /// Whether it is the Horde's (`ChrRaces`' `Alliance` 1).
     pub horde: bool,
+    /// Its body texture layout (`ChrRaces`' `CharComponentTextureLayoutID`): 1 the old layout at
+    /// twice 1.12.1's size, 2 the Pandaren's 1024×512 ([`crate::layout`]).
+    pub layout: u8,
     /// The male and female body displays (Legion `CreatureDisplayInfo` ids) and their models'
     /// file data ids.
     pub displays: [u32; 2],
@@ -148,6 +151,7 @@ impl Races {
         Some(LegionRace {
             id,
             file: row.text("ClientFileString")?.to_string(),
+            layout: row.int("CharComponentTextureLayoutID").unwrap_or(1) as u8,
             horde: row.int("Alliance") == Some(1),
             displays,
             models: displays.map(&model),

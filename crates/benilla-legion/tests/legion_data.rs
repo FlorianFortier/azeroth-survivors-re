@@ -623,3 +623,73 @@ fn valsharahs_field_and_creatures_read() {
         assert!(d.model_file != 0);
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn the_pandaren_reads_onto_1_12_1s_atlas() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    let race = library.race(24).unwrap();
+    assert_eq!((race.file.as_str(), race.layout), ("Pandaren", 2));
+    println!(
+        "Pandaren: {} sections, {} hair, {} facial",
+        race.sections.len(),
+        race.hair.len(),
+        race.facial.len()
+    );
+    for sex in [0u8, 1] {
+        let at = |section: u8, col: usize| {
+            race.sections
+                .iter()
+                .find(|((s, b, v, c), t)| (*s, *b, *v, *c) == (sex, section, 0, 0) && t[col] != 0)
+                .map(|(_, t)| t[col])
+        };
+        // Its skin, the 1024×512 layout, as 1.12.1's 256² atlas.
+        let skin = at(0, 0).unwrap();
+        let atlas = library
+            .read(&format!("legion/layout2/skin/{skin}.blp"))
+            .unwrap()
+            .unwrap();
+        let a = benilla_blp::decode(&atlas).unwrap();
+        assert_eq!((a.width, a.height), (256, 256));
+        // Its face, the square, as the two face tiles.
+        let face = at(1, 1).or(at(1, 0)).unwrap();
+        for (half, h) in [("upper", 32), ("lower", 64)] {
+            let tile = library
+                .read(&format!("legion/layout2/face/{face}_{half}.blp"))
+                .unwrap()
+                .unwrap();
+            let t = benilla_blp::decode(&tile).unwrap();
+            assert_eq!((t.width, t.height), (128, h));
+        }
+        // Its body, its skin's coordinates on the atlas: every one in it, some in the face block.
+        let path = format!(
+            "character/pandaren/{}/legion_char_{}.m2",
+            if sex == 0 { "male" } else { "female" },
+            race.models[usize::from(sex)]
+        );
+        let model = library.read(&path).unwrap().unwrap();
+        let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
+        assert!(draws.len() > 20, "{path}: {} draws", draws.len());
+        let f = benilla_m2::parse_m2(&mut Cursor::new(&model[..])).unwrap();
+        let uvs: Vec<[f32; 2]> = f
+            .model()
+            .vertices
+            .iter()
+            .map(|v| [v.tex_coords.x, v.tex_coords.y])
+            .collect();
+        let in_face = uvs
+            .iter()
+            .filter(|[u, v]| *u <= 0.5 && (0.62..=1.0).contains(v))
+            .count();
+        println!(
+            "{path}: {} vertices, {in_face} in the face block",
+            uvs.len()
+        );
+        assert!(in_face > 50);
+    }
+}

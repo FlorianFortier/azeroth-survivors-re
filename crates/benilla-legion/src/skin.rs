@@ -1,7 +1,8 @@
 //! A `.skin` file, a skin profile out of its model since Wrath: `SKIN`, then the arrays 1.12.1's
 //! embedded views hold (vertex indices into the model, triangles into those, bone properties,
 //! sections, batches), with offsets from the file's start. A section is 48 bytes (32 in 1.12.1);
-//! from Legion its `level` word carries the high bits of its starts, for profiles past 65535.
+//! from Legion its `level` word carries the high bits of its triangles' start, for profiles past
+//! 65535 indices (a profile's vertices stay under 65536).
 
 use crate::{array_at, records, u16_at, Error, Result};
 
@@ -67,7 +68,7 @@ pub fn parse(b: &[u8]) -> Result<Skin> {
         let level = u32::from(u16_at(s, 2)?);
         Some(Section {
             id: u16_at(s, 0)?,
-            vertex_start: u32::from(u16_at(s, 4)?) + (level << 16),
+            vertex_start: u32::from(u16_at(s, 4)?),
             vertex_count: u16_at(s, 6)?,
             index_start: u32::from(u16_at(s, 8)?) + (level << 16),
             index_count: u16_at(s, 10)?,
