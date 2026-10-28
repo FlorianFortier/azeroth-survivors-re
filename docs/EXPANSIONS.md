@@ -304,8 +304,13 @@ upstream merge. Each step is one pull request or a few.
    are a model per race), the class's 1.12.1 starting outfit; a guest without the data draws a
    Human for a Blood Elf and a Night Elf for a Draenei (`data::stand_in_body`). Read through the
    library: each body in both sexes by the client's loader, its skin at 256²
-   (`the_blood_elf_and_the_draenei_read_as_1_12_1_races`). Not seen on screen here. **Next**:
-   the Worgen, the Goblin and the Pandaren, the same way.
+   (`legions_races_read_as_1_12_1_races`). Not seen on screen here. **Second part done**: the
+   Goblin and the Worgen, the same way (Cataclysm's bodies, the old layout at twice the size;
+   race 9, the Goblin, is in 1.12.1's `ChrRaces` but not playable there, so its create entry is
+   ours); a Gnome and a Human stand in for them. **The Pandaren stay out**: Mists of Pandaria
+   gave their bodies a texture layout of their own (a 1024×512 skin), which 1.12.1's 256²
+   compositor cannot hold; they would need a compositor for that layout, as the HD bodies
+   would.
 
 9. **Maps.** Legion's split ADTs (`_tex0`, `_obj0`, `_obj1`), WDT and WMO by file data id, `MH2O`
    liquids, lighting and skies; Broken Isles zones in `data::MAPS`. The biggest step.

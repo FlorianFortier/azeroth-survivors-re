@@ -941,7 +941,7 @@ fn spell_tip(
 
 /// The Alliance's races; the rest are the Horde's.
 fn alliance(race: u8) -> bool {
-    matches!(race, 1 | 3 | 4 | 7 | 11)
+    matches!(race, 1 | 3 | 4 | 7 | 11 | 22)
 }
 
 /// The races in the character-create order.
