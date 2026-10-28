@@ -572,6 +572,8 @@ mod tests {
             textures: [77, 0, 0],
             geosets: 0,
             scale: 1.0,
+            model_scale: 1.0,
+            collision_height: 0.0,
         };
         let files = texture_files(&model, &[5], Some(&display), |p| {
             (p == "a.blp").then_some(6)

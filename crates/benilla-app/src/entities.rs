@@ -73,6 +73,9 @@ pub(crate) use missile::{MissileMiss, MissileSound, PendingMissiles};
 mod wmo_props;
 use wmo_props::{resolve_wmo_gameobject_props, spawn_wmo_gameobject_props};
 pub(crate) mod spell_fx;
+// A Legion install's models and creature displays (`WOW_LEGION`): ours, native only.
+#[cfg(not(target_arch = "wasm32"))]
+mod legion;
 use spell_fx::{attach_spell_fx, resolve_spell_fx};
 
 /// Dest-anchored spell effects: a DynamicObject's area visual and a cast's burst at its point.
@@ -574,6 +577,8 @@ pub(crate) struct EntitiesPlugin;
 
 impl Plugin for EntitiesPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(not(target_arch = "wasm32"))]
+        app.add_plugins(legion::LegionPlugin);
         app.add_systems(
             Update,
             publish_world_units

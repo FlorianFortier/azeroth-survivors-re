@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 use benilla_casc::remote::Remote;
 use benilla_casc::Casc;
+use benilla_legion::library::{AnySource, Library};
 use benilla_legion::transcode::{self, virtual_path};
 use benilla_legion::{md21, model, skin};
 
@@ -76,4 +77,33 @@ fn illidan_transcodes_to_a_model_the_client_reads() {
     println!("{} render submeshes", draws.len());
     assert_eq!((kept, draws.len()), (3, 2));
     assert!(draws.iter().all(|d| !d.indices.is_empty()));
+}
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn the_library_answers_the_clients_legion_paths() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    assert!(library.read("world/azeroth/foo.blp").is_none());
+    assert!(library.displays().count() > 60_000);
+
+    // The Fel Lord's display, in its own skins, as the client's model loader reads it.
+    let model = library.read("legion/display/61830.m2").unwrap().unwrap();
+    let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
+    assert_eq!(draws.len(), 10);
+    let textures: Vec<&str> = draws.iter().filter_map(|d| d.texture.as_deref()).collect();
+    assert!(textures.contains(&"Legion\\1089901.blp"), "{textures:?}");
+    // Each texture it names is there, a BLP2.
+    for t in &textures {
+        let path = t.to_ascii_lowercase().replace('\\', "/");
+        let blp = library.read(&path).unwrap().unwrap();
+        assert_eq!(&blp[..4], b"BLP2", "{path}");
+    }
+    // The bare model reads too, and a path that names nothing is an error, not a miss.
+    assert!(library.read("legion/1089899.m2").unwrap().is_ok());
+    assert!(library.read("legion/display/x.m2").unwrap().is_err());
 }

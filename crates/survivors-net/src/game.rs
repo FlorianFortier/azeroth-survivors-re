@@ -936,7 +936,7 @@ impl Wire for Game {
                 effect.put(w);
             }
             Game::Resync => {
-                w.u8(18);
+                w.u8(19);
             }
         }
     }
@@ -1101,7 +1101,7 @@ impl Wire for Game {
                 spell: r.u32()?,
                 effect: MobilityEffect::get(r)?,
             },
-            18 => Game::Resync,
+            19 => Game::Resync,
             t => return Err(WireError::BadTag(t)),
         })
     }

@@ -191,6 +191,20 @@ upstream merge. Each step is one pull request or a few.
    through `benilla-casc`; virtual paths (`Legion\<file data id>.m2`, `.blp`) are answered by our
    layer, which transcodes models and passes textures through. One hook into upstream's asset
    chain, kept small or in a file of our own. Done when a Legion model stands in a test scene.
+   **Done**: `benilla-legion`'s `library` answers `legion/<file data id>.blp` (a texture as it
+   is: Legion's BLPs are BLP2), `legion/<file data id>.m2` (a model, transcoded) and
+   `legion/display/<display id>.m2` (a creature display's model in its own skins and geosets).
+   `benilla-app`'s `entities/legion.rs` opens the install (`WOW_LEGION`, a folder, or a remote
+   copy's URL cached in `WOW_LEGION_CACHE`), registers it on the `mpq://` reader
+   (`benilla_assets::set_extra_source`, asked before the MPQs for every path) and, with
+   `WOW_LEGION_DBD`, adds every Legion creature display to the creature catalog at
+   `1,000,000 + id` (`CreatureCatalog::add_display`, a file of our own beside `creatures.rs`).
+   Upstream's files gain only `#[cfg]`-gated lines: the reader's three, a `mod` line in
+   `creatures.rs`, two in `entities.rs`. Any unit of such a display draws the Legion model, so
+   the effect viewer is the test scene: `WOW_CAPTURE=fxview WOW_FX_DISPLAY=1061830` stands the
+   Fel Lord. `cargo test -p benilla-legion --test legion_data -- --ignored` reads the Fel Lord's
+   display through the library as the client's model loader does (ten draws, each texture a
+   BLP2). Not seen on screen here: no 1.12.1 data or GPU in this container.
 4. **Animation.** Legion's tracks (an array of keys per sequence) laid onto 1.12.1's timeline and
    its ranges; the sequences kept in `.anim` files; Legion's animation ids mapped to 1.12.1's
    (stand, walk, run, attacks, death, casts), the nearest one where 1.12.1 has none. Done when
