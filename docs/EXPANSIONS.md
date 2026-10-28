@@ -322,8 +322,12 @@ upstream merge. Each step is one pull request or a few.
    as in vanilla. It is every race's, wears the warrior's starting outfit and a runeblade in each
    hand, and is offered only where Legion's data is. Read through the library: the three
    classes' specs, each of 21 talents with their spells' names and icons
-   (`legions_classes_read_with_their_spells_and_talents`). Not seen on screen here. **Next**:
-   the Monk and the Demon Hunter, the same way.
+   (`legions_classes_read_with_their_spells_and_talents`). Not seen on screen here. **Second
+   part done**: the Monk (every race but the Goblin and the Worgen, the rogue's outfit and a
+   staff, Roll on `F`) and the Demon Hunter (Night Elves and Blood Elves, the rogue's outfit and
+   the Warglaive of Azzinoth's Legion look in each hand, Fel Rush on `F`), the same way: their
+   specializations Brewmaster, Mistweaver and Windwalker, Havoc and Vengeance. The demon
+   hunter's horns, tattoos and blindfold are HD customizations, not on the pre-HD bodies.
 
 9. **Maps.** Legion's split ADTs (`_tex0`, `_obj0`, `_obj1`), WDT and WMO by file data id, `MH2O`
    liquids, lighting and skies; Broken Isles zones in `data::MAPS`. The biggest step.

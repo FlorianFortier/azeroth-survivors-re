@@ -84,6 +84,11 @@ pub(super) fn theme(background: &str) -> [Stat; 3] {
         "deathknightblood" => [MaxHp, Regen, Armor],
         "deathknightfrost" => [Might, Haste, Crit],
         "deathknightunholy" => [Might, Area, Haste],
+        "monkbrewmaster" => [MaxHp, Armor, DamageReduction],
+        "monkmistweaver" => [Regen, MaxHp, Growth],
+        "monkwindwalker" => [Haste, Crit, Speed],
+        "demonhunterhavoc" => [Might, Crit, Haste],
+        "demonhuntervengeance" => [MaxHp, DamageReduction, Regen],
         _ => [Might, MaxHp, Crit],
     }
 }

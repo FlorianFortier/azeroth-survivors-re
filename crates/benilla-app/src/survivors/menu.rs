@@ -131,7 +131,12 @@ pub(super) fn all_looks(
                     .into_iter()
                     .filter(|&r| data::legion_race(r) && data::race_classes(r).contains(&c.id)),
             );
-            open_looks(looks_for(c, creatures), &races)
+            // A Legion class's borrowed trainers held to the races it has.
+            let mut own = looks_for(c, creatures);
+            if data::LEGION_CLASSES.contains(&c.id) {
+                own.retain(|&(_, race, _)| data::race_classes(race).contains(&c.id));
+            }
+            open_looks(own, &races)
         })
         .collect()
 }
