@@ -331,6 +331,22 @@ upstream merge. Each step is one pull request or a few.
 
 9. **Maps.** Legion's split ADTs (`_tex0`, `_obj0`, `_obj1`), WDT and WMO by file data id, `MH2O`
    liquids, lighting and skies; Broken Isles zones in `data::MAPS`. The biggest step.
+   **First part done**: the terrain and its doodads. The Broken Isles (Legion's map 1220, its
+   directory `troll raid`, 729 tiles) join the client's map table at their own id in a directory
+   of ours, `LegionBrokenIsles` (`library::LEGION_MAPS`, `MapCatalog::add_map`, a file of our
+   own); the library answers its `.wdt` (`MAIN` as it is, the flags dropped) and each
+   `_<x>_<y>.adt`, which `terrain::adt` writes as one 1.12.1 ADT from the tile's three files:
+   the root's heights and normals, `_tex0`'s textures, layers, shadow and alpha (decoded from
+   Legion's big alpha, raw or run-length, and written run-length, which 1.12.1's reader takes
+   either way), the high-resolution holes as the 4×4 map, `_obj0`'s doodads and their per-chunk
+   references. Names become the library's paths (`Legion\<id>.blp`, `Legion\<id>.mdx`); a
+   model or texture whose data the install lacks is left out (`Casc::has_id`). Left out for
+   now: the buildings (`MWMO`/`MODF`, the WMOs), the liquids (`MH2O`), the vertex colours, the
+   texture scales and height textures, the far doodads (`_obj1`), and Legion's area ids. Read
+   through the client's own terrain mesher: a tile of Suramar, 256 chunks with their layers,
+   every texture a BLP it decodes and its 315 doodad models ones it reads
+   (`the_broken_isles_read_as_a_1_12_1_map`). Not seen on screen here, and no zone of the
+   campaign stands there yet. **Next**: the WMOs, then the liquids and the light, then a zone.
 10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's
     SHA256) or each player's own install; the menu shows Legion content only when the data is
     there; `make dist` for the native executable.

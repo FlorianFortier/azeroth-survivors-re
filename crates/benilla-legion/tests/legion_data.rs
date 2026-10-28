@@ -378,3 +378,84 @@ fn legions_classes_read_with_their_spells_and_talents() {
         }
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install: LEGION_URL, LEGION_CACHE"]
+fn the_broken_isles_read_as_a_1_12_1_map() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let library = Library::open(source, None).unwrap();
+    let dir = "world/maps/legionbrokenisles/legionbrokenisles";
+    // The tile table, as 1.12.1's reader takes it.
+    assert!(library.claims(&format!("{dir}.wdt")));
+    let wdt = library.read(&format!("{dir}.wdt")).unwrap().unwrap();
+    let wdt = benilla_wdt::WdtReader::new(Cursor::new(&wdt[..]), benilla_wdt::WowVersion::Classic)
+        .read()
+        .unwrap();
+    let tiles = (0..64)
+        .flat_map(|y| (0..64).map(move |x| (x, y)))
+        .filter(|&(x, y)| wdt.get_tile(x, y).is_some_and(|t| t.has_adt))
+        .count();
+    assert_eq!(tiles, 729);
+    // A tile of Suramar, through the client's own terrain mesher.
+    let path = format!("{dir}_24_30.adt");
+    assert!(library.claims(&path));
+    let adt = library.read(&path).unwrap().unwrap();
+    let mesh = benilla_formats::adt_to_tile_mesh(&adt).unwrap();
+    println!(
+        "{path}: {} chunks, {} vertices, {} doodads",
+        mesh.chunks.len(),
+        mesh.vertex_count(),
+        mesh.doodads.len()
+    );
+    assert_eq!(mesh.chunks.len(), 256);
+    let layered = mesh.chunks.iter().filter(|c| c.alpha_map.is_some()).count();
+    assert!(layered > 100, "{layered} chunks with layers over the base");
+    // Every texture is one the library answers, as a BLP the client decodes.
+    let mut textures: Vec<&String> = mesh
+        .chunks
+        .iter()
+        .flat_map(|c| c.layer_textures.iter())
+        .collect();
+    textures.sort();
+    textures.dedup();
+    assert!(textures.len() > 4);
+    for t in &textures {
+        let p = t.to_lowercase().replace('\\', "/");
+        assert!(p.starts_with("legion/"), "{t}");
+        let blp = library.read(&p).unwrap().unwrap();
+        benilla_blp::decode(&blp).unwrap();
+    }
+    // The heights stand where Suramar's are, the chunks' corners on the tile.
+    let (x0, y0) = benilla_wdt::tile_to_world(24, 30);
+    for c in &mesh.chunks {
+        for p in &c.positions {
+            assert!(p[2].abs() < 2000.0, "{p:?}");
+        }
+    }
+    println!(
+        "tile corner {x0} {y0}, first vertex {:?}",
+        mesh.chunks[0].positions[0]
+    );
+    // Its doodads, models the client reads.
+    assert!(mesh.doodads.len() > 50);
+    let mut models: Vec<&String> = mesh.doodads.iter().map(|d| &d.model).collect();
+    models.sort();
+    models.dedup();
+    let mut failed = Vec::new();
+    for m in &models {
+        let p = m.to_lowercase().replace('\\', "/").replace(".mdx", ".m2");
+        let read = library.read(&p).unwrap();
+        if read.is_err() || benilla_m2::parse_m2(&mut Cursor::new(&read.unwrap()[..])).is_err() {
+            failed.push(p);
+        }
+    }
+    println!(
+        "{} models, {} failed: {failed:?}",
+        models.len(),
+        failed.len()
+    );
+    assert!(failed.is_empty());
+}

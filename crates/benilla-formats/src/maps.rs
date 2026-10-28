@@ -10,6 +10,8 @@ use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::dbc::{f32_at, parse, str_at, u32_at};
 
+mod added;
+
 const MAP: &str = "DBFilesClient\\Map.dbc";
 
 /// Field index of `LoadingScreenID`, a `LoadingScreens.dbc` id; 0 on the dev and test maps.

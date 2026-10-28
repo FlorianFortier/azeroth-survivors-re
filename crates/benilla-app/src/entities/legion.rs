@@ -17,6 +17,9 @@
 //! (`survivors::data::legion_spell`), their icon, and their specializations as talent tabs
 //! beside 1.12.1's.
 //!
+//! Legion's maps (`benilla_legion::library::LEGION_MAPS`: the Broken Isles) join the client's
+//! map table, their terrain and doodads answered by the library as 1.12.1 tiles.
+//!
 //! `WOW_LEGION` may instead be a remote copy's URL (`https://…`), read by byte ranges into
 //! `WOW_LEGION_CACHE` (`benilla-config/legion-cache` by default), which must hold
 //! `Data/data.list`, the names in the copy's `Data/data/`: for a test without the 74 GB install.
@@ -30,7 +33,7 @@ use benilla_casc::remote::Remote;
 use benilla_casc::Dir;
 use benilla_formats::ItemDisplay;
 use benilla_legion::library::{
-    display_model_path, item_model_name, AnySource, ItemLook, Library, DISPLAY_BASE,
+    display_model_path, item_model_name, AnySource, ItemLook, Library, DISPLAY_BASE, LEGION_MAPS,
 };
 
 use benilla_formats::DialRanges;
@@ -62,7 +65,7 @@ impl Plugin for LegionPlugin {
                 (add_displays, add_item_displays, add_races).after(super::setup_entities),
             )
             // After every startup system, the talent catalog's loading among them.
-            .add_systems(PostStartup, add_classes);
+            .add_systems(PostStartup, (add_classes, add_maps));
     }
 }
 
@@ -277,6 +280,21 @@ fn ranges(race: &LegionRace, sex: u8) -> Option<DialRanges> {
         hair_color: byte(hair_color),
         facial_hair: byte(facial),
     })
+}
+
+/// Legion's maps the library answers ([`LEGION_MAPS`]) join the client's map table, each at its
+/// Legion id in a directory of its own, whose tile table and tiles the library writes as 1.12.1's.
+fn add_maps(maps: Option<ResMut<benilla_assets::MapCatalogRes>>) {
+    let Some(mut maps) = maps else {
+        return;
+    };
+    for m in LEGION_MAPS {
+        maps.0.add_map(m.id, m.ours, m.name);
+    }
+    info!(
+        "legion: maps {:?}",
+        LEGION_MAPS.iter().map(|m| m.id).collect::<Vec<_>>()
+    );
 }
 
 /// A Legion specialization's talent tab id in the client's catalog: this plus its own, past

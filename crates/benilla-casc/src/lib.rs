@@ -182,6 +182,19 @@ impl<S: Source> Casc<S> {
         self.root.by_hash(jenkins::path_hash(path))
     }
 
+    /// Whether the install holds file `file_data_id`'s data: the root names it and the local
+    /// indices store it. Nothing is read.
+    pub fn has_id(&self, file_data_id: u32) -> bool {
+        self.root
+            .by_id(file_data_id, self.locale)
+            .and_then(|ckey| self.encoding.ekey(&ckey))
+            .is_some_and(|ekey| {
+                let mut short = [0u8; 9];
+                short.copy_from_slice(&ekey[..9]);
+                self.index.contains_key(&short)
+            })
+    }
+
     /// A file by its content key.
     pub fn read_ckey(&self, ckey: &[u8; 16]) -> Result<Vec<u8>> {
         let ekey = self
