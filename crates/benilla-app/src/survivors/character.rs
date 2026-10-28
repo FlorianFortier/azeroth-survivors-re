@@ -199,7 +199,7 @@ enum ScreenAction {
     Turn(i8),
     /// Open the Armory.
     Armory,
-    /// Wear an item ([`data::ITEMS`] index) from the Armory.
+    /// Wear an item ([`data::gear_items`] index) from the Armory.
     Wear(usize),
     /// Take off what one of the ten slots wears.
     Unwear(usize),
@@ -699,7 +699,7 @@ fn clicks(
         }
         ScreenAction::Back => page.0 = CHARACTER,
         ScreenAction::Wear(i) => {
-            if let Some(item) = data::ITEMS.get(i) {
+            if let Some(item) = data::gear_items().nth(i) {
                 store.edit(|p| p.equip(item));
             }
         }
@@ -2232,7 +2232,7 @@ fn refresh_equipment(
                 .entity(none)
                 .insert(kit::Selected(worn.is_none()));
             for item in &owned {
-                let Some(index) = data::ITEMS.iter().position(|i| i == *item) else {
+                let Some(index) = data::gear_items().position(|i| i == *item) else {
                     continue;
                 };
                 let b = kit::icon_button(

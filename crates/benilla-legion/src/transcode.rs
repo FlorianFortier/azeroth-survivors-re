@@ -26,7 +26,6 @@
 //! (`+0x44`), the texture flipbooks (`+0x6c`, 1.12.1 only), and an `M2Track` (28 bytes in 1.12.1,
 //! 20 in Legion: the per-sequence ranges gone, the keys an array per sequence).
 
-use crate::display::CreatureDisplay;
 use crate::model::Model;
 use crate::{array_at, u16_at, u32_at, Error, Result};
 
@@ -42,11 +41,13 @@ pub fn virtual_path(file: u32) -> String {
 }
 
 /// The file each texture record shows: `TXID`'s, else the file the record's path names
-/// (`id_of`), else, for a replaceable one, the display's. `None` leaves the record as it is.
+/// (`id_of`), else, for a replaceable one, the file `replace` gives its type (a creature
+/// display's skins for types 11 to 13, an item display's for type 2). `None` leaves the record
+/// as it is.
 pub fn texture_files(
     model: &Model,
     txid: &[u32],
-    display: Option<&CreatureDisplay>,
+    replace: impl Fn(u32) -> Option<u32>,
     id_of: impl Fn(&str) -> Option<u32>,
 ) -> Vec<Option<u32>> {
     model
@@ -62,7 +63,7 @@ pub fn texture_files(
                         .then(|| id_of(&t.filename))
                         .flatten()
                 })
-                .or_else(|| display.and_then(|d| d.texture_for(t.kind)))
+                .or_else(|| replace(t.kind))
         })
         .collect()
 }
@@ -829,6 +830,7 @@ impl Out {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display::CreatureDisplay;
     use std::io::Cursor;
 
     /// A Legion model of one triangle in two sections (geosets 0 and 102), each with a batch, one
@@ -1199,9 +1201,12 @@ mod tests {
             model_scale: 1.0,
             collision_height: 0.0,
         };
-        let files = texture_files(&model, &[5], Some(&display), |p| {
-            (p == "a.blp").then_some(6)
-        });
+        let files = texture_files(
+            &model,
+            &[5],
+            |k| display.texture_for(k),
+            |p| (p == "a.blp").then_some(6),
+        );
         assert_eq!(files, [Some(5), Some(6), Some(77), None]);
     }
 }

@@ -18,9 +18,13 @@ use bevy::prelude::*;
 
 use benilla_casc::remote::Remote;
 use benilla_casc::Dir;
-use benilla_legion::library::{display_model_path, AnySource, Library, DISPLAY_BASE};
+use benilla_formats::ItemDisplay;
+use benilla_legion::library::{
+    display_model_path, item_model_name, AnySource, ItemLook, Library, DISPLAY_BASE,
+};
 
-use super::Creatures;
+use super::{Creatures, ItemDisplays};
+use crate::survivors::{data, outfit};
 
 // The survivors mode's Legion looks are this catalog's ids.
 const _: () = assert!(DISPLAY_BASE == crate::survivors::data::LEGION_DISPLAY_BASE);
@@ -43,8 +47,10 @@ impl Plugin for LegionPlugin {
                 .read(path)
                 .map(|r| r.map_err(|e| std::io::Error::other(format!("{path}: {e}"))))
         }));
-        app.insert_resource(Legion(library))
-            .add_systems(Startup, add_displays.after(super::setup_entities));
+        app.insert_resource(Legion(library)).add_systems(
+            Startup,
+            (add_displays, add_item_displays).after(super::setup_entities),
+        );
     }
 }
 
@@ -92,5 +98,49 @@ fn add_displays(legion: Res<Legion>, creatures: Option<ResMut<Creatures>>) {
     }
     info!("legion: {added} creature displays, from id {DISPLAY_BASE}");
     // The survivors mode's creatures may wear them now.
-    crate::survivors::data::set_legion_looks(added > 0);
+    if added > 0 {
+        data::set_legion_looks(true);
+    }
+}
+
+/// Legion's weapon looks into the item catalog, from `data::LEGION_ITEM_FIRST`: Illidan's
+/// glaive first, then each family's (`data::LEGION_WEAPON_FAMILIES`), each with a 1.12.1 icon of
+/// its family so the survivors mode's gear draws it among that family's looks.
+fn add_item_displays(legion: Res<Legion>, items: Option<ResMut<ItemDisplays>>) {
+    let Some(mut items) = items else {
+        return;
+    };
+    let row = |look: &ItemLook, icon: Option<String>| ItemDisplay {
+        model: [0, 1].map(|s| (look.models[s] != 0).then(|| item_model_name(look.id, s))),
+        icon,
+        ..ItemDisplay::default()
+    };
+    let mut added = 0;
+    if let Some(glaive) = legion.0.item_look(data::WARGLAIVE_DISPLAY) {
+        // A thrown axe's icon, which no family's pool takes.
+        let icon = Some("Interface\\Icons\\INV_ThrowingAxe_01".to_string());
+        if items
+            .catalog
+            .add_display(data::LEGION_ITEM_FIRST, row(&glaive, icon))
+        {
+            added += 1;
+        }
+    }
+    let looks = legion
+        .0
+        .weapon_looks(data::LEGION_WEAPON_FAMILIES, data::LEGION_LOOKS_PER_FAMILY);
+    for (k, look) in looks.iter().enumerate() {
+        let icon = outfit::family_icon(&items.catalog, look.class, look.subclass);
+        let id = data::LEGION_ITEM_FIRST + 1 + k as u32;
+        if items.catalog.add_display(id, row(look, icon)) {
+            added += 1;
+        }
+    }
+    info!(
+        "legion: {added} item looks, from id {}",
+        data::LEGION_ITEM_FIRST
+    );
+    if added > 0 {
+        data::set_legion_looks(true);
+    }
 }

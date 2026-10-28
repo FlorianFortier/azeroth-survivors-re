@@ -250,6 +250,13 @@ pub(super) fn gear_worn(
         }
         _ => Worn::armour(slot, 0, inv),
     };
+    // A piece with a look of its own (Illidan's glaive) wears it where the catalog has it.
+    if item.look != 0 && catalog.get(item.look).is_some() {
+        return Some(Worn {
+            display: item.look,
+            ..base
+        });
+    }
     let stems = match item.slot {
         GearSlot::MainHand | GearSlot::OffHand => weapon_stems(base.class, base.subclass),
         s => armour_stems(s),
@@ -517,15 +524,52 @@ pub(super) fn queue_templates(commands: &mut Commands, entries: Vec<u32>) {
         return;
     }
     commands.queue(move |world: &mut World| {
+        // A Legion look this machine's catalog lacks (its host has Legion's data, it has not)
+        // is drawn as its family's first 1.12.1 look.
+        let fallback: Vec<(u32, u32)> = world
+            .get_resource::<crate::entities::ItemDisplays>()
+            .map(|d| {
+                own.iter()
+                    .filter_map(|&e| Some((e, legion_fallback(e, &d.catalog)?)))
+                    .collect()
+            })
+            .unwrap_or_default();
         let Some(mut items) = world.get_resource_mut::<crate::items::Items>() else {
             return;
         };
         for e in own {
             if items.template_cached(e).is_none() {
-                items.insert_template(e, template(e));
+                let mut info = template(e);
+                if let (Some(info), Some(&(_, d))) =
+                    (info.as_mut(), fallback.iter().find(|(f, _)| *f == e))
+                {
+                    info.display_info_id = d;
+                }
+                items.insert_template(e, info);
             }
         }
     });
+}
+
+/// The 1.12.1 display an entry wearing a Legion look ([`super::data::LEGION_ITEM_FIRST`] on) takes on a
+/// machine whose catalog lacks it: the first of its family's; `None` when the catalog has it.
+pub(crate) fn legion_fallback(entry: u32, catalog: &ItemDisplayCatalog) -> Option<u32> {
+    let info = template(entry)?;
+    let display = info.display_info_id;
+    if display < super::data::LEGION_ITEM_FIRST || catalog.get(display).is_some() {
+        return None;
+    }
+    let stems = weapon_stems(info.class as u8, info.subclass as u8);
+    pool(catalog, stems)
+        .into_iter()
+        .find(|&d| d < super::data::LEGION_ITEM_FIRST)
+}
+
+/// The icon a Legion look of family `(class, subclass)` shows, so it joins that family's pool:
+/// the first 1.12.1 one of the family's.
+pub(crate) fn family_icon(catalog: &ItemDisplayCatalog, class: u8, subclass: u8) -> Option<String> {
+    let first = *pool(catalog, weapon_stems(class, subclass)).first()?;
+    catalog.get(first)?.icon.clone()
 }
 
 /// The entries a hero's fields wear, for [`queue_templates`].
@@ -733,6 +777,49 @@ mod tests {
             assert!(gear_worn(ward, c, &cat).is_none(), "{}", c.name);
             assert!(gear_icon(ward, Some(c), &cat).is_some());
         }
+    }
+
+    /// Illidan's glaive wears its Legion look where the catalog has it, its family's 1.12.1 one
+    /// elsewhere; a Legion look sent by a host with the data falls back the same way.
+    #[test]
+    fn a_legion_look_is_worn_where_the_catalog_has_it() {
+        let glaive = data::item("Warglaive of Azzinoth").unwrap();
+        let warrior = data::CLASSES.iter().find(|c| c.name == "Warrior").unwrap();
+        let mut cat = catalog();
+        let plain = gear_worn(glaive, warrior, &cat).unwrap();
+        assert!(plain.display < data::LEGION_ITEM_FIRST);
+        // A machine with Legion's data: the glaive's own look, and a Legion sword in the pool.
+        let legion = |icon: &str| benilla_formats::ItemDisplay {
+            model: [Some("legion_item_45150_0.m2".into()), None],
+            icon: Some(format!("Interface\\Icons\\{icon}")),
+            ..Default::default()
+        };
+        cat.add_display(data::LEGION_ITEM_FIRST, legion("INV_ThrowingAxe_01"));
+        let sword_icon = family_icon(&cat, 2, 7).unwrap();
+        assert_eq!(sword_icon, "Interface\\Icons\\INV_Sword_04");
+        cat.add_display(data::LEGION_ITEM_FIRST + 1, legion("INV_Sword_04"));
+        let w = gear_worn(glaive, warrior, &cat).unwrap();
+        assert_eq!(w.display, data::LEGION_ITEM_FIRST);
+        // Its entry, read on a machine without the data: the family's first 1.12.1 look.
+        let e = entry(&w);
+        assert_eq!(legion_fallback(e, &cat), None);
+        let bare = catalog();
+        let back = legion_fallback(e, &bare).unwrap();
+        assert!(back < data::LEGION_ITEM_FIRST);
+        assert_eq!(
+            template(entry(&Worn { display: back, ..w }))
+                .unwrap()
+                .subclass,
+            w.subclass as u32
+        );
+        // A Legion sword sent by a host joins nothing here: the sword family's first look.
+        let sword = Worn {
+            display: data::LEGION_ITEM_FIRST + 1,
+            class: 2,
+            subclass: 7,
+            ..w
+        };
+        assert_eq!(legion_fallback(entry(&sword), &bare), Some(30));
     }
 
     #[test]

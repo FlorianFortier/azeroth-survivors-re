@@ -2732,6 +2732,9 @@ pub(crate) struct ItemDef {
     pub boss: usize,
     /// What wearing it brings into a run.
     pub bonuses: Vec<Bonus>,
+    /// The item display it always wears where the client's catalog has it (a Legion look,
+    /// [`LEGION_ITEM_FIRST`] on), 0 to draw one of its family's (`outfit::gear_worn`).
+    pub look: u32,
 }
 
 /// One in this many enemies of the horde drops one of the zone's items; a boss always drops its
@@ -2752,31 +2755,97 @@ pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock
                 _ if z + 2 >= MAPS.len() => Rarity::Legendary,
                 _ => Rarity::Epic,
             };
-            let scale = rarity.power() * (1.0 + 0.12 * z as f32);
-            let main = slot.bonus();
-            let mut bonuses = vec![Bonus {
-                stat: main.stat,
-                amount: match main.amount {
-                    Amount::Flat(v) => Amount::Flat(v * scale),
-                    Amount::Percent(v) => Amount::Percent(v * scale),
-                },
-            }];
-            // An epic or legendary piece mends its wearer too.
-            if rarity >= Rarity::Epic {
-                bonuses.push(Bonus::flat(Stat::Regen, 0.3 * scale));
-            }
             out.push(ItemDef {
                 name: format!("{}'s {}", boss.name, slot.noun()),
                 slot,
                 rarity,
                 zone: z,
                 boss: k,
-                bonuses,
+                bonuses: item_bonuses(slot, rarity, z),
+                look: 0,
             });
         }
     }
     out
 });
+
+/// A piece's bonuses: its slot's, grown by its rarity and its zone's place in the campaign; an
+/// epic or legendary one mends its wearer too.
+fn item_bonuses(slot: GearSlot, rarity: Rarity, zone: usize) -> Vec<Bonus> {
+    let scale = rarity.power() * (1.0 + 0.12 * zone as f32);
+    let main = slot.bonus();
+    let mut bonuses = vec![Bonus {
+        stat: main.stat,
+        amount: match main.amount {
+            Amount::Flat(v) => Amount::Flat(v * scale),
+            Amount::Percent(v) => Amount::Percent(v * scale),
+        },
+    }];
+    if rarity >= Rarity::Epic {
+        bonuses.push(Bonus::flat(Stat::Regen, 0.3 * scale));
+    }
+    bonuses
+}
+
+/// The first Legion item look's id in the client's item catalog. A worn piece's entry carries
+/// its display in sixteen bits (`outfit::entry`), so Legion's looks take ids of their own from
+/// here, above 1.12.1's, in [`LEGION_WEAPON_FAMILIES`]' order after Illidan's glaive: the same
+/// on every machine with the same Legion data. A machine without it draws the family's 1.12.1
+/// look instead (`outfit::template`).
+pub(crate) const LEGION_ITEM_FIRST: u32 = 0xF000;
+
+/// Legion's item display for Illidan's Warglaive of Azzinoth (item 32837): the first Legion look.
+pub(crate) const WARGLAIVE_DISPLAY: u32 = 45150;
+
+/// The weapon families (item class, subclass) Legion's own looks are drawn for, so worn weapons
+/// may show them where the data is: axes, maces, polearms, swords, staves, daggers, bows, guns,
+/// crossbows, wands and shields, as `outfit::weapon_stems` names them.
+pub(crate) const LEGION_WEAPON_FAMILIES: &[(u8, u8)] = &[
+    (2, 0),
+    (2, 1),
+    (2, 4),
+    (2, 5),
+    (2, 6),
+    (2, 7),
+    (2, 8),
+    (2, 10),
+    (2, 15),
+    (2, 2),
+    (2, 3),
+    (2, 18),
+    (2, 19),
+    (4, 6),
+];
+
+/// How many of Legion's looks each family takes.
+pub(crate) const LEGION_LOOKS_PER_FAMILY: usize = 4;
+
+/// Gear beyond the campaign's sixty: a zone's bonus boss's own piece, by its boss
+/// ([`bonus_boss`]). Not in the collection; found, kept and worn as the rest is.
+pub(crate) static BONUS_ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock::new(|| {
+    (0..MAPS.len())
+        .filter(|&z| bonus_boss(z).is_some())
+        .map(|z| ItemDef {
+            name: "Warglaive of Azzinoth".to_string(),
+            slot: GearSlot::MainHand,
+            rarity: Rarity::Legendary,
+            zone: z,
+            boss: MAPS[z].bosses.len(),
+            bonuses: item_bonuses(GearSlot::MainHand, Rarity::Legendary, z),
+            look: LEGION_ITEM_FIRST,
+        })
+        .collect()
+});
+
+/// Every piece of gear: the campaign's, then the bonus bosses'.
+pub(crate) fn gear_items() -> impl Iterator<Item = &'static ItemDef> {
+    ITEMS.iter().chain(BONUS_ITEMS.iter())
+}
+
+/// The piece a zone's bonus boss drops.
+pub(crate) fn bonus_item(zone: usize) -> Option<&'static ItemDef> {
+    BONUS_ITEMS.iter().find(|i| i.zone == zone)
+}
 
 // ── The run's own economy: gold, chests, the field's elites and the run's items ──────────────
 
@@ -4864,7 +4933,7 @@ pub(crate) fn sum_bonuses(bonuses: &[Bonus]) -> Vec<Bonus> {
 
 /// An item by its name.
 pub(crate) fn item(name: &str) -> Option<&'static ItemDef> {
-    ITEMS.iter().find(|i| i.name == name)
+    gear_items().find(|i| i.name == name)
 }
 
 /// The item a zone's `boss`th boss drops.
@@ -5028,6 +5097,28 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
 #[cfg(test)]
 mod tests {
     //! The tables' invariants and the run's curves. Pure data: no app, no game files.
+
+    #[test]
+    fn illidans_glaive_is_gear_beyond_the_sixty() {
+        let gulch = MAPS.iter().position(|m| m.name == "Warsong Gulch").unwrap();
+        let glaive = bonus_item(gulch).unwrap();
+        assert_eq!(glaive.name, "Warglaive of Azzinoth");
+        assert_eq!(glaive.slot, GearSlot::MainHand);
+        assert_eq!(glaive.look, LEGION_ITEM_FIRST);
+        assert!(std::ptr::eq(item(&glaive.name).unwrap(), glaive));
+        // Not one of the campaign's sixty, nor of the gulch's drop table.
+        assert_eq!(ITEMS.len(), 60);
+        assert!(zone_items(gulch).iter().all(|i| i.name != glaive.name));
+        assert_eq!(gear_items().count(), 61);
+        // A legendary of its zone, as strong as the gulch's best main hand would be.
+        assert_eq!(
+            glaive.bonuses,
+            item_bonuses(GearSlot::MainHand, Rarity::Legendary, gulch)
+        );
+        // Legion's looks fit in an entry's sixteen bits.
+        let looks = 1 + LEGION_WEAPON_FAMILIES.len() * LEGION_LOOKS_PER_FAMILY;
+        assert!(LEGION_ITEM_FIRST as usize + looks <= 0xffff);
+    }
 
     #[test]
     fn legions_demons_wear_its_looks_only_where_the_data_is() {

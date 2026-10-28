@@ -32,7 +32,7 @@ mod mobility;
 mod names;
 mod net;
 mod offer;
-mod outfit;
+pub(crate) mod outfit;
 mod profile;
 mod rewards;
 mod sheet;

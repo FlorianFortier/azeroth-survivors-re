@@ -272,8 +272,15 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   creature's 1.12.1 one (`data::shown_display`, in `net/client.rs`), and anything that finds a
   creature by its display uses `EnemyDef::wears`. A zone's bonus boss (`data::bonus_boss`,
   Illidan in Warsong Gulch) stands only where the host draws Legion's creatures, at a post of
-  the elite kind `data::BONUS` after `data::ELITES` (`data::elite_kind` reads either), and falls
-  once; the balance simulator, without the data, never meets it.
+  the elite kind `data::BONUS` after `data::ELITES` (`data::elite_kind` reads either), falls
+  once and drops its piece (`data::BONUS_ITEMS`: gear beyond the sixty, found by `data::item`
+  and listed by `data::gear_items`, never in the collection); the balance simulator, without
+  the data, never meets it. Legion's weapon looks are item displays from
+  `data::LEGION_ITEM_FIRST` (a worn entry carries sixteen bits), the glaive's first, then
+  `data::LEGION_WEAPON_FAMILIES`' in order, each with a 1.12.1 icon of its family so gear's
+  pools draw it (`entities::legion`); a piece with `ItemDef::look` wears that one where the
+  catalog has it, and an entry whose look the catalog lacks takes its family's first 1.12.1
+  one (`outfit::legion_fallback`).
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it
