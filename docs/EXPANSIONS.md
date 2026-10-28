@@ -244,6 +244,19 @@ upstream merge. Each step is one pull request or a few.
    murlocs, kobolds…): every zone could take Legion's looks the same way.
 6. **Particles, ribbons, effects.** Legion's emitters and ribbons transcoded (their records
    differ): fel fire, glowing weapons.
+   **Done**: `transcode` carries the texture transforms (a translation, a rotation in four floats
+   and a scaling, keyed as the bones are, and their lookup), the particle emitters (Legion's
+   0x1ec-byte records to 1.12.1's 0x1f8) and the ribbons (0xb0 to 0xdc). A particle's ten tracks
+   are keyed. Its over-life ramps (`FBlock`s: any number of keys in `fixed16` of the particle's
+   life) are sampled at birth, at the colour ramp's middle key and at death into 1.12.1's middle
+   point and three keys (colours to packed BGRA, sizes to their x). A packed gravity (flag
+   `0x800000`) becomes 1.12.1's pull down. A multi-texture emitter keeps its first texture, a
+   "bone" emitter turns a plane, Legion's blend 7 adds, and the flags keep their low sixteen bits,
+   the ones 1.12.1 reads. Emitters that spawn models lose them. Legion's HD creatures mostly have
+   no particles: the HD Infernal's fire is a texture transform. Read back by the client's own
+   `parse_m2_particle_emitters` and `parse_m2_ribbon_emitters`: a fel fireball's five emitters
+   (four additive, its smoke blended, fel green at mid-life), a trail's ribbon, the Infernal's
+   keyed transform (`fel_fire_trails_and_glows_read_as_the_clients`). Not seen on screen here.
 7. **Items.** Weapons first (plain M2s, `ItemDisplayInfo` → `ModelFileData` with its race and sex
    variants), as loot in `data::ITEMS` and on the hero; armour after step 8, which composites it.
 8. **Characters, races, classes.** The races' HD bodies (another texture layout, Legion's

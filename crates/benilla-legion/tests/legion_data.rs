@@ -168,3 +168,60 @@ fn illidan_walks_strikes_and_dies_as_the_client_reads_him() {
         );
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install: LEGION_URL, LEGION_CACHE"]
+fn fel_fire_trails_and_glows_read_as_the_clients() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let library = Library::open(source, None).unwrap();
+    let casc = casc();
+    let model = |path: &str| {
+        let id = casc.id_of(path).unwrap();
+        library.read(&format!("legion/{id}.m2")).unwrap().unwrap()
+    };
+
+    // A fel fireball: five emitters, fel green.
+    let fireball = model("spells/fel_fireball_missile_high.m2");
+    let ps = benilla_formats::parse_m2_particle_emitters(&fireball).unwrap();
+    println!(
+        "fel fireball: {} emitters, {:?}",
+        ps.len(),
+        ps.iter()
+            .map(|p| (p.blend, p.shape, p.texture.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(ps.len(), 5);
+    assert!(ps.iter().all(|p| p.texture.is_some()));
+    // Four glows add, the fifth, its smoke, blends.
+    let adds = ps
+        .iter()
+        .filter(|p| p.blend == benilla_formats::ParticleBlend::Add)
+        .count();
+    assert_eq!(adds, 4);
+    // Its green: more green than red at mid-life on its second emitter.
+    let c = ps[1].over_life.color[1];
+    assert!(c[1] > c[0], "{c:?}");
+
+    // A trail: one ribbon, textured.
+    let trail = model("spells/ribbontrail.m2");
+    let rs = benilla_formats::parse_m2_ribbon_emitters(&trail).unwrap();
+    assert_eq!(rs.len(), 1);
+    assert!(rs[0].texture.is_some());
+    assert_eq!(rs[0].edges_per_second, 50.0);
+
+    // The HD infernal's burning skin: a texture transform, keyed.
+    let infernal = model("creature/infernal2/infernal2.m2");
+    let f = benilla_m2::parse_m2(&mut Cursor::new(&infernal[..])).unwrap();
+    let t = &f.model().texture_transforms;
+    println!(
+        "infernal2: {} texture transforms, translation keys {}",
+        t.len(),
+        t[0].translation.keys.len()
+    );
+    assert_eq!(t.len(), 1);
+    assert!(t[0].translation.keys.len() + t[0].rotation.keys.len() + t[0].scaling.keys.len() > 1);
+    assert!(f.model().texture_transform_lookup.contains(&0));
+}
