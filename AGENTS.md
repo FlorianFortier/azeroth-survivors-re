@@ -83,7 +83,7 @@ it holds; read it before changing the file.
 | `minimap.rs` | the minimap cluster and the day clock; the field's chests, elites and empty posts on it |
 | `grade.rs` | the picture polish pass (`G`, `?grade=0`) |
 | `auto.rs` | `WOW_SURVIVORS_AUTO`: a hands-off run for testing, with screenshots |
-| `balance.rs` | the balance simulator (tests only): whole runs played headless through `SimSet`'s own systems on an empty world, a pilot playing the hero (kiting by look-ahead, chests, portals, the boss targeted, the rarest card), each stage logged (time, level, kills, damage taken, the portal, the boss); `--ignored` runs every class and prints the table, `trace_a_run` (`SIM_CLASS`, `SIM_SEED`, `SIM_LIMIT`) what one run faced every ten seconds |
+| `balance.rs` | the balance simulator (tests only): whole runs played headless through `SimSet`'s own systems on an empty world, a pilot playing the hero (kiting by look-ahead, chests, portals, the boss targeted, the rarest card), each stage logged (time, level, kills, damage taken, the portal, the boss); `--ignored` runs every class and prints the table, `trace_a_run` (`SIM_CLASS`, `SIM_ZONE`, `SIM_SEED`, `SIM_LIMIT`) what one run faced every ten seconds |
 | `net/` | multiplayer, game side: `socket.rs` (WebSocket, native or browser), `host.rs` (plays and streams the run), `client.rs` (a guest's copy), `smooth.rs` (snapshot interpolation: what another machine moves is drawn `smooth::DELAY` behind its clock, between two positions it sent), `ui.rs` (lobby screens, party frames, scoreboard) |
 
 ## Switches
@@ -201,7 +201,15 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   portal onward, or after the last stage the final swarm; the run is won when that is held
   (`Run::cleared`). The run goes on the record of the zone it began in (`Selection::map`). A
   zone opens when the one before it has a win on the profile (`Profile::zone_open`). A zone renamed keeps its records through
-  `profile::RENAMED_ZONES`.
+  `profile::RENAMED_ZONES`. The first `data::CLASSIC_ZONES` are 1.12.1's; after them come
+  Legion's zones (`MapDef::legion`: Val'sharah, on the Broken Isles), offered only where
+  `entities::legion` loads Legion's maps and draws its creatures (`data::zone_shown`), never in a
+  lobby (`net::ui`'s zone rule, and a run's zone held to the classic ones in `net::mod`), and
+  never stepped into from a classic run (`data::stage_zone`: a Legion zone's run stays in it).
+  The legendary finals are the classic campaign's last two and every Legion zone's. A Legion
+  creature may be drawn at its own size over the crowd's scale (`Foe::legion_sized`,
+  `EnemyDef::legion_scale`, `EnemyDef::drawn_scale`): its body's room and reach stay the
+  scale's.
 - **A hero is a player, dressed from its fields.** Its worn pieces are `PLAYER_VISIBLE_ITEM_*`
   entries with the top bit set (`outfit::entry`); every machine answers their templates from the
   entry alone (`outfit::queue_templates`), so a guest needs nothing but the host's fields.

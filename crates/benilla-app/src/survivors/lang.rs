@@ -365,6 +365,7 @@ fn french(s: &str) -> Option<&'static str> {
         "Blackrock Mountain" => "Mont Rochenoire",
         "Gates of Ahn'Qiraj" => "Portes d'Ahn'Qiraj",
         "Naxxramas" => "Naxxramas",
+        "Val'sharah" => "Val'sharah",
         // The run.
         "LEVEL UP" => "NIVEAU SUPÉRIEUR",
         "Choose your power" => "Choisissez votre pouvoir",

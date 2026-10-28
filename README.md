@@ -99,7 +99,11 @@ to the next, tougher zone, and after the third hold out against the final swarm 
   creatures and five bosses, and opens once the final boss of the one before has fallen
   (`WOW_UNLOCK_ALL=1` or `?unlock_all=1` opens them all). Your pick, every run's record and the
   zones won are kept in a saved profile (`benilla-config/survivors-profile.toml`, or the
-  browser's storage).
+  browser's storage). With Legion's data (below), a thirteenth zone opens after Naxxramas:
+  **Val'sharah**, the Emerald Nightmare on the Broken Isles, Legion's own terrain, forest,
+  buildings, water and light, its horde the Nightmare's (satyrs, dryads, ents, ancients,
+  wisps…) and its bosses Archdruid Glaidalis, Oakheart, Dresaron, the Shade of Xavius and Xavius.
+  It is played solo for now, and a run there stays there.
 - **Legion's demons**, natively, with a Legion 7.3.5 install (`WOW_LEGION=<folder>` and
   `WOW_LEGION_DBD=<WoWDBDefs definitions>`): Warsong Gulch's felhounds, felguards and doomguards
   wear Legion's models, and **Illidan Stormrage** waits on the field as a bonus boss, an

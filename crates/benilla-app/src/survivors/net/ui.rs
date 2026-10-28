@@ -569,7 +569,8 @@ fn apply_rule(s: &Settings, rule: Rule) -> Settings {
     ];
     match rule {
         Rule::Zone(d) => {
-            let n = data::MAPS.len() as i32;
+            // A lobby offers 1.12.1's zones: not every guest can load a Legion one.
+            let n = data::CLASSIC_ZONES as i32;
             s.zone = (i32::from(s.zone) + i32::from(d)).rem_euclid(n) as u8;
         }
         Rule::Seats(d) => {
@@ -643,7 +644,8 @@ fn clicks(
                     Action::Create => {
                         let settings = Settings {
                             name: format!("{}'s run", net.name),
-                            zone: u8::try_from(selection.map).unwrap_or(0),
+                            zone: u8::try_from(selection.map.min(data::CLASSIC_ZONES - 1))
+                                .unwrap_or(0),
                             ..Settings::default()
                         };
                         net.send(Up::Create {
@@ -1349,7 +1351,7 @@ mod tests {
         assert_eq!(t.difficulty.enemy_health, PERCENT_MIN);
         // Zones wrap both ways.
         let z = apply_rule(&s, Rule::Zone(-1));
-        assert_eq!(usize::from(z.zone), data::MAPS.len() - 1);
+        assert_eq!(usize::from(z.zone), data::CLASSIC_ZONES - 1);
         assert_eq!(apply_rule(&z, Rule::Zone(1)).zone, 0);
         // Presets cycle and keep the scaling switch.
         let mut p = s.clone();

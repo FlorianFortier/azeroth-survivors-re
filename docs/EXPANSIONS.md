@@ -373,7 +373,18 @@ upstream merge. Each step is one pull request or a few.
    the water over its ground at 85 % and nearly all of their wet corners (69 % with rows and
    columns swapped, so the grid's orientation is the right one); 317 lights and 127 params,
    every params' eighteen colours keyed (`the_broken_isles_water_and_light_read_as_1_12_1s`).
-   **Next**: a zone of the campaign on the Broken Isles.
+   **Fourth part done**: Val'sharah, the campaign's thirteenth zone (`data::MAPS`, after
+   Naxxramas, `MapDef::legion`), on the Field of Dreamers (19_27, its ground at 143 to 148:
+   the flattest dry ground at the heart of the zone, found from the tiles' `AreaTable` ids and
+   heights). Its horde and bosses are Legion's creatures of the Nightmare (satyrs, dryads, ents,
+   keepers, ancients, a broodmother, the Eye of Il'gynoth; Archdruid Glaidalis, Oakheart,
+   Dresaron, the Shade of Xavius, Xavius), each display's model read
+   (`valsharahs_field_and_creatures_read`) and drawn at the size its own height asks
+   (`Foe::legion_sized`) while the crowd's room and reach keep the zones' usual scales. It is
+   offered only where Legion's maps and creatures are (`data::zone_shown`), played solo (a
+   lobby offers 1.12.1's zones alone), and a run begun there stays there (`data::stage_zone`).
+   **Left**: the multiplayer of a Legion zone (each guest would say it has the data), its
+   minimap and zone names.
 10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's
     SHA256) or each player's own install; the menu shows Legion content only when the data is
     there; `make dist` for the native executable.

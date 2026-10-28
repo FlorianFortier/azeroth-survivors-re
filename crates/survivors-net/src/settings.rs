@@ -6,7 +6,7 @@ use crate::wire::{Reader, Wire, WireError, Writer};
 /// The most players a lobby can seat.
 pub const MAX_PLAYERS: u8 = 4;
 /// The zones the game offers (`survivors::data::MAPS`); the game's tests hold the two equal.
-pub const ZONE_COUNT: u8 = 12;
+pub const ZONE_COUNT: u8 = 13;
 /// Longest lobby name, in characters.
 pub const MAX_LOBBY_NAME: usize = 32;
 /// Longest player name, in characters.

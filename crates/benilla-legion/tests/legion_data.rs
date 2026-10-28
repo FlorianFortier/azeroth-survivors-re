@@ -580,3 +580,46 @@ fn the_broken_isles_water_and_light_read_as_1_12_1s() {
         assert!(p.float_bands[0].iter().all(|&(_, e)| e >= 1000.0));
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn valsharahs_field_and_creatures_read() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    // The survivors mode's Val'sharah stands at (2330, 6480, 147): the Field of Dreamers, its
+    // ground there about that high and the tile dry around it.
+    let (cx, cy, cz) = (2330.0f32, 6480.0f32, 147.0f32);
+    let tile = "world/maps/legionbrokenisles/legionbrokenisles_19_27.adt";
+    let mesh = benilla_formats::adt_to_tile_mesh(&library.read(tile).unwrap().unwrap()).unwrap();
+    let near: Vec<f32> = mesh
+        .chunks
+        .iter()
+        .flat_map(|c| &c.positions)
+        .filter(|p| (p[0] - cx).abs() < 20.0 && (p[1] - cy).abs() < 20.0)
+        .map(|p| p[2])
+        .collect();
+    assert!(!near.is_empty());
+    let (lo, hi) = near
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(l, h), &z| (l.min(z), h.max(z)));
+    println!("ground at the centre: {lo:.1}..{hi:.1}");
+    assert!((lo - cz).abs() < 15.0 && hi - lo < 15.0);
+    // The zone's creatures and bosses (`survivors::data::MAPS`' Val'sharah), each a display
+    // whose model the client reads.
+    for id in [
+        1824u32, 70440, 69316, 64281, 936, 69207, 67790, 69714, 68972, 69487, 69105, 69099, 64282,
+        69776, 64777, 69825, 67428, 69879, 69474, 64778, 68127, 67745, 65636, 68730,
+    ] {
+        let d = library.display(id).unwrap();
+        let model = library
+            .read(&format!("legion/display/{id}.m2"))
+            .unwrap()
+            .unwrap();
+        benilla_m2::parse_m2(&mut Cursor::new(&model[..])).unwrap();
+        assert!(d.model_file != 0);
+    }
+}
