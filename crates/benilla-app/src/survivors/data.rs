@@ -1255,7 +1255,55 @@ pub(crate) fn racials(race: u8) -> &'static [RacialDef; 3] {
             &[Bonus::flat(Stat::Crit, 0.03)],
         ),
     ];
+    static BLOOD_ELF: [RacialDef; 3] = [
+        racial(
+            "arcane_affinity",
+            "Arcane Affinity",
+            1459,
+            "+4% damage",
+            &[Bonus::flat(Stat::Might, 0.04)],
+        ),
+        racial(
+            "magic_resistance",
+            "Magic Resistance",
+            6117,
+            "+2% damage reduction",
+            &[Bonus::flat(Stat::DamageReduction, 0.02)],
+        ),
+        racial(
+            "arcane_torrent",
+            "Arcane Torrent",
+            1449,
+            "+5% area",
+            &[Bonus::pct(Stat::Area, 0.05)],
+        ),
+    ];
+    static DRAENEI: [RacialDef; 3] = [
+        racial(
+            "gift_of_the_naaru",
+            "Gift of the Naaru",
+            139,
+            "+1.5 health per second",
+            &[Bonus::flat(Stat::Regen, 1.5)],
+        ),
+        racial(
+            "heroic_presence",
+            "Heroic Presence",
+            6673,
+            "+2% critical strike",
+            &[Bonus::flat(Stat::Crit, 0.02)],
+        ),
+        racial(
+            "shadow_resistance",
+            "Shadow Resistance",
+            976,
+            "+2% damage reduction",
+            &[Bonus::flat(Stat::DamageReduction, 0.02)],
+        ),
+    ];
     match race {
+        10 => &BLOOD_ELF,
+        11 => &DRAENEI,
         2 => &ORC,
         3 => &DWARF,
         4 => &NIGHT_ELF,
@@ -1291,6 +1339,9 @@ pub(crate) fn race_classes(race: u8) -> &'static [u8] {
         6 => &[1, 3, 7, 11],
         7 => &[1, 4, 8, 9],
         8 => &[1, 3, 4, 5, 7, 8],
+        // Legion's races, as The Burning Crusade made them.
+        10 => &[2, 3, 4, 5, 8, 9],
+        11 => &[1, 2, 3, 5, 7, 8],
         _ => &[],
     }
 }
@@ -4730,6 +4781,92 @@ pub(crate) fn appearance(key: &str) -> Option<&'static AppearanceDef> {
 /// The playable races, `ChrRaces.dbc` ids.
 pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
+/// Legion's playable races the mode takes in their pre-HD bodies where Legion's data is
+/// (`entities::legion`): the Blood Elf and the Draenei, `ChrRaces` ids.
+pub(crate) const LEGION_RACES: [u8; 2] = [10, 11];
+
+static LEGION_RACES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+/// Note which of [`LEGION_RACES`] this machine's character tables took.
+pub(crate) fn set_legion_races(races: &[u8]) {
+    let _ = LEGION_RACES_IN.set(races.to_vec());
+}
+
+static LEGION_RACE_ICONS: std::sync::OnceLock<Vec<((u8, u8), String)>> = std::sync::OnceLock::new();
+
+/// Note the icons of Legion's races, `(race, sex)` to a texture path.
+pub(crate) fn set_legion_race_icons(icons: Vec<((u8, u8), String)>) {
+    let _ = LEGION_RACE_ICONS.set(icons);
+}
+
+/// A Legion race's icon for `sex`, where the data has it.
+pub(crate) fn legion_race_icon(race: u8, sex: u8) -> Option<&'static str> {
+    LEGION_RACE_ICONS
+        .get()?
+        .iter()
+        .find(|(k, _)| *k == (race, sex))
+        .map(|(_, p)| p.as_str())
+}
+
+/// Whether this machine draws Legion race `race`.
+pub(crate) fn legion_race(race: u8) -> bool {
+    LEGION_RACES_IN.get().is_some_and(|r| r.contains(&race))
+}
+
+/// The races this machine can show: 1.12.1's, and Legion's where the data is.
+pub(crate) fn playable_races() -> Vec<u8> {
+    RACES
+        .into_iter()
+        .chain(LEGION_RACES.into_iter().filter(|&r| legion_race(r)))
+        .collect()
+}
+
+/// The 1.12.1 race standing in for one 1.12.1 lacks: its portrait, and its body on a machine
+/// without Legion's data. The Blood Elf a Human, the Draenei a Night Elf.
+pub(crate) fn stand_in(race: u8) -> u8 {
+    match race {
+        10 => 1,
+        11 => 4,
+        r => r,
+    }
+}
+
+/// 1.12.1's body displays (`ChrRaces`), male and female, of race 1 to 8.
+const BODIES: [(u32, u32); 8] = [
+    (49, 50),
+    (51, 52),
+    (53, 54),
+    (55, 56),
+    (57, 58),
+    (59, 60),
+    (1563, 1564),
+    (1478, 1479),
+];
+
+/// Legion's body displays of [`LEGION_RACES`] (`ChrRaces`' `MaleDisplayID`, `FemaleDisplayID`).
+const LEGION_BODIES: [(u8, (u32, u32)); 2] = [(10, (15476, 15475)), (11, (16125, 16126))];
+
+/// A body display a guest without Legion's data cannot draw (a Legion race's, as its host sent
+/// it) as its race's stand-in's body: `(race, display)`, or `None` when it is not one.
+pub(crate) fn stand_in_body(display: u32) -> Option<(u8, u32)> {
+    let legion = display.checked_sub(LEGION_DISPLAY_BASE)?;
+    let &(race, (male, _)) = LEGION_BODIES
+        .iter()
+        .find(|(_, (m, f))| *m == legion || *f == legion)?;
+    let sex = usize::from(legion != male);
+    let (m, f) = BODIES[usize::from(stand_in(race)) - 1];
+    Some((stand_in(race), [m, f][sex]))
+}
+
+/// A race's name, as the profile stores it: 1.12.1's own, and Legion's for its races.
+pub(crate) fn race_name(race: u8) -> &'static str {
+    match race {
+        10 => "Blood Elf",
+        11 => "Draenei",
+        r => crate::char_select::race_name(r),
+    }
+}
+
 /// The classes a race opened in the Rewards tab can be beyond vanilla's ([`race_classes`]).
 pub(crate) fn race_opens(race: u8) -> impl Iterator<Item = &'static ClassDef> {
     CLASSES
@@ -5097,6 +5234,28 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
 #[cfg(test)]
 mod tests {
     //! The tables' invariants and the run's curves. Pure data: no app, no game files.
+
+    #[test]
+    fn legions_races_stand_in_for_themselves_only_where_the_data_is() {
+        // This machine has no Legion data: 1.12.1's eight alone.
+        assert_eq!(playable_races(), RACES.to_vec());
+        assert!(!legion_race(10));
+        for race in LEGION_RACES {
+            assert!(!race_classes(race).is_empty());
+            assert!(!racials(race).is_empty());
+            assert!(RACES.contains(&stand_in(race)));
+            assert!(!race_name(race).is_empty());
+            assert_ne!(racials(race)[0].name, racials(1)[0].name, "{race}");
+        }
+        assert_eq!((race_name(10), race_name(11)), ("Blood Elf", "Draenei"));
+        // The Blood Elf's paladin and the Draenei's shaman, as The Burning Crusade made them.
+        assert!(race_classes(10).contains(&2) && race_classes(11).contains(&7));
+        // A host's Blood Elf body, on a machine without the data: a Human's, of the same sex.
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 15476), Some((1, 49)));
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 16126), Some((4, 56)));
+        assert_eq!(stand_in_body(49), None);
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 1913), None);
+    }
 
     #[test]
     fn illidans_glaive_is_gear_beyond_the_sixty() {

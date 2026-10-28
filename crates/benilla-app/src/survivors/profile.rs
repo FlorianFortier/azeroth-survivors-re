@@ -194,7 +194,8 @@ pub(super) fn cosmetics<'a>(
 fn race_id(name: &str) -> Option<u8> {
     data::RACES
         .into_iter()
-        .find(|&r| crate::char_select::race_name(r) == name)
+        .chain(data::LEGION_RACES)
+        .find(|&r| super::data::race_name(r) == name)
 }
 
 /// Sound, mouse, picture and language, as the Options page sets them.
@@ -587,7 +588,7 @@ impl Profile {
 
     /// Whether `race` has been opened to every class.
     pub fn race_open(&self, race: u8) -> bool {
-        self.races.contains(crate::char_select::race_name(race))
+        self.races.contains(super::data::race_name(race))
     }
 
     /// The races opened to every class, by id.

@@ -280,7 +280,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   `data::LEGION_WEAPON_FAMILIES`' in order, each with a 1.12.1 icon of its family so gear's
   pools draw it (`entities::legion`); a piece with `ItemDef::look` wears that one where the
   catalog has it, and an entry whose look the catalog lacks takes its family's first 1.12.1
-  one (`outfit::legion_fallback`).
+  one (`outfit::legion_fallback`). Legion's races (`data::LEGION_RACES`, the Blood Elf and the
+  Draenei) join `data::playable_races` only where `entities::legion` put them into the client's
+  character tables (`data::legion_race`); they are stored by name (`data::race_name`), never
+  opened in the Rewards tab, wear no helm, and a guest without them draws their stand-in
+  (`data::stand_in`, `data::stand_in_body`, in `net/client.rs`).
 - **The level-up offer is the simulation's.** Solo and the host deal each hero's cards
   (`offer::deal_offers`, onto `Vitals::offer`); a guest sees them on `Game::Me` and answers with
   `Game::Card`, which `offer::apply_action` takes only for a card of that offer at the rarity it

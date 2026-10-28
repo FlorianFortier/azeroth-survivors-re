@@ -143,6 +143,8 @@ fn bar(
 
 /// The race's portrait for the player frame: `TemporaryPortrait-<Sex>-<Race>`.
 fn portrait_of(race: u8, sex: u8) -> &'static str {
+    // A race 1.12.1 never had shows its stand-in's portrait.
+    let race = data::stand_in(race);
     const MALE: [&str; 8] = [
         "Interface\\CharacterFrame\\TemporaryPortrait-Male-Human",
         "Interface\\CharacterFrame\\TemporaryPortrait-Male-Orc",

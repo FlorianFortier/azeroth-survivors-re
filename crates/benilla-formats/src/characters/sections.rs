@@ -7,6 +7,10 @@ use crate::dbc::{parse, str_at, u32_at};
 use crate::items::ItemDisplay;
 use crate::{read_texture_mip_chain, BlpMipChain, Chain};
 
+// Rows a later client's races add (`benilla-legion`, native only): ours, in a file of its own.
+#[cfg(not(target_arch = "wasm32"))]
+mod added;
+
 const CHAR_SECTIONS: &str = "DBFilesClient\\CharSections.dbc";
 
 /// CharSections `sectionType` values (facial hair 2 at `0x478660`, hair 3 at `0x4784c0`).

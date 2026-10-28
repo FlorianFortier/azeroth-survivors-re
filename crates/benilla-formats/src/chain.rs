@@ -140,6 +140,9 @@ impl Chain {
 
     /// Whether `name` (`/` or `\`, any case) is a readable file, not a delete marker.
     pub fn contains(&self, name: &str) -> bool {
+        if crate::extra_files::has_extra_file(name) {
+            return true;
+        }
         self.resolve(name)
             .is_some_and(|a| !a.is_delete_marker(name))
     }
@@ -151,6 +154,9 @@ impl Chain {
 
     /// Read a file by internal path (`/` or `\`) from its winning archive.
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
+        if let Some(extra) = crate::extra_files::extra_file(name) {
+            return extra.with_context(|| format!("reading {name} beside the archives"));
+        }
         let archive = self.archive_for(name)?;
         archive
             .read_file(name)

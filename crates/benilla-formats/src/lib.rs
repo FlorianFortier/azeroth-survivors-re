@@ -13,6 +13,11 @@ pub use benilla_blp::BlpTexels;
 
 mod chain;
 pub use chain::{Chain, ChainEntry};
+// Files beside the archives (a Legion install's): ours, native only.
+#[cfg(not(target_arch = "wasm32"))]
+mod extra_files;
+#[cfg(not(target_arch = "wasm32"))]
+pub use extra_files::{extra_file, set_extra_files, ExtraFiles};
 /// Loose `.tga` art, as addon folders ship it.
 mod tga;
 pub use tga::tga_to_rgba;

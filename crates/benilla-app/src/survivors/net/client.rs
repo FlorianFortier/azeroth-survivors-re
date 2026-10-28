@@ -123,15 +123,37 @@ fn spawn_copy(commands: &mut Commands, s: &Spawn, me: u8, host_t: f32) -> Entity
             crate::survivors::outfit::worn_entries(&s.fields),
         );
     }
+    // A hero of a Legion race this machine cannot draw wears its stand-in's body and race.
+    let mut fields = s.fields.clone();
+    let mut display = s.display.map(crate::survivors::data::shown_display);
+    if let Some((race, body)) = s
+        .display
+        .filter(|_| s.kind == ObjectKind::Player)
+        .and_then(crate::survivors::data::stand_in_body)
+        .filter(|(_, _)| {
+            let race = fields
+                .iter()
+                .find(|(i, _)| *i == crate::survivors::units::FIELD_BYTES_0)
+                .map_or(0, |(_, v)| (*v & 0xff) as u8);
+            !crate::survivors::data::legion_race(race)
+        })
+    {
+        display = Some(body);
+        for (i, v) in &mut fields {
+            if *i == crate::survivors::units::FIELD_BYTES_0 {
+                *v = (*v & !0xff) | u32::from(race);
+            }
+        }
+    }
     let mut ec = commands.spawn((
         Guid(s.guid),
         NetEntity {
             kind,
             // A Legion look falls back to the creature's 1.12.1 one where the data is not.
-            display_id: s.display.map(crate::survivors::data::shown_display),
+            display_id: display,
             scale: s.scale,
         },
-        ObjectStore(ObjectFields::from_pairs(&s.fields)),
+        ObjectStore(ObjectFields::from_pairs(&fields)),
         Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(s.yaw)),
         Visibility::default(),
         RunEntity,

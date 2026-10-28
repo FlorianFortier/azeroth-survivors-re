@@ -274,3 +274,64 @@ fn legion_weapons_answer_where_the_client_looks_for_them() {
             .is_empty());
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn the_blood_elf_and_the_draenei_read_as_1_12_1_races() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    for (id, file, models, horde) in [
+        (10u8, "BloodElf", [117170, 116921], true),
+        (11, "Draenei", [117721, 117437], false),
+    ] {
+        let race = library.race(id).unwrap();
+        println!(
+            "{file}: {} sections, {} hair, {} facial",
+            race.sections.len(),
+            race.hair.len(),
+            race.facial.len()
+        );
+        assert_eq!(
+            (race.file.as_str(), race.models, race.horde),
+            (file, models, horde)
+        );
+        for sex in [0u8, 1] {
+            // A base skin for each of several colours, faces, hair styles.
+            let skins = race
+                .sections
+                .iter()
+                .filter(|((s, b, v, _), t)| *s == sex && *b == 0 && *v == 0 && t[0] != 0)
+                .count();
+            assert!(skins >= 5, "{file} {sex}: {skins} skins");
+            assert!(race.hair.iter().filter(|((s, _), _)| *s == sex).count() >= 5);
+            // The body reads as a 1.12.1 model, every geoset kept.
+            let path = format!(
+                "character/{}/{}/legion_char_{}.m2",
+                file.to_lowercase(),
+                if sex == 0 { "male" } else { "female" },
+                race.models[usize::from(sex)]
+            );
+            assert!(library.claims(&path));
+            let model = library.read(&path).unwrap().unwrap();
+            let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
+            assert!(draws.len() > 20, "{path}: {} draws", draws.len());
+        }
+        // Its skin, at 1.12.1's size.
+        let skin = race
+            .sections
+            .iter()
+            .find(|((s, b, v, c), _)| (*s, *b, *v, *c) == (0, 0, 0, 0))
+            .unwrap()
+            .1[0];
+        let half = library
+            .read(&format!("legion/half/{skin}.blp"))
+            .unwrap()
+            .unwrap();
+        let blp = benilla_blp::decode(&half).unwrap();
+        assert_eq!((blp.width, blp.height), (256, 256));
+    }
+}

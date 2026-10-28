@@ -285,6 +285,28 @@ upstream merge. Each step is one pull request or a few.
    the first allied races) and classes (Demon Hunter, Monk, Death Knight) in `data.rs`, with
    Legion's spell icons and visuals. A choice to make then: every hero in HD, or 1.12.1's bodies
    kept and only the new races added.
+   **The route chosen**: the new races in their pre-HD bodies, 1.12.1's eight keeping theirs, the
+   classes as a step of their own after. **First part done**: the Blood Elf and the Draenei.
+   Legion still ships the pre-HD models (`bloodelfmale.m2`…), and `ChrRaces`' `MaleDisplayID`/
+   `FemaleDisplayID` name them (the `HighRes…` columns name the HD ones). Their `CharSections`
+   rows of sections 0 to 4 are the old layout (5 to 9 the HD one; rows flagged 0x4, 0x8, 0x20 or
+   0x100 are not a playable body's), at twice 1.12.1's size: `library` serves them as
+   `legion/half/<id>.blp`, their first mip dropped (`races::half_blp`), so they land on the
+   compositor's 256² tiles as they are. Their hair geosets are `CharHairGeosets`' style rows
+   without custom geometry, their facial hair the first three of `CharacterFacialHairStyles`'
+   five. `entities/legion.rs` puts them into the client's own tables (`add_section`, `add_hair`,
+   `add_facial`, `add_race`, `add_display`: files of our own beside upstream's), a body display
+   at a `Character\<Race>\<Sex>\legion_char_<id>.mdx` path, so the client composites it, every
+   geoset kept for its own selection. The files beside the archives moved from the asset reader
+   down to the chain (`benilla_formats::set_extra_files`), which the compositor reads too. In the
+   survivors mode they join the classes they could be in The Burning Crusade, with racials,
+   names and icons of their own (Legion's `Achievement_Character_<Race>_<Sex>`), no helm (1.12.1's
+   are a model per race), the class's 1.12.1 starting outfit; a guest without the data draws a
+   Human for a Blood Elf and a Night Elf for a Draenei (`data::stand_in_body`). Read through the
+   library: each body in both sexes by the client's loader, its skin at 256²
+   (`the_blood_elf_and_the_draenei_read_as_1_12_1_races`). Not seen on screen here. **Next**:
+   the Worgen, the Goblin and the Pandaren, the same way.
+
 9. **Maps.** Legion's split ADTs (`_tex0`, `_obj0`, `_obj1`), WDT and WMO by file data id, `MH2O`
    liquids, lighting and skies; Broken Isles zones in `data::MAPS`. The biggest step.
 10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's

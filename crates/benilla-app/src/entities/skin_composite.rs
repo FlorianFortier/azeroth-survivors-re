@@ -201,6 +201,12 @@ fn read_texture(chain: &Mutex<Chain>, path: &str) -> anyhow::Result<BlpMipChain>
     let name = path.replace('/', "\\");
     #[cfg(not(target_arch = "wasm32"))]
     let bytes = {
+        // A file beside the archives (a Legion race's skins) reads from its source.
+        if let Some(extra) = benilla_formats::extra_file(&name) {
+            let bytes = extra.with_context(|| format!("reading texture '{name}'"))?;
+            return blp_bytes_to_mip_chain(&bytes)
+                .with_context(|| format!("decoding texture '{name}'"));
+        }
         let archive = chain.lock_recover().archive_for(&name)?;
         archive
             .read_file(&name)

@@ -8,6 +8,10 @@
 //! - `legion/display/<display id>.m2`: a creature display's model in its own textures and geosets,
 //!   from `CreatureDisplayInfo` (WoWDBDefs' definitions needed, [`Library::open`]).
 //!
+//! - `legion/half/<file data id>.blp`: a texture at half its size (a race's skins, for 1.12.1's
+//!   256² body atlas, [`crate::races`]);
+//! - `…/legion_char_<file data id>.m2`, in any folder: a character body, every geoset kept for the
+//!   client's own selection;
 //! - `…/legion_item_<item display id>_<side>.m2`, in any folder: an item display's model (its
 //!   left or right one), its skin from the display's material ([`item_model_name`]).
 //!
@@ -94,6 +98,7 @@ pub struct Library {
     /// `AnimationData`'s `Fallback`, by animation id; empty without the definitions.
     fallbacks: Vec<u16>,
     items: Option<Items>,
+    races: Option<crate::races::Races>,
 }
 
 impl Library {
@@ -118,11 +123,15 @@ impl Library {
             None => (None, Vec::new()),
         };
         let items = dbd.map(|dir| items(&casc, dir)).transpose()?;
+        let races = dbd
+            .map(|dir| crate::races::Races::load(&casc, dir))
+            .transpose()?;
         Ok(Self {
             casc,
             displays,
             fallbacks,
             items,
+            races,
         })
     }
 
@@ -130,6 +139,15 @@ impl Library {
     pub fn read(&self, path: &str) -> Option<Result<Vec<u8>>> {
         // An item's model, wherever the client looks for it.
         let base = path.rsplit('/').next().unwrap_or(path);
+        // A character body, every geoset kept for the client's own selection.
+        if let Some(rest) = base.strip_prefix("legion_char_") {
+            return Some(
+                match rest.strip_suffix(".m2").and_then(|r| r.parse::<u32>().ok()) {
+                    Some(file) => self.transcode(file, |_| None, |_| true),
+                    None => Err(Error::Format(format!("no character model at {path}"))),
+                },
+            );
+        }
         if let Some(rest) = base.strip_prefix("legion_item_") {
             let parsed = rest
                 .strip_suffix(".m2")
@@ -153,11 +171,39 @@ impl Library {
                 .and_then(|d| self.model(d.model_file, Some(&d)))
         } else if let Some(file) = number(rest, ".m2") {
             self.model(file, None)
+        } else if let Some(file) = rest.strip_prefix("half/").and_then(|r| number(r, ".blp")) {
+            self.casc
+                .read_id(file)
+                .map(|b| crate::races::half_blp(&b))
+                .map_err(Error::from)
         } else if let Some(file) = number(rest, ".blp") {
             self.casc.read_id(file).map_err(Error::from)
         } else {
             Err(Error::Format(format!("no Legion file at {path}")))
         })
+    }
+
+    /// A file's data id by its path (`/` or `\\`, any case).
+    pub fn file_id(&self, path: &str) -> Option<u32> {
+        self.casc.id_of(&path.replace('\\', "/"))
+    }
+
+    /// Whether `path` (lowercase, `/` between folders) is one [`Self::read`] answers.
+    pub fn claims(&self, path: &str) -> bool {
+        let base = path.rsplit('/').next().unwrap_or(path);
+        path.starts_with(PREFIX)
+            || base.starts_with("legion_item_")
+            || base.starts_with("legion_char_")
+    }
+
+    /// Playable race `id` in its pre-HD body; none without the definitions.
+    pub fn race(&self, id: u8) -> Option<crate::races::LegionRace> {
+        let (races, items) = (self.races.as_ref()?, self.items.as_ref()?);
+        races.race(
+            id,
+            |m| items.textures.get(&m).copied().unwrap_or(0),
+            |d| self.display(d).map_or(0, |d| d.model_file),
+        )
     }
 
     /// A creature display by its Legion id.
