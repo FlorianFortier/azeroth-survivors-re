@@ -5,9 +5,10 @@
 //! the batches of the sections the display hides dropped), the textures named by the paths the
 //! caller picks (a replaceable one named, and made a type 0, once its display gives its file),
 //! the materials, the bones, colours and texture weights with their keys, the sequences on one
-//! timeline, the attachments, the lookups and the bounds. Texture transforms, events, lights,
-//! cameras, ribbons and particles are left out. Legion's shader combos come down to one texture a
-//! batch, its base, and its blend modes to 1.12.1's.
+//! timeline, the attachments, the texture transforms, the particle and ribbon emitters
+//! ([`particles`], [`ribbons`]), the lookups and the bounds. Events, lights and cameras are left
+//! out. Legion's shader combos come down to one texture a batch, its base, and its blend modes to
+//! 1.12.1's.
 //!
 //! The keys ([`Animation`]): a Legion track holds an array of keys per sequence, each timed from
 //! its sequence's start, and a sequence's arrays may lie in an `.anim` file of its own (its flag
@@ -258,9 +259,25 @@ pub fn to_vanilla(
     }
     out.array(0x84, n, &recs);
 
-    // No texture transforms are carried: every batch's lookup says none.
-    let (_, n) = src.records(0x98, 2)?;
-    out.array(0xac, n, &vec![0xff; n * 2]);
+    // Texture transforms: a translation, a rotation (four floats in both) and a scaling, keyed.
+    let (_, n) = src.records(0x60, 60)?;
+    let mut recs = Vec::with_capacity(n * 0x54);
+    for i in 0..n {
+        let base = src.offset(0x60)? + i * 60;
+        let identity = [0f32, 0.0, 0.0, 1.0];
+        let rest: [&[u8]; 3] = [&floats(&[0.0; 3]), &floats(&identity), &floats(&[1.0; 3])];
+        for (k, kind) in [Kind::Vec3, Kind::Quat32, Kind::Vec3]
+            .into_iter()
+            .enumerate()
+        {
+            recs.extend_from_slice(&out.track(md20, base + k * 20, kind, Some(rest[k]), &bands));
+        }
+    }
+    out.array(0x74, n, &recs);
+    out.copy(&src, 0x98, 0xac, 2)?; // texture transform lookup
+
+    particles(&mut out, md20, &bands)?;
+    ribbons(&mut out, md20, &bands)?;
 
     // Attachments: 40 bytes to 48, the bone widened, the visibility track left out.
     let (atts, n) = src.records(0xf0, 40)?;
@@ -394,6 +411,14 @@ enum Kind {
     Quat,
     /// An `i16` over 32767, as 1.12.1 keeps it.
     Fix16,
+    /// Four floats, a texture transform's rotation.
+    Quat32,
+    F32,
+    U16,
+    U8,
+    /// A particle's gravity packed as a vector (`int8` x and y, `int16` z: flag `0x800000`),
+    /// brought to 1.12.1's pull down.
+    Gravity,
 }
 
 impl Kind {
@@ -402,7 +427,10 @@ impl Kind {
         match self {
             Kind::Vec3 => 12,
             Kind::Quat => 8,
-            Kind::Fix16 => 2,
+            Kind::Fix16 | Kind::U16 => 2,
+            Kind::Quat32 => 16,
+            Kind::F32 | Kind::Gravity => 4,
+            Kind::U8 => 1,
         }
     }
 
@@ -421,9 +449,206 @@ impl Kind {
                     .collect();
                 floats(&c)
             }
+            Kind::Gravity => floats(&[gravity(v)]),
             _ => v.to_vec(),
         }
     }
+}
+
+/// A packed gravity vector's pull down: its direction `(x/128, y/128, √(1 − x² − y²))` times
+/// `z · 0.04238648`, the vector the particles fall along; 1.12.1's gravity pulls down the z axis,
+/// so it keeps the vector's downward part.
+fn gravity(v: &[u8]) -> f32 {
+    let (x, y) = (f32::from(v[0] as i8) / 128.0, f32::from(v[1] as i8) / 128.0);
+    let z = f32::from(i16::from_le_bytes([v[2], v[3]]));
+    let up = (1.0 - x * x - y * y).max(0.0).sqrt();
+    -(up * z * 0.042_386_48)
+}
+
+/// A particle's over-life ramp (an `FBlock`: times in `fixed16` of the particle's life, values)
+/// at life fraction `t`, linear between keys; `None` with no keys.
+fn over_life(
+    md20: &[u8],
+    at: usize,
+    size: usize,
+    t: f32,
+    read: impl Fn(&[u8]) -> f32,
+) -> Option<f32> {
+    let (tn, to) = array_at(md20, at).ok()?;
+    let (vn, vo) = array_at(md20, at + 8).ok()?;
+    let keys: Vec<(f32, f32)> = (0..tn.min(vn))
+        .map_while(|k| {
+            let time = f32::from(u16_at(md20, to + k * 2)?) / 32767.0;
+            Some((time, read(md20.get(vo + k * size..vo + (k + 1) * size)?)))
+        })
+        .collect();
+    let first = *keys.first()?;
+    if t <= first.0 {
+        return Some(first.1);
+    }
+    for w in keys.windows(2) {
+        let ((t0, v0), (t1, v1)) = (w[0], w[1]);
+        if t <= t1 {
+            let f = if t1 > t0 { (t - t0) / (t1 - t0) } else { 1.0 };
+            return Some(v0 + (v1 - v0) * f);
+        }
+    }
+    keys.last().map(|k| k.1)
+}
+
+fn f32_of(b: &[u8]) -> f32 {
+    f32::from_le_bytes([b[0], b[1], b[2], b[3]])
+}
+
+/// Particle emitters: Legion's 0x1ec-byte records to 1.12.1's 0x1f8. Their tracks are keyed as
+/// the bones' are; the over-life ramps (`FBlock`s, any number of keys) are sampled at birth, at
+/// the colour ramp's middle key and at death into 1.12.1's middle point and three keys. A
+/// multi-texture emitter keeps its first texture, a "bone" emitter turns a plane, and Legion's
+/// premultiplied blend (7) adds, as its glows mean. Emitters that spawn other models lose them.
+fn particles(out: &mut Out, md20: &[u8], bands: &[Band]) -> Result<()> {
+    const LEGION: usize = 0x1ec;
+    let (n, base) = array_at(md20, 0x128)?;
+    if n == 0 {
+        return Ok(());
+    }
+    md20.get(base..base + n * LEGION)
+        .ok_or(Error::Truncated("particles"))?;
+    let mut recs = Vec::with_capacity(n * 0x1f8);
+    for i in 0..n {
+        let e = base + i * LEGION;
+        let r = &md20[e..e + LEGION];
+        let mut v = vec![0u8; 0x1f8];
+        let flags = u32_at(r, 4).unwrap_or(0);
+        v[0..4].copy_from_slice(&r[0..4]);
+        // The flags 1.12.1 reads are its low sixteen bits.
+        v[4..8].copy_from_slice(&(flags & 0xffff).to_le_bytes());
+        v[8..0x16].copy_from_slice(&r[8..0x16]); // position, bone
+        let texture = u16::from_le_bytes([r[0x16], r[0x17]]);
+        let texture = if flags & 0x1000_0000 != 0 {
+            texture & 0x1f
+        } else {
+            texture
+        };
+        v[0x16..0x18].copy_from_slice(&texture.to_le_bytes());
+        let blend = match r[0x28] {
+            b @ 0..=6 => b,
+            _ => 4,
+        };
+        v[0x28] = blend;
+        v[0x2a] = match r[0x29] {
+            t @ 1..=3 => t,
+            _ => 1,
+        };
+        v[0x2e..0x34].copy_from_slice(&r[0x2e..0x34]); // tile rotation, rows, columns
+                                                       // Speed, its variation, the two spreads, gravity, lifespan, rate, the area's length and
+                                                       // width, the z source; Legion keeps a variation float after the lifespan and the rate.
+        let tracks = [0x34, 0x48, 0x5c, 0x70, 0x84, 0x98, 0xb0, 0xc8, 0xdc, 0xf0];
+        for (k, &from) in tracks.iter().enumerate() {
+            let kind = if k == 4 && flags & 0x80_0000 != 0 {
+                Kind::Gravity
+            } else {
+                Kind::F32
+            };
+            let t = out.track(md20, e + from, kind, None, bands);
+            v[0x34 + k * TRACK..0x34 + (k + 1) * TRACK].copy_from_slice(&t);
+        }
+        // The over-life ramps.
+        let mid = {
+            let (tn, to) = array_at(md20, e + 0x104)?;
+            (tn >= 3)
+                .then(|| u16_at(md20, to + 2))
+                .flatten()
+                .map_or(0.5, |t| (f32::from(t) / 32767.0).clamp(0.01, 0.99))
+        };
+        let at = [0.0, mid, 1.0];
+        let channel = |c: usize| move |b: &[u8]| f32_of(&b[c * 4..]);
+        let fix16 = |b: &[u8]| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32767.0;
+        let cell = |b: &[u8]| f32::from(u16::from_le_bytes([b[0], b[1]]));
+        v[0x14c..0x150].copy_from_slice(&mid.to_le_bytes());
+        for (k, &t) in at.iter().enumerate() {
+            let rgb =
+                [0, 1, 2].map(|c| over_life(md20, e + 0x104, 12, t, channel(c)).unwrap_or(255.0));
+            let alpha = over_life(md20, e + 0x114, 2, t, fix16).unwrap_or(1.0) * 255.0;
+            let byte = |x: f32| x.round().clamp(0.0, 255.0) as u32;
+            let bgra = byte(alpha) << 24 | byte(rgb[0]) << 16 | byte(rgb[1]) << 8 | byte(rgb[2]);
+            v[0x150 + k * 4..0x154 + k * 4].copy_from_slice(&bgra.to_le_bytes());
+            let scale = over_life(md20, e + 0x124, 8, t, f32_of).unwrap_or(1.0);
+            v[0x15c + k * 4..0x160 + k * 4].copy_from_slice(&scale.to_le_bytes());
+        }
+        // The head's and the tail's flipbook cells, each segment from its key to the next.
+        for (block, to) in [(0x13c, 0x168), (0x14c, 0x174)] {
+            let c = at.map(|t| over_life(md20, e + block, 2, t, cell).unwrap_or(0.0) as u16);
+            let mut ramp = vec![c[0], c[1]];
+            if to == 0x168 {
+                ramp.push(1); // the head's repeat count, after each pair
+            }
+            ramp.extend([c[1], c[2]]);
+            if to == 0x168 {
+                ramp.push(1);
+            }
+            let bytes: Vec<u8> = ramp.iter().flat_map(|x| x.to_le_bytes()).collect();
+            v[to..to + bytes.len()].copy_from_slice(&bytes);
+        }
+        // A tail where the tail cells are keyed: 2 is head and tail, 0 the head alone.
+        let tailed = array_at(md20, e + 0x14c).is_ok_and(|(k, _)| k > 0);
+        v[0x2c] = if tailed { 2 } else { 0 };
+        v[0x17c..0x198].copy_from_slice(&r[0x15c..0x178]); // tail, twinkle, burst, drag
+        v[0x198..0x19c].copy_from_slice(&r[0x180..0x184]); // spin
+        v[0x19c..0x1d4].copy_from_slice(&r[0x188..0x1c0]); // tumble, wind, follow
+        let (sn, so) = array_at(md20, e + 0x1c0)?;
+        let points = md20.get(so..so + sn * 12).unwrap_or(&[]);
+        let (sn, so) = out.put_array(points.len() / 12, points);
+        v[0x1d4..0x1d8].copy_from_slice(&sn.to_le_bytes());
+        v[0x1d8..0x1dc].copy_from_slice(&so.to_le_bytes());
+        let enabled = out.track(md20, e + 0x1c8, Kind::U8, None, bands);
+        v[0x1dc..0x1f8].copy_from_slice(&enabled);
+        recs.extend_from_slice(&v);
+    }
+    out.array(0x13c, n, &recs);
+    Ok(())
+}
+
+/// Ribbon emitters: Legion's 0xb0-byte records to 1.12.1's 0xdc, their tracks keyed.
+fn ribbons(out: &mut Out, md20: &[u8], bands: &[Band]) -> Result<()> {
+    const LEGION: usize = 0xb0;
+    let (n, base) = array_at(md20, 0x120)?;
+    if n == 0 {
+        return Ok(());
+    }
+    md20.get(base..base + n * LEGION)
+        .ok_or(Error::Truncated("ribbons"))?;
+    let mut recs = Vec::with_capacity(n * 0xdc);
+    for i in 0..n {
+        let e = base + i * LEGION;
+        let r = &md20[e..e + LEGION];
+        let mut v = vec![0u8; 0xdc];
+        v[0..0x14].copy_from_slice(&r[0..0x14]); // id, bone, position
+                                                 // The texture and material indices, copied out.
+        for at in [0x14, 0x1c] {
+            let (k, o) = array_at(md20, e + at)?;
+            let list = md20.get(o..o + k * 2).unwrap_or(&[]);
+            let (k, o) = out.put_array(list.len() / 2, list);
+            v[at..at + 4].copy_from_slice(&k.to_le_bytes());
+            v[at + 4..at + 8].copy_from_slice(&o.to_le_bytes());
+        }
+        for (from, to, kind) in [
+            (0x24, 0x24, Kind::Vec3),
+            (0x38, 0x40, Kind::Fix16),
+            (0x4c, 0x5c, Kind::F32),
+            (0x60, 0x78, Kind::F32),
+        ] {
+            let t = out.track(md20, e + from, kind, None, bands);
+            v[to..to + TRACK].copy_from_slice(&t);
+        }
+        v[0x94..0xa4].copy_from_slice(&r[0x74..0x84]); // edges, lifetime, gravity, rows, columns
+        let slot = out.track(md20, e + 0x84, Kind::U16, None, bands);
+        v[0xa4..0xc0].copy_from_slice(&slot);
+        let shown = out.track(md20, e + 0x98, Kind::U8, None, bands);
+        v[0xc0..0xdc].copy_from_slice(&shown);
+        recs.extend_from_slice(&v);
+    }
+    out.array(0x134, n, &recs);
+    Ok(())
 }
 
 fn floats(v: &[f32]) -> Vec<u8> {
@@ -732,7 +957,7 @@ mod tests {
         assert!(m.textures[0].wrap_x && m.textures[0].wrap_y);
         assert_eq!(m.materials[0].blend_mode.bits(), 2);
         assert_eq!(m.materials[0].flags.bits(), 0x4);
-        assert_eq!(m.texture_transform_lookup, [0xffff]);
+        assert_eq!(m.texture_transform_lookup, [0]);
         assert_eq!(
             m.color_alpha_tracks[0].constant(),
             Some(0x3fff as f32 / 32767.0)
@@ -846,6 +1071,102 @@ mod tests {
         assert_eq!(playable.len(), 200);
         let to = |id: usize| playable[id].resolved_id;
         assert_eq!((to(0), to(5), to(60), to(7)), (0, 108, 60, 0));
+    }
+
+    /// An `FBlock` of three keys, its times at birth, `mid` and death.
+    fn fblock(m: &mut Out, mid: u16, values: &[u8]) -> [u8; 16] {
+        let times = m.append(&[0u16, mid, 32767].map(u16::to_le_bytes).concat());
+        let values = m.append(values);
+        let mut b = [0u8; 16];
+        for (at, v) in [(0, 3), (4, times), (8, 3), (12, values)] {
+            b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        b
+    }
+
+    /// A model with one particle emitter (its over-life ramps keyed, Legion's blend 7, a packed
+    /// gravity), one ribbon and one texture transform, read back by the client's parsers.
+    #[test]
+    fn emitters_and_texture_transforms_read_as_the_clients() {
+        let (md20, skin) = legion();
+        let mut m = Out { b: md20 };
+        let mut p = vec![0u8; 0x1ec];
+        p[0..4].copy_from_slice(&(-1i32).to_le_bytes());
+        // Unlit, a packed gravity, a multi-texture.
+        p[4..8].copy_from_slice(&(0x1 | 0x80_0000 | 0x1000_0000u32).to_le_bytes());
+        // Textures 0 and 1 packed five bits each: the first is kept.
+        p[0x16..0x18].copy_from_slice(&(1u16 << 5).to_le_bytes());
+        p[0x28] = 7;
+        p[0x29] = 2;
+        p[0x30..0x34].copy_from_slice(&[1, 0, 1, 0]);
+        let rgb = [[255f32, 0.0, 0.0], [0.0, 255.0, 0.0], [0.0, 0.0, 255.0]];
+        let color = fblock(&mut m, 8191, &floats(&rgb.concat()));
+        p[0x104..0x114].copy_from_slice(&color);
+        let alpha = fblock(
+            &mut m,
+            8191,
+            &[32767i16, 16383, 0].map(i16::to_le_bytes).concat(),
+        );
+        p[0x114..0x124].copy_from_slice(&alpha);
+        let scale = fblock(&mut m, 8191, &floats(&[1.0, 1.0, 2.0, 2.0, 0.5, 0.5]));
+        p[0x124..0x134].copy_from_slice(&scale);
+        p[0x174..0x178].copy_from_slice(&0.25f32.to_le_bytes()); // drag
+                                                                 // Gravity: straight down the packed vector's z, one key in the stand.
+        let pair = |n: u32, at: u32| [n.to_le_bytes(), at.to_le_bytes()].concat();
+        let time = m.append(&0u32.to_le_bytes());
+        let value = m.append(&[0u8, 0, 100, 0]);
+        let ot = m.append(&pair(1, time));
+        let ov = m.append(&pair(1, value));
+        p[0x84 + 2..0x84 + 4].copy_from_slice(&0xffffu16.to_le_bytes());
+        p[0x84 + 4..0x84 + 12].copy_from_slice(&pair(1, ot));
+        p[0x84 + 12..0x84 + 20].copy_from_slice(&pair(1, ov));
+        m.array(0x128, 1, &p);
+
+        let mut r = vec![0u8; 0xb0];
+        r[4..8].copy_from_slice(&0u32.to_le_bytes());
+        let tex = m.append(&0u16.to_le_bytes());
+        r[0x14..0x1c].copy_from_slice(&pair(1, tex));
+        let mat = m.append(&0u16.to_le_bytes());
+        r[0x1c..0x24].copy_from_slice(&pair(1, mat));
+        r[0x74..0x78].copy_from_slice(&30f32.to_le_bytes());
+        r[0x78..0x7c].copy_from_slice(&0.5f32.to_le_bytes());
+        m.array(0x120, 1, &r);
+
+        let mut t = vec![0u8; 60];
+        for k in 0..3 {
+            t[k * 20 + 2..k * 20 + 4].copy_from_slice(&0xffffu16.to_le_bytes());
+        }
+        m.array(0x60, 1, &t);
+        m.array(0x98, 1, &[0, 0]);
+
+        let names = [Some(virtual_path(7))];
+        let file = to_vanilla(&m.b, &skin, &names, |_| true, &Animation::default()).unwrap();
+
+        let ps = benilla_formats::parse_m2_particle_emitters(&file).unwrap();
+        assert_eq!(ps.len(), 1);
+        let p = &ps[0];
+        assert_eq!(p.blend, benilla_formats::ParticleBlend::Add);
+        assert_eq!(p.shape, benilla_formats::ParticleShape::Sphere);
+        assert!(!p.lit);
+        assert_eq!(p.texture.as_deref(), Some("Legion\\7.blp"));
+        assert_eq!(p.drag, 0.25);
+        let life = &p.over_life;
+        assert!((life.mid - 0.25).abs() < 1e-3, "{}", life.mid);
+        assert_eq!(life.color[0], [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(life.color[1][1], 1.0);
+        assert!((life.color[1][3] - 0.5).abs() < 0.01);
+        assert_eq!(life.color[2], [0.0, 0.0, 1.0, 0.0]);
+        assert_eq!(life.scale, [1.0, 2.0, 0.5]);
+        // The packed gravity: z 100 straight up the vector, a pull down of about 4.24.
+        assert!((gravity(&[0, 0, 100, 0]) + 4.238648).abs() < 1e-4);
+
+        let rs = benilla_formats::parse_m2_ribbon_emitters(&file).unwrap();
+        assert_eq!(rs.len(), 1);
+        assert_eq!(rs[0].texture.as_deref(), Some("Legion\\7.blp"));
+
+        let f = benilla_m2::parse_m2(&mut Cursor::new(&file[..])).unwrap();
+        assert_eq!(f.model().texture_transforms.len(), 1);
+        assert_eq!(f.model().texture_transform_lookup, [0]);
     }
 
     #[test]
