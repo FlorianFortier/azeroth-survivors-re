@@ -6,8 +6,8 @@
 //! height textures (`MAMP`, `MTXP`), the far doodads (`_obj1`), the level of detail (`_lod`). The
 //! alpha is decoded whatever its form (Legion's big alpha, 8-bit, raw or run-length) and written
 //! run-length, which the 1.12.1 reader takes in either alpha mode; a high-resolution hole map
-//! becomes the 4×4 one (a block open where any of its four cells is). The liquids (`MH2O`) are
-//! not carried yet.
+//! becomes the 4×4 one (a block open where any of its four cells is). Each chunk's first liquid
+//! (`MH2O`'s first instance) becomes its one `MCLQ` block ([`mclq`]).
 //!
 //! Names become the library's: a texture `Legion\<file data id>.blp`, a model
 //! `Legion\<file data id>.mdx` (the client reads `.mdx` names as `.m2`), resolved by `resolve`; a
@@ -182,6 +182,153 @@ const KEPT_FLAGS: u32 = 0x1 | 0x2;
 /// Legion's: the hole map is the high-resolution one, in the header's height and normal offsets.
 const HIGH_RES_HOLES: u32 = 0x10000;
 
+/// A Legion liquid type's kind and vertex format: `LiquidType`'s sound bank (0 water, 1 ocean,
+/// 2 magma, 3 slime) and its material's `LVF`; `None` for a type the tables lack.
+pub type LiquidKinds<'a> = dyn Fn(u16) -> Option<(u8, u8)> + 'a;
+
+/// `MH2O`'s value from which a liquid names a `LiquidObject` rather than a vertex format.
+const FIRST_LIQUID_OBJECT: u16 = 42;
+/// Legion's ocean, whose vertices are depths alone, flat at its height.
+const OCEAN: u16 = 2;
+
+/// 1.12.1's depth bytes per yard of water, the river's and the ocean's (`benilla-formats`'
+/// `liquid`: 8.96 and 1.72 over the shipped blocks).
+const RIVER_DEPTH_PER_YARD: f32 = 8.96;
+const OCEAN_DEPTH_PER_YARD: f32 = 1.72;
+
+/// Bytes in one 1.12.1 `MCLQ` block: heights, 81 vertices, 64 cell flags, the flows.
+const MCLQ_BLOCK: usize = 0x324;
+
+/// Chunk `chunk`'s first liquid in `mh2o` as one 1.12.1 `MCLQ` block and the MCNK header bit
+/// that counts it (`0x4` river, `0x8` ocean, `0x10` magma, `0x20` slime). Its cells outside the
+/// liquid's rectangle, or not in its bitmap, are dry (nibble `0xF`); its vertices are the liquid's
+/// heights (the ocean's its flat height), and its depth bytes Legion's where it has them, else
+/// the water's depth over the chunk's ground.
+fn mclq(
+    mh2o: &[u8],
+    chunk: usize,
+    root_mcnk: &[u8],
+    kinds: &LiquidKinds<'_>,
+) -> Option<(u32, Vec<u8>)> {
+    let u16_at = |at: usize| {
+        mh2o.get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let f32_at = |at: usize| {
+        mh2o.get(at..at + 4)
+            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+    };
+    let (instances, layers) = (
+        u32_at(mh2o, chunk * 12) as usize,
+        u32_at(mh2o, chunk * 12 + 4),
+    );
+    if layers == 0 || instances == 0 {
+        return None;
+    }
+    let i = instances;
+    let (kind, format) = (u16_at(i)?, u16_at(i + 2)?);
+    let (min, max) = (f32_at(i + 4)?, f32_at(i + 8)?);
+    let rect = mh2o.get(i + 12..i + 16)?;
+    let (x0, y0, w, h) = (
+        usize::from(rect[0]),
+        usize::from(rect[1]),
+        usize::from(rect[2]),
+        usize::from(rect[3]),
+    );
+    if w == 0 || h == 0 || x0 + w > 8 || y0 + h > 8 {
+        return None;
+    }
+    let (exists, vertices) = (u32_at(mh2o, i + 16) as usize, u32_at(mh2o, i + 20) as usize);
+    let (bank, material_lvf) = kinds(kind).unwrap_or((if kind == OCEAN { 1 } else { 0 }, 0));
+    let lvf = if kind == OCEAN {
+        2
+    } else if format < FIRST_LIQUID_OBJECT {
+        format as u8
+    } else {
+        material_lvf
+    };
+    let n = (w + 1) * (h + 1);
+    // Heights (formats 0, 1, 3), then texture coordinates (1, 3), then depths (0, 2, 3).
+    let heights_at = (lvf != 2 && vertices != 0).then_some(vertices);
+    let depths_at = match lvf {
+        0 => Some(vertices + n * 4),
+        2 => Some(vertices),
+        3 => Some(vertices + n * 8),
+        _ => None,
+    }
+    .filter(|_| vertices != 0);
+
+    // The chunk's ground, its outer 9×9 heights over the MCNK's corner.
+    let base = root_mcnk
+        .get(0x70..0x74)
+        .map_or(0.0, |b| f32::from_le_bytes(b.try_into().unwrap()));
+    let sub = chunks(root_mcnk.get(128..).unwrap_or(&[]));
+    let mcvt = find(&sub, b"MCVT").unwrap_or(&[]);
+    let ground = |row: usize, col: usize| {
+        let at = (row * 17 + col) * 4;
+        base + mcvt
+            .get(at..at + 4)
+            .map_or(0.0, |b| f32::from_le_bytes(b.try_into().unwrap()))
+    };
+    let per_yard = if bank == 1 {
+        OCEAN_DEPTH_PER_YARD
+    } else {
+        RIVER_DEPTH_PER_YARD
+    };
+
+    let mut block = Vec::with_capacity(MCLQ_BLOCK);
+    block.extend_from_slice(&min.to_le_bytes());
+    block.extend_from_slice(&max.to_le_bytes());
+    for row in 0..9 {
+        for col in 0..9 {
+            let inside = (y0..=y0 + h).contains(&row) && (x0..=x0 + w).contains(&col);
+            let k = inside.then(|| (row - y0) * (w + 1) + (col - x0));
+            let height = k
+                .and_then(|k| heights_at.and_then(|at| f32_at(at + k * 4)))
+                .filter(|v| v.is_finite())
+                .unwrap_or(min);
+            let depth = match k.and_then(|k| depths_at.and_then(|at| mh2o.get(at + k).copied())) {
+                Some(d) => d,
+                None => ((height - ground(row, col)).max(0.0) * per_yard).min(255.0) as u8,
+            };
+            if bank == 2 || bank == 3 {
+                // Magma and slime: texture coordinates, then the height.
+                block.extend_from_slice(&[0; 4]);
+            } else {
+                block.extend_from_slice(&[depth, 0, 0, 0]);
+            }
+            block.extend_from_slice(&height.to_le_bytes());
+        }
+    }
+    let nibble = match bank {
+        1 => 1,
+        2 => 6,
+        3 => 7,
+        _ => 4,
+    };
+    for row in 0..8 {
+        for col in 0..8 {
+            let inside = (y0..y0 + h).contains(&row) && (x0..x0 + w).contains(&col);
+            let present = inside && {
+                let bit = (row - y0) * w + (col - x0);
+                exists == 0
+                    || mh2o
+                        .get(exists + bit / 8)
+                        .is_some_and(|b| b & (1 << (bit % 8)) != 0)
+            };
+            block.push(if present { nibble } else { 0x0f });
+        }
+    }
+    block.resize(MCLQ_BLOCK, 0);
+    let bit = match bank {
+        1 => 0x8,
+        2 => 0x10,
+        3 => 0x20,
+        _ => 0x4,
+    };
+    Some((bit, block))
+}
+
 /// The tables a tile's names resolve through: a path in the install to its file data id.
 pub trait Resolve {
     fn file_id(&self, path: &str) -> Option<u32>;
@@ -221,6 +368,7 @@ pub fn adt(
     obj0: Option<&[u8]>,
     big_alpha: bool,
     resolve: &dyn Resolve,
+    liquids: &LiquidKinds<'_>,
 ) -> Result<Vec<u8>> {
     let root_chunks = chunks(root);
     let tex_chunks = chunks(tex0);
@@ -374,8 +522,10 @@ pub fn adt(
     for (i, r) in root_mcnk.iter().enumerate() {
         let tex = tex_mcnk.get(i).copied().unwrap_or(&[]);
         let obj = obj_mcnk.get(i).copied().unwrap_or(&[]);
+        let liquid = find(&root_chunks, b"MH2O").and_then(|m| mclq(m, i, r, liquids));
         out.extend(mcnk(
             r,
+            liquid,
             tex,
             obj,
             big_alpha,
@@ -388,8 +538,10 @@ pub fn adt(
 
 /// One terrain chunk, its header first, its sub-chunks after at the offsets the header gives
 /// (counted from the MCNK's magic, as 1.12.1's are).
+#[allow(clippy::too_many_arguments)]
 fn mcnk(
     root: &[u8],
+    liquid: Option<(u32, Vec<u8>)>,
     tex: &[u8],
     obj: &[u8],
     big_alpha: bool,
@@ -463,10 +615,14 @@ fn mcnk(
         None => (0, 0),
     };
     let ofs_sound = at(b"MCSE", &[], &mut body);
+    let (liquid_bit, ofs_liquid, size_liquid) = match &liquid {
+        Some((bit, block)) => (*bit, at(b"MCLQ", block, &mut body), block.len() as u32),
+        None => (0, 0, 0),
+    };
 
     let mut h = [0u8; 128];
     let mut set = |o: usize, v: u32| h[o..o + 4].copy_from_slice(&v.to_le_bytes());
-    let kept = (flags & KEPT_FLAGS) | if size_shadow > 0 { 0x1 } else { 0 };
+    let kept = (flags & KEPT_FLAGS) | if size_shadow > 0 { 0x1 } else { 0 } | liquid_bit;
     set(0x00, kept);
     set(0x04, u32_at(header, 0x04));
     set(0x08, u32_at(header, 0x08));
@@ -485,6 +641,8 @@ fn mcnk(
     set(0x38, wmo_refs.len() as u32);
     set(0x3c, u32::from(holes));
     set(0x58, ofs_sound);
+    set(0x60, ofs_liquid);
+    set(0x64, size_liquid);
     // The chunk's corner, as Legion's.
     h[0x68..0x74].copy_from_slice(&header[0x68..0x74]);
 
@@ -511,6 +669,55 @@ mod tests {
         // 4-bit and 8-bit layers read as they are.
         assert_eq!(decode_alpha(&[0x2f], 0, 0, false)[..2], [255, 34]);
         assert_eq!(decode_alpha(&[9, 8], 0, 0, true)[..2], [9, 8]);
+    }
+
+    #[test]
+    fn a_chunks_first_liquid_becomes_its_mclq_block() {
+        // Chunk 0's one instance: slow water (type 5, format 0: heights then depths), a 2×1
+        // rectangle at column 1, row 2, its second cell missing from the bitmap.
+        let mut m = vec![0u8; 256 * 12];
+        let inst = m.len();
+        m[0..4].copy_from_slice(&(inst as u32).to_le_bytes());
+        m[4..8].copy_from_slice(&1u32.to_le_bytes());
+        let mut rec = Vec::new();
+        rec.extend_from_slice(&5u16.to_le_bytes());
+        rec.extend_from_slice(&0u16.to_le_bytes());
+        rec.extend_from_slice(&10.0f32.to_le_bytes());
+        rec.extend_from_slice(&12.0f32.to_le_bytes());
+        rec.extend_from_slice(&[1, 2, 2, 1]);
+        let exists = inst + 24;
+        let verts = exists + 4;
+        rec.extend_from_slice(&(exists as u32).to_le_bytes());
+        rec.extend_from_slice(&(verts as u32).to_le_bytes());
+        m.extend(rec);
+        m.extend_from_slice(&[0b01, 0, 0, 0]);
+        // Six vertices (3×2): heights 10..12, then depths 1..6.
+        for k in 0..6 {
+            m.extend_from_slice(&(10.0f32 + k as f32 * 0.4).to_le_bytes());
+        }
+        m.extend_from_slice(&[1, 2, 3, 4, 5, 6]);
+        let root_mcnk = vec![0u8; 128];
+        let kinds = |k: u16| (k == 5).then_some((0u8, 0u8));
+        let (bit, b) = mclq(&m, 0, &root_mcnk, &kinds).unwrap();
+        assert_eq!((bit, b.len()), (0x4, MCLQ_BLOCK));
+        let vertex = |row: usize, col: usize| {
+            let at = 8 + (row * 9 + col) * 8;
+            (
+                b[at],
+                f32::from_le_bytes(b[at + 4..at + 8].try_into().unwrap()),
+            )
+        };
+        // Row 2, column 1 is the rectangle's first vertex; row 3, column 3 its last.
+        assert_eq!(vertex(2, 1), (1, 10.0));
+        assert_eq!(vertex(3, 3), (6, 12.0));
+        // Outside it: the liquid's low height.
+        assert_eq!(vertex(0, 0).1, 10.0);
+        let cell = |row: usize, col: usize| b[8 + 81 * 8 + row * 8 + col];
+        assert_eq!(cell(2, 1), 4);
+        assert_eq!(cell(2, 2), 0x0f);
+        assert_eq!(cell(0, 0), 0x0f);
+        // Another chunk: none.
+        assert!(mclq(&m, 1, &root_mcnk, &kinds).is_none());
     }
 
     #[test]

@@ -10,8 +10,11 @@ use benilla_dbc::{FieldType, Schema, SchemaField};
 use crate::dbc::{f32_at, parse, str_at, u32_at};
 use crate::Chain;
 
+mod added;
 mod atmosphere;
 mod tables;
+
+pub use added::{AddedLight, AddedParams};
 
 pub use atmosphere::Atmosphere;
 use atmosphere::{

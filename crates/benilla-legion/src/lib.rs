@@ -23,6 +23,7 @@ pub mod db2;
 pub mod dbd;
 pub mod display;
 pub mod library;
+pub mod lights;
 pub mod md21;
 pub mod model;
 pub mod races;

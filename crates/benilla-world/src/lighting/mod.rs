@@ -6,12 +6,14 @@ use bevy::prelude::*;
 use benilla_assets::AssetSet;
 use benilla_formats::{LightCatalog, LiquidKind};
 
+mod added; // lights a later client's maps add to the catalog
 mod blob; // off-world light blobs (portrait booths, body panes, glue scene)
 mod daynight; // the sun, moon and day/night curves
 mod global_light; // the shared global-light storage buffer
 mod prop_probes; // the interior-prop SH probe table
 mod resolve; // the per-frame time-of-day resolve and the interior-fog crossfade
 mod sh; // the model SH probe fold
+pub use added::with_light_catalog;
 pub use blob::LightBlob;
 pub use global_light::{new_shared_light_buffer, LightRooms, SharedLightBuffer, WorldPointLight};
 pub use prop_probes::{PropProbeSlot, PropProbes, MAX_PROP_PROBES};

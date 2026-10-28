@@ -355,8 +355,25 @@ upstream merge. Each step is one pull request or a few.
    texture coordinates and vertex colours only (Legion's extra `MOTV`s and `MOCV` would be
    appended to them by 1.12.1's reader), and a batch's large material index (`MOBA` flag `0x2`)
    moves where 1.12.1 reads it. Read through the client's own WMO readers: the Suramar tile's 56
-   buildings, 144 groups and 2,011 render batches, every texture a BLP it decodes. **Next**: the
-   liquids and the light, then a zone.
+   buildings, 144 groups and 2,011 render batches, every texture a BLP it decodes. **Third part
+   done**: the water and the light. Each chunk's first liquid (`MH2O`'s first instance) becomes
+   its one `MCLQ` block (`terrain::mclq`): its kind from `LiquidType`'s sound bank (water,
+   ocean, magma, slime: the header's bit and the cells' nibble), its heights through its vertex
+   format (the value itself under 42, else its type's `LiquidMaterial`; the ocean depths alone,
+   flat at its height), its rectangle and bitmap the wet cells, its depth bytes Legion's or the
+   water over the ground at 1.12.1's bytes per yard. The map's lights (`lights::map_lights`:
+   `Light`, already yards in game coordinates, its global at the origin; `LightParams`;
+   `LightData`) join the client's light catalog (`LightCatalog::add_params`/`add_light`, files
+   of our own, reached through `benilla_world::lighting::with_light_catalog`), ids from
+   `entities::legion::LIGHT_BASE`: `LightData`'s first eighteen colours are 1.12.1's
+   `LightIntBand` rows in their order and packing, so the sky, the sun, the fog's colour and the
+   waters' tints are Legion's; its fog distance is a density model (`FogEnd` 0 or a few yards on
+   half the Broken Isles' rows), so an end under 1,000 inches takes 600 yards and the start a
+   quarter of it. Read through the client's mesher: a lake (73 chunks) and the open sea (247),
+   the water over its ground at 85 % and nearly all of their wet corners (69 % with rows and
+   columns swapped, so the grid's orientation is the right one); 317 lights and 127 params,
+   every params' eighteen colours keyed (`the_broken_isles_water_and_light_read_as_1_12_1s`).
+   **Next**: a zone of the campaign on the Broken Isles.
 10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's
     SHA256) or each player's own install; the menu shows Legion content only when the data is
     there; `make dist` for the native executable.

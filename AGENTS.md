@@ -31,7 +31,8 @@ code. Syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md). What reading a l
 | `crates/warcraft-survivors` | the native launcher (`make native`) | ours |
 | `crates/benilla-casc`, `crates/benilla-legion` | the route toward Legion 7.3.5's data, native only, read by the client when `WOW_LEGION` names an install (`benilla-app/src/entities/legion.rs`: the `mpq://legion/…` paths through `benilla_assets::set_extra_source`, the creature displays into the catalog from `library::DISPLAY_BASE`): a CASC reader (with a `remote` feature reading a copy by byte ranges) Legion's chunked M2 and `.skin`, and its DB2 tables (WDC1, typed by WoWDBDefs' `.dbd` read from a local folder, never vendored) with creature displays, a transcoder writing a Legion model as a 1.12.1 MD20 (`transcode`), and the `library` answering the client's `legion/` paths and the Broken Isles' tiles
 (`terrain`: a Legion tile's split files written as one 1.12.1 ADT, the map added to the client's
-`Map.dbc` table; `wmo`: its buildings as 1.12.1's); their examples draw a model to a PNG without a GPU. See [docs/EXPANSIONS.md](docs/EXPANSIONS.md) | ours |
+`Map.dbc` table; `wmo`: its buildings as 1.12.1's; `lights`: its lights, added to the client's light
+catalog); their examples draw a model to a PNG without a GPU. See [docs/EXPANSIONS.md](docs/EXPANSIONS.md) | ours |
 | `crates/wenilla` | the wasm entry crate (`#[wasm_bindgen(start)]`), boots the survivors mode | ours |
 | `crates/wenilla-host` | local dev server: static files, `/data/*`, and the lobby at `/lobby`. Loopback by default. | wenilla's |
 | `web/` | the page side: `index.html`, `boot.js`, `platform.js`, `bridge.js`, `examples/`, `wasi_stubs.js` | wenilla's |
