@@ -29,6 +29,7 @@ pub mod races;
 pub mod skin;
 pub mod terrain;
 pub mod transcode;
+pub mod wmo;
 
 use std::fmt;
 

@@ -346,7 +346,17 @@ upstream merge. Each step is one pull request or a few.
    through the client's own terrain mesher: a tile of Suramar, 256 chunks with their layers,
    every texture a BLP it decodes and its 315 doodad models ones it reads
    (`the_broken_isles_read_as_a_1_12_1_map`). Not seen on screen here, and no zone of the
-   campaign stands there yet. **Next**: the WMOs, then the liquids and the light, then a zone.
+   campaign stands there yet. **Second part done**: the buildings. Legion's WMOs are version 17,
+   1.12.1's, and mostly read as they are; a tile names each by its own path under the
+   library's (`Legion\<path>`, its `MWMO`/`MODF` and each chunk's `MCRW` carried into `MCRF`),
+   and the library answers its root and groups (`wmo::root`, `wmo::group`, told apart by
+   `MOGP`): the root's texture and doodad names become the library's (`MOTX` with the
+   materials' offsets after it, `MODN` with `MODD`'s), its skybox none; a group keeps its first
+   texture coordinates and vertex colours only (Legion's extra `MOTV`s and `MOCV` would be
+   appended to them by 1.12.1's reader), and a batch's large material index (`MOBA` flag `0x2`)
+   moves where 1.12.1 reads it. Read through the client's own WMO readers: the Suramar tile's 56
+   buildings, 144 groups and 2,011 render batches, every texture a BLP it decodes. **Next**: the
+   liquids and the light, then a zone.
 10. **Shipping.** A `fetch-legion` script (74 GB from archive.org, checked against the uploader's
     SHA256) or each player's own install; the menu shows Legion content only when the data is
     there; `make dist` for the native executable.
