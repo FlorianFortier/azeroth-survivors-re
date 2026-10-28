@@ -531,8 +531,9 @@ fn start_session(
     session.in_lobby = true;
     *rng = Rng::seeded(seed ^ u64::from(view.you).wrapping_mul(0x9E37_79B9_7F4A_7C15));
 
-    // The run's zone, and this player's hero as the lobby knows it.
-    selection.map = usize::from(view.settings.zone).min(data::MAPS.len() - 1);
+    // The run's zone (1.12.1's: a lobby plays none of Legion's, which not every guest can load),
+    // and this player's hero as the lobby knows it.
+    selection.map = usize::from(view.settings.zone).min(data::CLASSIC_ZONES - 1);
     if let Some(m) = &me {
         let class = usize::from(m.loadout.class).min(data::CLASSES.len() - 1);
         if selection.class != Some(class) {

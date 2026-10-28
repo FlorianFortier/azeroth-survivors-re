@@ -2163,9 +2163,21 @@ pub(crate) struct EnemyDef {
     /// Its look in Legion's data, a Legion `CreatureDisplayInfo` id (0 for none): worn instead of
     /// [`Self::display`] on a machine that has the data ([`shown_display`]).
     pub legion: u32,
+    /// The Legion look drawn at this many times [`Self::scale`]: its model's own size, apart
+    /// from the scale the crowd's room and reach are taken by. 1 for most.
+    pub legion_scale: f32,
 }
 
 impl EnemyDef {
+    /// The scale a unit of this creature is drawn at on this machine ([`Self::look`]'s).
+    pub(crate) fn drawn_scale(&self) -> f32 {
+        if self.legion != 0 && legion_looks() {
+            self.scale * self.legion_scale
+        } else {
+            self.scale
+        }
+    }
+
     /// Whether a unit of display `d` wears this creature's look, its 1.12.1 one or its Legion one.
     pub(crate) fn wears(&self, d: u32) -> bool {
         d == self.display || (self.legion != 0 && d == LEGION_DISPLAY_BASE + self.legion)
@@ -2233,6 +2245,7 @@ const fn en(
         level,
         big: false,
         legion: 0,
+        legion_scale: 1.0,
     }
 }
 
@@ -2338,9 +2351,30 @@ pub(crate) const BOSS_PORTAL_ICON: u32 = 698;
 pub(crate) const STAGE_PORTAL_ICON: u32 = 3561;
 
 /// The zone stage `stage` (from 0) of a run begun in `first` stands in: the campaign's next ones,
-/// the last zone again once past the end.
+/// the last zone again once past the end. A run never steps into a Legion zone, which not every
+/// machine can load: one begun in 1.12.1's campaign stays in it, one begun in a Legion zone stays
+/// there.
 pub(crate) fn stage_zone(first: usize, stage: u8) -> usize {
-    (first + usize::from(stage)).min(MAPS.len() - 1)
+    if MAPS.get(first).is_some_and(|m| m.legion) {
+        return first;
+    }
+    (first + usize::from(stage)).min(CLASSIC_ZONES - 1)
+}
+
+/// The zones of 1.12.1's own maps, the campaign's first: every one before the first Legion zone.
+pub(crate) const CLASSIC_ZONES: usize = 12;
+
+static LEGION_ZONES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Note that this machine loads Legion's maps and draws their creatures (`entities::legion`).
+pub(crate) fn set_legion_zones(on: bool) {
+    LEGION_ZONES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether this machine offers zone `zone`: 1.12.1's always, a Legion one where its data is.
+pub(crate) fn zone_shown(zone: usize) -> bool {
+    MAPS.get(zone)
+        .is_some_and(|m| !m.legion || LEGION_ZONES.load(std::sync::atomic::Ordering::Relaxed))
 }
 /// A closing ring of the horde every two and a quarter minutes, half way into each interval.
 pub(crate) const AMBUSH_EVERY_SECS: f32 = 135.0;
@@ -2582,6 +2616,8 @@ pub(crate) struct Foe {
     big: bool,
     /// Its look in Legion's data (a Legion display id), 0 for none: see [`EnemyDef::legion`].
     legion: u32,
+    /// That look's size over `scale`: see [`EnemyDef::legion_scale`].
+    legion_scale: f32,
 }
 
 const fn foe(name: &'static str, display: u32, level: u32, speed: f32, scale: f32) -> Foe {
@@ -2593,6 +2629,7 @@ const fn foe(name: &'static str, display: u32, level: u32, speed: f32, scale: f3
         scale,
         big: false,
         legion: 0,
+        legion_scale: 1.0,
     }
 }
 
@@ -2600,6 +2637,17 @@ impl Foe {
     /// Legion's look for this creature: the Legion display `id`.
     const fn legion(self, id: u32) -> Foe {
         Foe { legion: id, ..self }
+    }
+
+    /// Legion's look `id`, drawn at `k` times the creature's scale: a model whose own size is
+    /// not 1.12.1's, so the drawn size reads as the zones' do while the crowd's room and reach
+    /// stay the scale's.
+    const fn legion_sized(self, id: u32, k: f32) -> Foe {
+        Foe {
+            legion: id,
+            legion_scale: k,
+            ..self
+        }
     }
 
     /// Legion's remake of this creature's own look: Legion kept 1.12.1's display ids and drew
@@ -2632,6 +2680,9 @@ pub(crate) struct MapDef {
     pub victory: &'static str,
     /// The multiplier on the ladder's health and damage: the campaign hardens zone by zone.
     pub might: f32,
+    /// A zone on a Legion map: offered only where Legion's data is ([`zone_shown`]), never in a
+    /// lobby yet, and a run begun elsewhere never steps into it ([`stage_zone`]).
+    pub legion: bool,
     /// Weakest first, numbered off The Barrens' tuned [`ENEMIES`].
     foes: &'static [Foe],
     /// One per [`BOSS_TIMES`] slot, in order, numbered off [`BOSSES`]; the last is the final
@@ -2665,6 +2716,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 150.0,
         victory: "Edwin VanCleef has fallen; Elwynn Forest is safe once more.",
         might: 1.0,
+        legion: false,
         foes: &[
             // look: Kobold Tunneler
             foe("Kobold Vermin", 139, 2, 4.2, 1.0),
@@ -2700,6 +2752,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 150.0,
         victory: "Morbent Fel is no more; Duskwood's curse lifts.",
         might: 1.2,
+        legion: false,
         foes: &[
             foe("Pygmy Venom Web Spider", 958, 19, 4.6, 1.0),
             foe("Venom Web Spider", 955, 20, 4.6, 1.0),
@@ -2736,6 +2789,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 60.0,
         victory: "Lord Kazzak is banished from the gulch.",
         might: 1.4,
+        legion: false,
         // Legion drew its demons again under the same displays (`.remade()`): a machine with
         // Legion's data shows those.
         foes: &[
@@ -2770,6 +2824,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 32.0,
         victory: "Even King Mosh has fallen.",
         might: 1.6,
+        legion: false,
         foes: &[
             foe("Bloodpetal Lasher", 11634, 49, 3.6, 0.9),
             foe("Young Diemetradon", 8510, 48, 4.4, 0.55),
@@ -2809,6 +2864,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 70.0,
         victory: "Lord Aliden Perenolde's claim on Arathi is broken.",
         might: 1.8,
+        legion: false,
         foes: &[
             // look: Defias Trapper
             foe("Syndicate Spy", 2331, 30, 4.2, 1.1),
@@ -2855,6 +2911,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 80.0,
         victory: "King Gordok's tribute is paid in full.",
         might: 2.0,
+        legion: false,
         foes: &[
             // look: Rot Hide Mongrel
             foe("Woodpaw Mongrel", 847, 40, 4.2, 1.0),
@@ -2901,6 +2958,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 30.0,
         victory: "Hakkar the Soulflayer is cast out; the arena roars your name.",
         might: 2.2,
+        legion: false,
         foes: &[
             foe("Shadowmaw Panther", 11452, 37, 5.6, 1.4),
             foe("Cold Eye Basilisk", 8797, 39, 3.8, 1.0),
@@ -2939,6 +2997,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 50.0,
         victory: "High Inquisitor Whitemane's crusade ends at her own gates.",
         might: 2.4,
+        legion: false,
         foes: &[
             foe("Rattlecage Soldier", 200, 30, 4.2, 1.2),
             foe("Rotting Dead", 1200, 30, 3.6, 1.0),
@@ -2978,6 +3037,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 70.0,
         victory: "Azuregos takes wing from the valley.",
         might: 2.6,
+        legion: false,
         foes: &[
             // look: Winter Wolf
             foe("Frostwolf", 785, 51, 5.4, 1.1),
@@ -3019,6 +3079,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 80.0,
         victory: "Nefarian falls, and the mountain with him.",
         might: 2.8,
+        legion: false,
         foes: &[
             foe("Black Dragon Whelp", 387, 52, 4.2, 1.0),
             foe("Blackrock Hunter", 6031, 53, 4.2, 1.1),
@@ -3053,6 +3114,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 80.0,
         victory: "C'Thun's eye closes; the Qiraji retreat behind the Scarab Wall.",
         might: 3.0,
+        legion: false,
         foes: &[
             foe("Sand Skitterer", 8014, 56, 5.0, 1.0),
             foe("Stonelash Scorpid", 15383, 55, 4.6, 1.6),
@@ -3091,6 +3153,7 @@ pub(crate) static MAPS: &[MapDef] = &[
         leash: 80.0,
         victory: "Kel'Thuzad's necropolis falls dark.",
         might: 3.2,
+        legion: false,
         foes: &[
             foe("Scourge Soldier", 5231, 55, 4.4, 1.15),
             foe("Plagued Swine", 6121, 53, 5.0, 1.0),
@@ -3118,6 +3181,51 @@ pub(crate) static MAPS: &[MapDef] = &[
             giant("Patchwerk", 16174, 63, 4.0, 1.7),
             giant("Thaddius", 16137, 63, 4.0, 0.98),
             foe("Kel'Thuzad", 15945, 63, 4.4, 2.1),
+        ],
+    },
+    MapDef {
+        name: "Val'sharah",
+        zone: "The Emerald Nightmare",
+        map: 1220,
+        // The Field of Dreamers, the flattest ground at the heart of Val'sharah, on Legion's
+        // Broken Isles (`benilla_legion::library::LEGION_MAPS`).
+        center: [2330.0, 6480.0, 147.0],
+        leash: 80.0,
+        victory: "Xavius is cast out; the Dreamgrove wakes from the Nightmare.",
+        might: 3.4,
+        legion: true,
+        // Legion's own creatures; the 1.12.1 display is the look a machine without Legion's
+        // data would draw, which this zone never reaches. The scale is the crowd's, as the other
+        // zones' are; each Legion model is drawn at the size its own height asks
+        // (`legion_sized`), 2 to 3.5 yards for the horde, 4 to 5 for the great beasts, 7 or 8
+        // for a boss.
+        foes: &[
+            foe("Nightmare Wisp", 1824, 58, 5.6, 1.0).legion_sized(1824, 1.5),
+            foe("Corrupted Stag", 1917, 58, 5.4, 1.0).legion_sized(70440, 0.8),
+            foe("Nightmare Lasher", 11634, 58, 3.6, 0.9).legion_sized(69316, 0.65),
+            foe("Nightmare Satyr", 1013, 59, 4.6, 1.0).legion(64281),
+            foe("Rotting Furbolg", 936, 59, 4.4, 1.0).remade(),
+            foe("Nightmare Dryad", 876, 59, 5.0, 1.0).legion_sized(69207, 1.3),
+            foe("Nightmare Spider", 955, 59, 4.8, 1.0).legion_sized(67790, 1.2),
+            foe("Nightmare Whelp", 387, 60, 4.8, 1.0).legion_sized(69714, 1.2),
+            foe("Dreamgrove Shade", 4629, 60, 4.4, 1.0).legion_sized(68972, 0.7),
+            foe("Nightmare Keeper", 150, 60, 4.2, 1.1).legion_sized(69487, 0.75),
+            foe("Fog Horror", 4629, 60, 4.0, 1.1).legion_sized(69105, 0.45),
+            foe("Corrupted Roc", 148, 61, 5.2, 1.1).legion_sized(69099, 0.32),
+            foe("Nightmare Druid", 150, 61, 4.4, 1.1).legion_sized(67428, 0.23),
+            foe("Eye of Il'gynoth", 4629, 61, 3.6, 1.1).legion_sized(69879, 0.15),
+            foe("Nightmare Satyr Lord", 2007, 61, 4.4, 1.2).legion_sized(64282, 0.7),
+            giant("Nightmare Ent", 1921, 61, 3.8, 1.2).legion_sized(69776, 1.17),
+            giant("Nightmare Broodmother", 955, 62, 4.2, 1.2).legion_sized(69474, 0.32),
+            giant("Twisted Ancient", 1921, 62, 3.6, 1.25).legion_sized(64777, 0.36),
+            giant("Faceless Corruptor", 150, 62, 3.8, 1.3).legion_sized(69825, 0.77),
+        ],
+        bosses: &[
+            foe("Archdruid Glaidalis", 150, 63, 4.6, 2.0).legion_sized(64778, 0.19),
+            giant("Oakheart", 1921, 63, 3.8, 1.5).legion_sized(68127, 0.17),
+            giant("Dresaron", 387, 63, 4.6, 1.5).legion_sized(67745, 0.17),
+            foe("Shade of Xavius", 2007, 63, 4.6, 2.4).legion_sized(65636, 0.12),
+            foe("Xavius", 2009, 63, 4.4, 2.2).legion_sized(68730, 0.59),
         ],
     },
 ];
@@ -3271,7 +3379,8 @@ pub(crate) static ITEMS: std::sync::LazyLock<Vec<ItemDef>> = std::sync::LazyLock
             let rarity = match k {
                 0 | 1 => Rarity::Uncommon,
                 2 | 3 => Rarity::Rare,
-                _ if z + 2 >= MAPS.len() => Rarity::Legendary,
+                // The classic campaign's last two finals, and every Legion zone's.
+                _ if z + 2 >= CLASSIC_ZONES || MAPS[z].legion => Rarity::Legendary,
                 _ => Rarity::Epic,
             };
             out.push(ItemDef {
@@ -4077,6 +4186,7 @@ pub(crate) fn bonus_boss(zone: usize) -> Option<&'static EnemyDef> {
                     level: b.foe.level,
                     big: b.foe.big,
                     legion: b.foe.legion,
+                    legion_scale: b.foe.legion_scale,
                 })
             })
             .collect()
@@ -4109,6 +4219,7 @@ pub(crate) fn elite(zone: usize, kind: usize) -> &'static EnemyDef {
                             level: look.level + 2,
                             big: look.big,
                             legion: look.legion,
+                            legion_scale: look.legion_scale,
                         }
                     })
                     .collect()
@@ -5791,6 +5902,7 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
                 level: f.level,
                 big: f.big,
                 legion: f.legion,
+                legion_scale: f.legion_scale,
             }
         })
         .collect()
@@ -5836,9 +5948,9 @@ mod tests {
         assert_eq!(glaive.look, LEGION_ITEM_FIRST);
         assert!(std::ptr::eq(item(&glaive.name).unwrap(), glaive));
         // Not one of the campaign's sixty, nor of the gulch's drop table.
-        assert_eq!(ITEMS.len(), 60);
+        assert_eq!(ITEMS.len(), 65);
         assert!(zone_items(gulch).iter().all(|i| i.name != glaive.name));
-        assert_eq!(gear_items().count(), 61);
+        assert_eq!(gear_items().count(), 66);
         // A legendary of its zone, as strong as the gulch's best main hand would be.
         assert_eq!(
             glaive.bonuses,
@@ -5865,8 +5977,8 @@ mod tests {
         assert_eq!(shown_display(LEGION_DISPLAY_BASE + 1913), 1913);
         assert_eq!(shown_display(1913), 1913);
         assert!(r.enemies.iter().filter(|e| e.legion != 0).count() >= 5);
-        // No other zone takes Legion's looks yet.
-        for z in (0..MAPS.len()).filter(|&z| z != gulch) {
+        // No other zone of 1.12.1's campaign takes Legion's looks yet.
+        for z in (0..CLASSIC_ZONES).filter(|&z| z != gulch) {
             let r = roster(z);
             assert!(r.enemies.iter().chain(&r.bosses).all(|e| e.legion == 0));
         }
@@ -6098,7 +6210,23 @@ mod tests {
     fn stages_walk_the_campaign_and_stop_at_its_end() {
         assert_eq!(stage_zone(0, 0), 0);
         assert_eq!(stage_zone(0, 2), 2);
-        assert_eq!(stage_zone(MAPS.len() - 2, 2), MAPS.len() - 1);
+        assert_eq!(stage_zone(CLASSIC_ZONES - 2, 2), CLASSIC_ZONES - 1);
+        // 1.12.1's campaign is every zone before the first Legion one, and never steps into one;
+        // a Legion zone's run stays in it.
+        assert!(MAPS[..CLASSIC_ZONES].iter().all(|m| !m.legion));
+        assert!(MAPS[CLASSIC_ZONES..].iter().all(|m| m.legion));
+        for first in 0..CLASSIC_ZONES {
+            for stage in 0..STAGES {
+                assert!(!MAPS[stage_zone(first, stage)].legion);
+            }
+        }
+        for first in CLASSIC_ZONES..MAPS.len() {
+            assert_eq!(stage_zone(first, 2), first);
+        }
+        // No Legion data in a test: its zones are not offered, 1.12.1's all are.
+        assert!((0..CLASSIC_ZONES).all(zone_shown));
+        assert!((CLASSIC_ZONES..MAPS.len()).all(|z| !zone_shown(z)));
+        assert!(!zone_shown(MAPS.len()));
         assert!(STAGES >= 2);
         assert!(STAGE_LENGTH > 0.0 && STAGE_LENGTH <= 1.0);
     }
@@ -6163,7 +6291,8 @@ mod tests {
         }
     }
 
-    /// The twelve zones of the campaign, in the order the main screen opens them.
+    /// The twelve zones of 1.12.1's campaign, then Legion's, in the order the main screen opens
+    /// them.
     #[test]
     fn the_campaign_is_twelve_zones_in_order() {
         let names: Vec<&str> = MAPS.iter().map(|m| m.name).collect();
@@ -6182,6 +6311,7 @@ mod tests {
                 "Blackrock Mountain",
                 "Gates of Ahn'Qiraj",
                 "Naxxramas",
+                "Val'sharah",
             ]
         );
         let unique: HashSet<&str> = names.iter().copied().collect();
@@ -6209,6 +6339,7 @@ mod tests {
                 "Nefarian",
                 "C'Thun",
                 "Kel'Thuzad",
+                "Xavius",
             ]
         );
         assert_eq!(
@@ -6654,7 +6785,7 @@ mod tests {
 
     #[test]
     fn sixty_items_five_per_zone_one_per_boss() {
-        assert_eq!(ITEMS.len(), 60);
+        assert_eq!(ITEMS.len(), 65);
         let names: HashSet<&str> = ITEMS.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(names.len(), ITEMS.len(), "item names are unique");
         for z in 0..MAPS.len() {
@@ -6667,9 +6798,13 @@ mod tests {
             }
         }
         assert_eq!(boss_item(0, 4).unwrap().name, "Edwin VanCleef's Gauntlets");
-        // Every slot comes up six times.
+        // Over 1.12.1's campaign, every slot comes up six times.
         for s in GearSlot::ALL {
-            assert_eq!(ITEMS.iter().filter(|i| i.slot == s).count(), 6, "{s:?}");
+            let n = ITEMS
+                .iter()
+                .filter(|i| i.zone < CLASSIC_ZONES && i.slot == s)
+                .count();
+            assert_eq!(n, 6, "{s:?}");
         }
     }
 
@@ -6775,9 +6910,10 @@ mod tests {
             .filter(|a| matches!(a.goal, Goal::WinZone(_)))
             .count();
         assert_eq!(zones, MAPS.len());
+        // Every piece of 1.12.1's campaign, which every machine can find.
         assert!(ACHIEVEMENTS
             .iter()
-            .any(|a| a.goal == Goal::Collect(ITEMS.len())));
+            .any(|a| a.goal == Goal::Collect(CLASSIC_ZONES * 5)));
     }
 
     #[test]

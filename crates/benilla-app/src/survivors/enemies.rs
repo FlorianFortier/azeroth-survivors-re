@@ -192,7 +192,7 @@ pub(super) fn spawn_enemy(
         &UnitSpec {
             serial,
             display: def.look(),
-            scale: def.scale,
+            scale: def.drawn_scale(),
             level: def.level,
             faction: units::FACTION_MONSTER,
             bytes0: 1 << 8,

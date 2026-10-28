@@ -292,6 +292,8 @@ fn add_maps(maps: Option<ResMut<benilla_assets::MapCatalogRes>>) {
     for m in LEGION_MAPS {
         maps.0.add_map(m.id, m.ours, m.name);
     }
+    // Their zones stand on Legion's creatures, so they are offered where those are drawn.
+    data::set_legion_zones(data::legion_looks());
     info!(
         "legion: maps {:?}",
         LEGION_MAPS.iter().map(|m| m.id).collect::<Vec<_>>()

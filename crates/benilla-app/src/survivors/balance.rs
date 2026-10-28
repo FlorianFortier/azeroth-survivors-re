@@ -615,7 +615,8 @@ mod tests {
     #[test]
     #[ignore = "a diagnosis: run with --ignored --nocapture"]
     fn trace_a_run() {
-        // SIM_CLASS, SIM_SEED and SIM_LIMIT pick the run, so a diagnosis needs no rebuild.
+        // SIM_CLASS, SIM_ZONE, SIM_SEED and SIM_LIMIT pick the run, so a diagnosis needs no
+        // rebuild.
         let env = |k: &str, d: f32| {
             std::env::var(k)
                 .ok()
@@ -624,7 +625,7 @@ mod tests {
         };
         let log = play(
             env("SIM_CLASS", 0.0) as usize,
-            0,
+            env("SIM_ZONE", 0.0) as usize,
             env("SIM_SEED", 2.0) as u64,
             env("SIM_LIMIT", 900.0),
         );

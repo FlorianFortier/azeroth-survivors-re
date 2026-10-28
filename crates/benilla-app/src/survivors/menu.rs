@@ -101,7 +101,8 @@ pub(super) fn restore_pick(
         .position(|d| d.name == hero.difficulty)
         .unwrap_or(0);
     let (class, map) = super::profile::pick_indices(hero);
-    if let Some(map) = map {
+    // A zone this machine does not offer (Legion's, without its data) is not picked.
+    if let Some(map) = map.filter(|&m| data::zone_shown(m)) {
         selection.map = map;
         selection.stage = map;
         selection.version += 1;
@@ -497,6 +498,7 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
 fn zone_frame(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
     let px = Val::Px;
     let mut order: Vec<(usize, u32, u32)> = (0..data::MAPS.len())
+        .filter(|&i| data::zone_shown(i))
         .map(|i| {
             let levels = data::roster(i).enemies.iter().map(|e| e.level);
             let lo = levels.clone().min().unwrap_or(1);

@@ -786,10 +786,10 @@ fn clicks(
     }
 }
 
-/// How many of the campaign's zones the profile has opened.
+/// How many of the campaign's zones the profile has opened, of those this machine offers.
 fn open_zones(store: &ProfileStore) -> usize {
     (0..data::MAPS.len())
-        .filter(|&i| store.profile.zone_open(i))
+        .filter(|&i| data::zone_shown(i) && store.profile.zone_open(i))
         .count()
 }
 
@@ -899,7 +899,10 @@ fn refresh_class_column(
                     "{} of {}",
                     &[
                         &open_zones(&store).to_string(),
-                        &data::MAPS.len().to_string(),
+                        &(0..data::MAPS.len())
+                            .filter(|&i| data::zone_shown(i))
+                            .count()
+                            .to_string(),
                     ],
                 ),
             );
@@ -2449,6 +2452,9 @@ fn refresh_collection(
             theme::DIM,
         ));
         for (z, map) in data::MAPS.iter().enumerate() {
+            if !data::zone_shown(z) {
+                continue;
+            }
             let table = data::zone_items(z);
             let found = table.iter().filter(|i| collected.contains(i)).count();
             p.spawn(Node {
@@ -2791,6 +2797,9 @@ fn refresh_drops(
             theme::DIM,
         ));
         for (z, map) in data::MAPS.iter().enumerate() {
+            if !data::zone_shown(z) {
+                continue;
+            }
             let open = store.profile.zone_open(z);
             kit::heading(p, f, tr(map.name));
             if !open {
@@ -2940,6 +2949,9 @@ fn refresh_codex(
         });
         kit::heading(p, f, tr("Bosses"));
         for (z, map) in data::MAPS.iter().enumerate() {
+            if !data::zone_shown(z) {
+                continue;
+            }
             p.spawn(Node {
                 column_gap: Val::Px(6.0),
                 align_items: AlignItems::Center,
@@ -2967,6 +2979,9 @@ fn refresh_codex(
         }
         kit::heading(p, f, tr("Horde"));
         for (z, map) in data::MAPS.iter().enumerate() {
+            if !data::zone_shown(z) {
+                continue;
+            }
             let names = enemy_names(z);
             let met: Vec<String> = names
                 .iter()
@@ -3118,6 +3133,10 @@ fn refresh_achievements(
             },
         );
         for (i, x) in data::ACHIEVEMENTS.iter().enumerate() {
+            // A Legion zone's win, where its zone is not offered.
+            if matches!(x.goal, data::Goal::WinZone(z) if !data::zone_shown(z)) {
+                continue;
+            }
             let (now, goal) = p.progress(x);
             let ok = now >= goal;
             let claimed = p.claimed.contains(&x.key);
@@ -3413,6 +3432,9 @@ fn refresh_zone_list(
     commands.entity(list).despawn_related::<Children>();
     commands.entity(list).with_children(|l| {
         for (i, map) in data::MAPS.iter().enumerate() {
+            if !data::zone_shown(i) {
+                continue;
+            }
             let open = store.profile.zone_open(i);
             let picked = open && i == selection.map;
             let record = store.profile.zones.get(map.name);
