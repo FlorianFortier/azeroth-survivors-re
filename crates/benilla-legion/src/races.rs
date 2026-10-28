@@ -19,7 +19,10 @@ use crate::Result;
 
 /// One `CharSections` row of the old layout: `(sex, section, variation, colour)` and its three
 /// textures' file data ids (0 for none).
-pub type Section = ((u8, u8, u8, u8), [u32; 3]);
+pub type Section = (SectionKey, [u32; 3]);
+
+/// `(sex, section, variation, colour)`.
+pub type SectionKey = (u8, u8, u8, u8);
 
 /// A race as 1.12.1's tables hold one.
 #[derive(Clone, Debug, PartialEq)]
@@ -76,7 +79,8 @@ impl Races {
             row.int("FemaleDisplayID")? as u32,
         ];
         let race = Some(i64::from(id));
-        let mut sections: BTreeMap<(u8, u8, u8, u8), (i64, [u32; 3])> = BTreeMap::new();
+        // Each key's best row so far: its rank, its textures.
+        let mut sections: BTreeMap<SectionKey, (i64, [u32; 3])> = BTreeMap::new();
         for r in self
             .sections
             .rows
@@ -208,7 +212,7 @@ mod tests {
             b[84 + i * 4..88 + i * 4].copy_from_slice(&size.to_le_bytes());
             at += size;
         }
-        b.extend((0..84u8).map(|x| x));
+        b.extend(0..84u8);
         b
     }
 
