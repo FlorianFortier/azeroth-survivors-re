@@ -27,6 +27,7 @@ pub mod md21;
 pub mod model;
 pub mod races;
 pub mod skin;
+pub mod terrain;
 pub mod transcode;
 
 use std::fmt;

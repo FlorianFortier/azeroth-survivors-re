@@ -24,6 +24,9 @@
 //! [`Library::weapon_looks`]. The class tables give a spell's name and icon and each class's
 //! specializations with their talents ([`crate::classes`]).
 //!
+//! - `world/maps/<map>/<map>.wdt` and `…/<map>_<x>_<y>.adt`, for each of [`LEGION_MAPS`]: its
+//!   tile table and its tiles, each written as one 1.12.1 ADT ([`crate::terrain`]).
+//!
 //! The paths come as the asset reader holds them: lowercase, `/` between folders. A creature
 //! display joins the client's catalog as [`DISPLAY_BASE`] plus its Legion id, its model named
 //! [`display_model_path`].
@@ -143,6 +146,10 @@ impl Library {
 
     /// The file at `path`, `None` when it is not a Legion path.
     pub fn read(&self, path: &str) -> Option<Result<Vec<u8>>> {
+        // A map's tile table or one of its tiles.
+        if let Some(r) = self.map_file(path) {
+            return Some(r);
+        }
         // An item's model, wherever the client looks for it.
         let base = path.rsplit('/').next().unwrap_or(path);
         // A character body, every geoset kept for the client's own selection.
@@ -197,7 +204,8 @@ impl Library {
     /// Whether `path` (lowercase, `/` between folders) is one [`Self::read`] answers.
     pub fn claims(&self, path: &str) -> bool {
         let base = path.rsplit('/').next().unwrap_or(path);
-        path.starts_with(PREFIX)
+        map_path(path).is_some()
+            || path.starts_with(PREFIX)
             || base.starts_with("legion_item_")
             || base.starts_with("legion_char_")
     }
@@ -210,6 +218,26 @@ impl Library {
             |m| items.textures.get(&m).copied().unwrap_or(0),
             |d| self.display(d).map_or(0, |d| d.model_file),
         )
+    }
+
+    /// A map's file at `path`: its WDT, or a tile written as one 1.12.1 ADT
+    /// ([`crate::terrain`]).
+    fn map_file(&self, path: &str) -> Option<Result<Vec<u8>>> {
+        let (map, file) = map_path(path)?;
+        let at = |suffix: &str| format!("world/maps/{}/{}{suffix}", map.legion, map.legion);
+        let wdt = || self.casc.read_path(&at(".wdt")).map_err(Error::from);
+        Some(match file {
+            MapFile::Wdt => wdt().and_then(|w| crate::terrain::wdt(&w)),
+            MapFile::Tile(x, y) => (|| {
+                let big = crate::terrain::big_alpha(&wdt()?);
+                let tile = |part: &str| self.casc.read_path(&at(&format!("_{x}_{y}{part}.adt")));
+                let (root, tex0) = (tile("")?, tile("_tex0")?);
+                let obj0 = tile("_obj0").ok();
+                // A name the install holds no data for is left out.
+                let resolve = |p: &str| self.file_id(p).filter(|&id| self.casc.has_id(id));
+                crate::terrain::adt(&root, &tex0, obj0.as_deref(), big, &resolve)
+            })(),
+        })
     }
 
     /// Spell `id`'s name and icon; none without the definitions.
@@ -402,6 +430,52 @@ fn items<S: Source>(casc: &Casc<S>, dir: &Path) -> Result<Items> {
     })
 }
 
+/// A Legion map the client may load: the directory its `Map.dbc` row names (`World\Maps\<ours>\`)
+/// and Legion's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LegionMap {
+    pub ours: &'static str,
+    pub legion: &'static str,
+    /// Legion's `Map` id, which the client's row takes too: past every 1.12.1 map's.
+    pub id: u32,
+    /// Its name, as `Map`'s `MapName_lang` has it.
+    pub name: &'static str,
+}
+
+/// The Legion maps the library answers: the Broken Isles (Legion's `troll raid`).
+pub const LEGION_MAPS: &[LegionMap] = &[LegionMap {
+    ours: "LegionBrokenIsles",
+    legion: "troll raid",
+    id: 1220,
+    name: "Broken Isles",
+}];
+
+/// What a map path names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MapFile {
+    Wdt,
+    Tile(u32, u32),
+}
+
+/// A path under one of [`LEGION_MAPS`]' directories that [`Library::read`] answers: the tile table
+/// or a tile.
+fn map_path(path: &str) -> Option<(&'static LegionMap, MapFile)> {
+    let rest = path.strip_prefix("world/maps/")?;
+    let (dir, file) = rest.split_once('/')?;
+    let map = LEGION_MAPS
+        .iter()
+        .find(|m| m.ours.eq_ignore_ascii_case(dir))?;
+    let stem = file.strip_prefix(dir)?;
+    if stem == ".wdt" {
+        return Some((map, MapFile::Wdt));
+    }
+    let (x, y) = stem
+        .strip_prefix('_')?
+        .strip_suffix(".adt")?
+        .split_once('_')?;
+    Some((map, MapFile::Tile(x.parse().ok()?, y.parse().ok()?)))
+}
+
 /// A DB2 table from the install, typed by its definition in `dir`.
 pub fn table<S: Source>(casc: &Casc<S>, dir: &Path, name: &str) -> Result<Table> {
     let raw = Raw::parse(&casc.read_path(&format!("DBFilesClient/{name}.db2"))?)?;
@@ -417,6 +491,19 @@ pub fn table<S: Source>(casc: &Casc<S>, dir: &Path, name: &str) -> Result<Table>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_legion_maps_tiles_and_table_are_its_paths_alone() {
+        let dir = "world/maps/legionbrokenisles/legionbrokenisles";
+        assert_eq!(map_path(&format!("{dir}.wdt")).unwrap().1, MapFile::Wdt);
+        assert_eq!(
+            map_path(&format!("{dir}_24_30.adt")).unwrap().1,
+            MapFile::Tile(24, 30)
+        );
+        assert_eq!(map_path(&format!("{dir}.wdl")), None);
+        assert_eq!(map_path(&format!("{dir}_24_30_tex0.adt")), None);
+        assert_eq!(map_path("world/maps/azeroth/azeroth_32_48.adt"), None);
+    }
 
     #[test]
     fn a_display_joins_the_catalog_past_vanillas_ids() {
