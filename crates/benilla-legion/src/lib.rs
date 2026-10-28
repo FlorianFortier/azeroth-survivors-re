@@ -1,4 +1,4 @@
-//! Legion's M2 models (7.3.5, MD20 version 274), read far enough to draw one in its bind pose: a
+//! Legion's M2 models (7.3.5, MD20 version 274), read far enough to draw and animate one: a
 //! spike toward later clients' data beside the 1.12.1 base (`docs/EXPANSIONS.md`). The client reads
 //! it natively when `WOW_LEGION` names an install (`benilla-app`'s `entities::legion`).
 //!

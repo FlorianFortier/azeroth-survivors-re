@@ -4,11 +4,21 @@
 //! What it carries: the vertices, one skin profile (its sections cut back to 1.12.1's 32 bytes,
 //! the batches of the sections the display hides dropped), the textures named by the paths the
 //! caller picks (a replaceable one named, and made a type 0, once its display gives its file),
-//! the materials, the bones in their bind pose (no keys yet: step 4 lays Legion's tracks onto
-//! 1.12.1's timeline), the sequences on one timeline, the colours and texture weights at their
-//! first key, the attachments, the lookups and the bounds. Texture transforms, events, lights,
+//! the materials, the bones, colours and texture weights with their keys, the sequences on one
+//! timeline, the attachments, the lookups and the bounds. Texture transforms, events, lights,
 //! cameras, ribbons and particles are left out. Legion's shader combos come down to one texture a
 //! batch, its base, and its blend modes to 1.12.1's.
+//!
+//! The keys ([`Animation`]): a Legion track holds an array of keys per sequence, each timed from
+//! its sequence's start, and a sequence's arrays may lie in an `.anim` file of its own (its flag
+//! `0x20` clear); an alias (flag `0x40`) plays another sequence's keys. 1.12.1's track is one
+//! array timed on the model's timeline, with a window of key indices per sequence: each
+//! sequence's keys are moved to its place on that timeline, and a sequence with none for a track
+//! that others animate gets one, its rest value (a bone's bind pose), as Legion means by none.
+//! Rotations are Legion's compressed quaternions (four `i16`), widened to 1.12.1's four floats;
+//! a spline track's tangents are dropped, and it plays linear. The animation lookup is rebuilt
+//! direct (Legion's is a hash table), and the playable lookup made from `AnimationData`'s
+//! fallbacks, so an animation the model lacks plays the one Legion would.
 //!
 //! The 1.12.1 header (`0x144` bytes) and the Legion one (version 272 to 274) differ by the playable
 //! animation lookup (`+0x2c`, 1.12.1 only), the embedded views where Legion counts its skin files
@@ -17,7 +27,7 @@
 
 use crate::display::CreatureDisplay;
 use crate::model::Model;
-use crate::{array_at, u32_at, Error, Result};
+use crate::{array_at, u16_at, u32_at, Error, Result};
 
 /// The 1.12.1 header's size.
 pub const HEADER: usize = 0x144;
@@ -56,14 +66,27 @@ pub fn texture_files(
         .collect()
 }
 
+/// What the keys need beside the model.
+#[derive(Default)]
+pub struct Animation<'a> {
+    /// The `.anim` files of the sequences kept out of the model: `(animation id, variation, the
+    /// file)`, as the model's `AFID` chunk names them.
+    pub files: &'a [(u16, u16, Vec<u8>)],
+    /// `AnimationData`'s `Fallback`, by animation id: what plays for an animation the model does
+    /// not have. Empty, the model has no playable lookup, and plays only what it holds.
+    pub fallbacks: &'a [u16],
+}
+
 /// Rewrite the Legion model `md20` (an MD21 chunk's body) and its skin profile `skin` (a `.skin`
 /// file) as a 1.12.1 MD20. `textures` names each texture record (see [`texture_files`] and
-/// [`virtual_path`]); `shows` says which skin sections (by geoset id) are drawn.
+/// [`virtual_path`]); `shows` says which skin sections (by geoset id) are drawn; `animation`
+/// brings the `.anim` files and the fallbacks.
 pub fn to_vanilla(
     md20: &[u8],
     skin: &[u8],
     textures: &[Option<String>],
     shows: impl Fn(u16) -> bool,
+    animation: &Animation,
 ) -> Result<Vec<u8>> {
     if md20.get(0..4) != Some(b"MD20") {
         return Err(Error::Format("not MD20".into()));
@@ -85,7 +108,6 @@ pub fn to_vanilla(
 
     out.copy(&src, 0x08, 0x08, 1)?; // name
     out.copy(&src, 0x14, 0x14, 4)?; // global sequences
-    out.copy(&src, 0x24, 0x24, 2)?; // animation lookup
     out.copy(&src, 0x34, 0x3c, 2)?; // key bone lookup
     out.copy(&src, 0x3c, 0x44, 48)?; // vertices: the same 48 bytes
     out.copy(&src, 0x68, 0x7c, 2)?; // replaceable texture lookup
@@ -103,32 +125,70 @@ pub fn to_vanilla(
 
     // Sequences: Legion's own durations, laid one after another on one timeline.
     let (seqs, n) = src.records(0x1c, 64)?;
+    let seqs = seqs.as_chunks::<64>().0;
+    let bands = bands(md20, seqs, animation.files);
     let mut recs = Vec::with_capacity(n * 0x44);
-    let mut clock = 0u32;
-    for s in seqs.as_chunks::<64>().0 {
-        let duration = le32(s, 4);
-        let (start, end) = (clock, clock.saturating_add(duration));
-        clock = end.saturating_add(1);
+    for (i, (s, band)) in seqs.iter().zip(&bands).enumerate() {
         recs.extend_from_slice(&s[0..4]); // id, variation
-        recs.extend_from_slice(&start.to_le_bytes());
-        recs.extend_from_slice(&end.to_le_bytes());
+        recs.extend_from_slice(&band.start.to_le_bytes());
+        recs.extend_from_slice(&band.start.saturating_add(le32(s, 4)).to_le_bytes());
         recs.extend_from_slice(&s[8..12]); // move speed
-                                           // 0x20, the data in the model file, as every 1.12.1 sequence's is.
-        recs.extend_from_slice(&(le32(s, 12) | 0x20).to_le_bytes());
+                                           // 0x20, the keys in the model file, as every 1.12.1 sequence's are; an alias has its
+                                           // own copy of its sequence's keys, so it is one no more.
+        recs.extend_from_slice(&((le32(s, 12) | 0x20) & !0x40).to_le_bytes());
         recs.extend_from_slice(&s[16..28]); // frequency, pad, replay
         let blend = u32::from(u16::from_le_bytes([s[28], s[29]]));
         recs.extend_from_slice(&blend.to_le_bytes());
-        recs.extend_from_slice(&s[32..64]); // bounds, radius, next variation, alias
+        recs.extend_from_slice(&s[32..62]); // bounds, radius, next variation
+        recs.extend_from_slice(&(i as u16).to_le_bytes()); // its own alias
     }
     out.array(0x1c, n, &recs);
 
-    // Bones: 88 bytes to 108, in their bind pose.
+    // The animation lookup, by animation id: the first sequence of each.
+    let ids: Vec<u16> = seqs
+        .iter()
+        .map(|s| u16::from_le_bytes([s[0], s[1]]))
+        .collect();
+    let mut lookup = vec![0xffffu16; ids.iter().max().map_or(0, |&m| m as usize + 1)];
+    for (i, &id) in ids.iter().enumerate().rev() {
+        lookup[id as usize] = i as u16;
+    }
+    let bytes: Vec<u8> = lookup.iter().flat_map(|l| l.to_le_bytes()).collect();
+    out.array(0x24, lookup.len(), &bytes);
+    // The playable lookup: an animation the model has plays itself, one it lacks the first of
+    // its fallbacks it has, else the stand.
+    let has = |id: u16| lookup.get(id as usize).is_some_and(|&l| l != 0xffff);
+    let playable: Vec<u8> = (0..animation.fallbacks.len() as u16)
+        .flat_map(|id| {
+            let mut at = id;
+            for _ in 0..16 {
+                if has(at) {
+                    break;
+                }
+                at = animation.fallbacks.get(at as usize).copied().unwrap_or(0);
+            }
+            u32::from(if has(at) { at } else { 0 }).to_le_bytes()
+        })
+        .collect();
+    out.array(0x2c, animation.fallbacks.len(), &playable);
+
+    // Bones: 88 bytes to 108, their translation, rotation and scale keyed.
     let (bones, n) = src.records(0x2c, 88)?;
+    let bones_at = src.offset(0x2c)?;
     let mut recs = Vec::with_capacity(n * 108);
-    for b in bones.as_chunks::<88>().0 {
+    for (i, b) in bones.as_chunks::<88>().0.iter().enumerate() {
+        let at = bones_at + i * 88;
         recs.extend_from_slice(&b[0..12]); // key bone, flags, parent, submesh
-        for _ in 0..3 {
-            recs.extend_from_slice(&empty_track());
+        let identity = [0f32, 0.0, 0.0, 1.0];
+        let rest: [&[u8]; 3] = [&floats(&[0.0; 3]), &floats(&identity), &floats(&[1.0; 3])];
+        for (k, kind) in [Kind::Vec3, Kind::Quat, Kind::Vec3].into_iter().enumerate() {
+            recs.extend_from_slice(&out.track(
+                md20,
+                at + 0x10 + k * 20,
+                kind,
+                Some(rest[k]),
+                &bands,
+            ));
         }
         recs.extend_from_slice(&b[76..88]); // pivot
     }
@@ -140,24 +200,24 @@ pub fn to_vanilla(
     out.put_u32(0x4c, 1);
     out.put_u32(0x50, at);
 
-    // Colours: an RGB track and an alpha one, each at its first key.
+    // Colours: an RGB track and an alpha one. A sequence with no key holds the track's first.
     let (_, n) = src.records(0x48, 40)?;
     let mut recs = Vec::with_capacity(n * 0x38);
     for i in 0..n {
         let base = src.offset(0x48)? + i * 40;
-        let rgb = out.static_track(src.first_key(base, 12));
-        let alpha = out.static_track(src.first_key(base + 20, 2));
+        let rgb = out.track(md20, base, Kind::Vec3, None, &bands);
+        let alpha = out.track(md20, base + 20, Kind::Fix16, None, &bands);
         recs.extend_from_slice(&rgb);
         recs.extend_from_slice(&alpha);
     }
     out.array(0x54, n, &recs);
 
-    // Texture weights, at their first key.
+    // Texture weights.
     let (_, n) = src.records(0x58, 20)?;
     let mut recs = Vec::with_capacity(n * TRACK);
     for i in 0..n {
         let base = src.offset(0x58)? + i * 20;
-        recs.extend_from_slice(&out.static_track(src.first_key(base, 2)));
+        recs.extend_from_slice(&out.track(md20, base, Kind::Fix16, None, &bands));
     }
     out.array(0x64, n, &recs);
 
@@ -273,6 +333,103 @@ fn transcode_skin(out: &mut Out, skin: &[u8], shows: &dyn Fn(u16) -> bool) -> Re
     Ok(view)
 }
 
+/// A sequence's place on the 1.12.1 timeline, and where its keys are: the sequence whose arrays
+/// it plays (itself, or the one an alias names) and the bytes their offsets count in (the model,
+/// or its `.anim` file; none when that file is missing).
+struct Band<'a> {
+    start: u32,
+    slot: usize,
+    data: Option<&'a [u8]>,
+}
+
+/// Each sequence's band: one after another, a millisecond between them.
+fn bands<'a>(md20: &'a [u8], seqs: &[[u8; 64]], files: &'a [(u16, u16, Vec<u8>)]) -> Vec<Band<'a>> {
+    let flags = |i: usize| le32(&seqs[i], 12);
+    let mut clock = 0u32;
+    (0..seqs.len())
+        .map(|i| {
+            let mut slot = i;
+            for _ in 0..seqs.len() {
+                let alias = u16::from_le_bytes([seqs[slot][62], seqs[slot][63]]) as usize;
+                if flags(slot) & 0x40 == 0 || alias == slot || alias >= seqs.len() {
+                    break;
+                }
+                slot = alias;
+            }
+            let data = if flags(slot) & 0x20 != 0 {
+                Some(md20)
+            } else {
+                let s = &seqs[slot];
+                let (id, variation) = (
+                    u16::from_le_bytes([s[0], s[1]]),
+                    u16::from_le_bytes([s[2], s[3]]),
+                );
+                files
+                    .iter()
+                    .find(|f| (f.0, f.1) == (id, variation))
+                    .map(|f| anim_body(&f.2))
+            };
+            let start = clock;
+            clock = clock.saturating_add(le32(&seqs[i], 4)).saturating_add(1);
+            Band { start, slot, data }
+        })
+        .collect()
+}
+
+/// An `.anim` file's key data: an `AFM2` chunk's body in a chunked one, else the whole file.
+fn anim_body(file: &[u8]) -> &[u8] {
+    if file.get(0..4) == Some(b"AFM2") {
+        let size = u32_at(file, 4).unwrap_or(0) as usize;
+        file.get(8..8 + size).unwrap_or(&[])
+    } else {
+        file
+    }
+}
+
+/// What a track's values are.
+#[derive(Clone, Copy)]
+enum Kind {
+    Vec3,
+    /// Four `i16`, widened to four `f32`.
+    Quat,
+    /// An `i16` over 32767, as 1.12.1 keeps it.
+    Fix16,
+}
+
+impl Kind {
+    /// A Legion value's size.
+    fn size(self) -> usize {
+        match self {
+            Kind::Vec3 => 12,
+            Kind::Quat => 8,
+            Kind::Fix16 => 2,
+        }
+    }
+
+    /// A Legion value as 1.12.1 keeps it.
+    fn widen(self, v: &[u8]) -> Vec<u8> {
+        match self {
+            Kind::Quat => {
+                let c: Vec<f32> = v
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&b| {
+                        let s = i32::from(i16::from_le_bytes(b));
+                        (if s < 0 { s + 32768 } else { s - 32767 }) as f32 / 32767.0
+                    })
+                    .collect();
+                floats(&c)
+            }
+            _ => v.to_vec(),
+        }
+    }
+}
+
+fn floats(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|f| f.to_le_bytes()).collect()
+}
+
 fn le32(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
 }
@@ -306,16 +463,6 @@ impl<'a> Src<'a> {
             .ok_or(Error::Truncated("array"))?;
         let bytes = self.0.get(o..end).ok_or(Error::Truncated("array"))?;
         Ok((bytes, n))
-    }
-
-    /// The first key of the Legion track at `track` (20 bytes: interpolation, global sequence,
-    /// then timestamps and values, an array per sequence): its `size` bytes.
-    fn first_key(&self, track: usize, size: usize) -> Option<&'a [u8]> {
-        let (n, o) = array_at(self.0, track + 12).ok()?;
-        (0..n).find_map(|i| {
-            let (count, at) = array_at(self.0, o + i * 8).ok()?;
-            (count > 0).then(|| self.0.get(at..at + size)).flatten()
-        })
     }
 }
 
@@ -364,15 +511,91 @@ impl Out {
         Ok(())
     }
 
-    /// A 1.12.1 track holding `key` from time 0 on, its key appended; none without one.
-    fn static_track(&mut self, key: Option<&[u8]>) -> [u8; TRACK] {
-        let mut t = empty_track();
-        if let Some(value) = key {
-            let times = self.append(&0u32.to_le_bytes());
-            let values = self.append(value);
-            for (at, v) in [(12, 1), (16, times), (20, 1), (24, values)] {
-                t[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    /// The Legion track at `at` as a 1.12.1 one: each sequence's keys on its band of the
+    /// timeline, and its window of them. A sequence with none takes `rest`, else the track's first
+    /// key; a track with no key anywhere stays empty. A global sequence's track is its one array.
+    fn track(
+        &mut self,
+        md20: &[u8],
+        at: usize,
+        kind: Kind,
+        rest: Option<&[u8]>,
+        bands: &[Band],
+    ) -> [u8; TRACK] {
+        let (Some(interp), Some(gseq)) = (u16_at(md20, at), u16_at(md20, at + 2)) else {
+            return empty_track();
+        };
+        let (Ok((tn, to)), Ok((vn, vo))) = (array_at(md20, at + 4), array_at(md20, at + 12)) else {
+            return empty_track();
+        };
+        // A spline key is its value and two tangents; only the value is kept.
+        let stride = kind.size() * if interp >= 2 { 3 } else { 1 };
+        // Sequence `slot`'s keys, its arrays' headers in the model, their data in `data`.
+        let keys = |data: &[u8], slot: usize| -> Vec<(u32, Vec<u8>)> {
+            if slot >= tn.min(vn) {
+                return Vec::new();
             }
+            let (Ok((tc, toff)), Ok((vc, voff))) =
+                (array_at(md20, to + slot * 8), array_at(md20, vo + slot * 8))
+            else {
+                return Vec::new();
+            };
+            (0..tc.min(vc))
+                .map_while(|k| {
+                    let t = u32_at(data, toff + k * 4)?;
+                    let v = data.get(voff + k * stride..voff + k * stride + kind.size())?;
+                    Some((t, kind.widen(v)))
+                })
+                .collect()
+        };
+        let mut t = empty_track();
+        t[0..2].copy_from_slice(&interp.min(1).to_le_bytes());
+        t[2..4].copy_from_slice(&gseq.to_le_bytes());
+        let (all, ranges): (Vec<(u32, Vec<u8>)>, Vec<u8>) = if gseq != 0xffff {
+            (keys(md20, 0), Vec::new())
+        } else {
+            let per: Vec<Vec<(u32, Vec<u8>)>> = bands
+                .iter()
+                .map(|b| b.data.map_or_else(Vec::new, |d| keys(d, b.slot)))
+                .collect();
+            let Some(first) = per.iter().flatten().next().map(|(_, v)| v.clone()) else {
+                return empty_track();
+            };
+            let rest = rest.map_or(first, <[u8]>::to_vec);
+            let mut all = Vec::new();
+            let mut ranges = Vec::with_capacity(per.len() * 8);
+            for (band, mut ks) in bands.iter().zip(per) {
+                if ks.is_empty() {
+                    ks.push((0, rest.clone()));
+                }
+                let lo = all.len() as u32;
+                ranges.extend_from_slice(&lo.to_le_bytes());
+                ranges.extend_from_slice(&(lo + ks.len() as u32 - 1).to_le_bytes());
+                all.extend(
+                    ks.into_iter()
+                        .map(|(at, v)| (band.start.saturating_add(at), v)),
+                );
+            }
+            (all, ranges)
+        };
+        if all.is_empty() {
+            return t;
+        }
+        let times: Vec<u8> = all.iter().flat_map(|(at, _)| at.to_le_bytes()).collect();
+        let values: Vec<u8> = all.iter().flat_map(|(_, v)| v.iter().copied()).collect();
+        let n = all.len() as u32;
+        let (rn, ro) = self.put_array(ranges.len() / 8, &ranges);
+        let times = self.append(&times);
+        let values = self.append(&values);
+        for (at, v) in [
+            (4, rn),
+            (8, ro),
+            (12, n),
+            (16, times),
+            (20, n),
+            (24, values),
+        ] {
+            t[at..at + 4].copy_from_slice(&v.to_le_bytes());
         }
         t
     }
@@ -381,7 +604,6 @@ impl Out {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::u16_at;
     use std::io::Cursor;
 
     /// A Legion model of one triangle in two sections (geosets 0 and 102), each with a batch, one
@@ -396,6 +618,7 @@ mod tests {
         seq[0..2].copy_from_slice(&4u16.to_le_bytes()); // run
         seq[4..8].copy_from_slice(&800u32.to_le_bytes());
         seq[28..30].copy_from_slice(&150u16.to_le_bytes());
+        seq[12..16].copy_from_slice(&0x20u32.to_le_bytes()); // its keys in the model
         m.array(0x1c, 1, &seq);
         m.array(
             0x24,
@@ -494,7 +717,7 @@ mod tests {
     fn a_legion_model_reads_as_a_vanilla_one() {
         let (md20, skin) = legion();
         let names = [Some(virtual_path(1234))];
-        let file = to_vanilla(&md20, &skin, &names, |id| id != 102).unwrap();
+        let file = to_vanilla(&md20, &skin, &names, |id| id != 102, &Animation::default()).unwrap();
         let f = benilla_m2::parse_m2(&mut Cursor::new(&file[..])).unwrap();
         let m = f.model();
         assert_eq!(m.vertices.len(), 3);
@@ -532,7 +755,7 @@ mod tests {
     #[test]
     fn sequences_lie_one_after_another() {
         let (md20, skin) = legion();
-        let file = to_vanilla(&md20, &skin, &[None], |_| true).unwrap();
+        let file = to_vanilla(&md20, &skin, &[None], |_| true, &Animation::default()).unwrap();
         let at = le32(&file, 0x20) as usize;
         assert_eq!(le32(&file, 0x1c), 1);
         assert_eq!(u16_at(&file, at), Some(4));
@@ -543,6 +766,86 @@ mod tests {
         assert_eq!(le32(&file, le32(&file, 0x60) as usize), 11);
         // The blend-override flag is not 1.12.1's.
         assert_eq!(le32(&file, 0x10), 0x1);
+    }
+
+    /// Three sequences: a stand keyed in the model, an alias of it, and a spell keyed in its
+    /// `.anim` file; one bone turns in each.
+    #[test]
+    fn keys_go_on_each_sequences_band() {
+        let (md20, skin) = legion();
+        let mut m = Out { b: md20 };
+        let seq = |id: u16, duration: u32, flags: u32, alias: u16| {
+            let mut s = vec![0u8; 64];
+            s[0..2].copy_from_slice(&id.to_le_bytes());
+            s[4..8].copy_from_slice(&duration.to_le_bytes());
+            s[12..16].copy_from_slice(&flags.to_le_bytes());
+            s[60..62].copy_from_slice(&(-1i16).to_le_bytes());
+            s[62..64].copy_from_slice(&alias.to_le_bytes());
+            s
+        };
+        let seqs = [
+            seq(0, 100, 0x20, 0),
+            seq(108, 100, 0x60, 0),
+            seq(60, 200, 0x1, 2),
+        ];
+        m.array(0x1c, 3, &seqs.concat());
+        // Compressed quaternions: -1 is 1.0, 32767 is 0.0, -16385 about one half.
+        let q = |w: i16| [32767i16, 32767, 32767, w].map(i16::to_le_bytes).concat();
+        let times = m.append(&[0u32, 100].map(u32::to_le_bytes).concat());
+        let values = m.append(&[q(-1), q(-16385)].concat());
+        let pair = |n: u32, at: u32| [n.to_le_bytes(), at.to_le_bytes()].concat();
+        // The spell's arrays count in its .anim file: a time at 0, a value at 4.
+        let outer_t = m.append(&[pair(2, times), pair(0, 0), pair(1, 0)].concat());
+        let outer_v = m.append(&[pair(2, values), pair(0, 0), pair(1, 4)].concat());
+        let mut bone = vec![0u8; 88];
+        bone[0..4].copy_from_slice(&(-1i32).to_le_bytes());
+        bone[8..10].copy_from_slice(&(-1i16).to_le_bytes());
+        let track = 0x24;
+        bone[track..track + 2].copy_from_slice(&1u16.to_le_bytes());
+        bone[track + 2..track + 4].copy_from_slice(&0xffffu16.to_le_bytes());
+        bone[track + 4..track + 12].copy_from_slice(&pair(3, outer_t));
+        bone[track + 12..track + 20].copy_from_slice(&pair(3, outer_v));
+        m.array(0x2c, 1, &bone);
+        let anim = [50u32.to_le_bytes().to_vec(), q(-16385)].concat();
+        let mut fallbacks = vec![0u16; 200];
+        fallbacks[5] = 108;
+        let animation = Animation {
+            files: &[(60, 0, anim)],
+            fallbacks: &fallbacks,
+        };
+        let file = to_vanilla(&m.b, &skin, &[None], |_| true, &animation).unwrap();
+
+        let clips = benilla_formats::parse_m2_animations(&file);
+        let turns = |id: u16| {
+            let c = clips.iter().find(|c| c.anim_id == id).unwrap();
+            c.bones[0]
+                .rotation
+                .iter()
+                .map(|k| k.0)
+                .collect::<Vec<f32>>()
+        };
+        assert_eq!(turns(0), [0.0, 0.1]);
+        // The alias plays its sequence's keys on its own band.
+        assert_eq!(turns(108), [0.0, 0.1]);
+        // The .anim file's key, 50 ms into the spell.
+        assert_eq!(turns(60), [0.05]);
+        let spell = clips.iter().find(|c| c.anim_id == 60).unwrap();
+        assert!(!spell.looping);
+        assert_eq!((spell.start_ms, spell.end_ms), (202, 402));
+        let w = spell.bones[0].rotation[0].1;
+        assert!(
+            (w.iter().map(|c| c * c).sum::<f32>().sqrt() - 0.5).abs() < 1e-3,
+            "{w:?}"
+        );
+
+        // Direct by id, and the fallbacks for the rest.
+        let lookup = benilla_formats::parse_m2_animation_lookup(&file).unwrap();
+        assert_eq!((lookup[0], lookup[60], lookup[108]), (0, 2, 1));
+        assert_eq!(lookup[5], 0xffff);
+        let playable = benilla_formats::parse_m2_playable_animation_lookup(&file).unwrap();
+        assert_eq!(playable.len(), 200);
+        let to = |id: usize| playable[id].resolved_id;
+        assert_eq!((to(0), to(5), to(60), to(7)), (0, 108, 60, 0));
     }
 
     #[test]

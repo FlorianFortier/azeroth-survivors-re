@@ -8,6 +8,9 @@
 //! - `legion/display/<display id>.m2`: a creature display's model in its own textures and geosets,
 //!   from `CreatureDisplayInfo` (WoWDBDefs' definitions needed, [`Library::open`]).
 //!
+//! A model comes with its keys, its `.anim` files read in, and, with the definitions, the
+//! fallbacks `AnimationData` gives the animations it lacks.
+//!
 //! The paths come as the asset reader holds them: lowercase, `/` between folders. A creature
 //! display joins the client's catalog as [`DISPLAY_BASE`] plus its Legion id, its model named
 //! [`display_model_path`].
@@ -19,7 +22,7 @@ use benilla_casc::{Casc, Source};
 use crate::db2::{Raw, Table};
 use crate::dbd::Definition;
 use crate::display::{self, CreatureDisplay};
-use crate::transcode::{self, virtual_path};
+use crate::transcode::{self, virtual_path, Animation};
 use crate::{md21, model, Error, Result};
 
 /// The build the install is, for the definitions' layouts.
@@ -45,10 +48,13 @@ struct Displays {
     models: Table,
 }
 
-/// An open install and, with the definitions, its creature displays.
+/// An open install and, with the definitions, its creature displays and its animations'
+/// fallbacks.
 pub struct Library {
     casc: Casc<AnySource>,
     displays: Option<Displays>,
+    /// `AnimationData`'s `Fallback`, by animation id; empty without the definitions.
+    fallbacks: Vec<u16>,
 }
 
 impl Library {
@@ -56,14 +62,27 @@ impl Library {
     /// displays need.
     pub fn open(source: AnySource, dbd: Option<&Path>) -> Result<Self> {
         let casc = Casc::open(source)?;
-        let displays = match dbd {
-            Some(dir) => Some(Displays {
-                info: table(&casc, dir, "CreatureDisplayInfo")?,
-                models: table(&casc, dir, "CreatureModelData")?,
-            }),
-            None => None,
+        let (displays, fallbacks) = match dbd {
+            Some(dir) => {
+                let animations = table(&casc, dir, "AnimationData")?;
+                let count = animations.rows.keys().max().map_or(0, |&m| m as usize + 1);
+                let mut fallbacks = vec![0u16; count];
+                for (&id, row) in &animations.rows {
+                    fallbacks[id as usize] = row.int("Fallback").unwrap_or(0) as u16;
+                }
+                let displays = Displays {
+                    info: table(&casc, dir, "CreatureDisplayInfo")?,
+                    models: table(&casc, dir, "CreatureModelData")?,
+                };
+                (Some(displays), fallbacks)
+            }
+            None => (None, Vec::new()),
         };
-        Ok(Self { casc, displays })
+        Ok(Self {
+            casc,
+            displays,
+            fallbacks,
+        })
     }
 
     /// The file at `path`, `None` when it is not a Legion path.
@@ -120,7 +139,19 @@ impl Library {
             Some(d) => d.shows(id),
             None => id == 0 || id % 100 == 1,
         };
-        transcode::to_vanilla(&chunks.md20, &skin, &names, shows)
+        // The sequences kept out of the model, in their `.anim` files; one missing leaves its
+        // sequence in the bind pose.
+        let files: Vec<(u16, u16, Vec<u8>)> = chunks
+            .anims
+            .iter()
+            .filter(|a| a.2 != 0)
+            .filter_map(|&(id, variation, f)| Some((id, variation, self.casc.read_id(f).ok()?)))
+            .collect();
+        let animation = Animation {
+            files: &files,
+            fallbacks: &self.fallbacks,
+        };
+        transcode::to_vanilla(&chunks.md20, &skin, &names, shows, &animation)
     }
 }
 

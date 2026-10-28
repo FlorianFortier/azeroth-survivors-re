@@ -219,12 +219,29 @@ fn main() -> Res<()> {
         .into_iter()
         .map(|f| f.map(transcode::virtual_path))
         .collect();
-    let vanilla = transcode::to_vanilla(&chunks.md20, &casc.read_id(skin_id)?, &names, shown)?;
+    let files: Vec<(u16, u16, Vec<u8>)> = chunks
+        .anims
+        .iter()
+        .filter_map(|&(a, v, f)| Some((a, v, casc.read_id(f).ok()?)))
+        .collect();
+    let animation = transcode::Animation {
+        files: &files,
+        fallbacks: &[],
+    };
+    let vanilla = transcode::to_vanilla(
+        &chunks.md20,
+        &casc.read_id(skin_id)?,
+        &names,
+        shown,
+        &animation,
+    )?;
     std::fs::write(out.join("vanilla.m2"), &vanilla)?;
     let draws = benilla_formats::parse_m2_render_submeshes(&vanilla, "", &[])?;
     println!(
-        "vanilla.m2: {} bytes, {} draws, textures {:?}",
+        "vanilla.m2: {} bytes (the Legion model {}, its .anim files {}), {} draws, textures {:?}",
         vanilla.len(),
+        chunks.md20.len(),
+        files.iter().map(|f| f.2.len()).sum::<usize>(),
         draws.len(),
         names
     );
