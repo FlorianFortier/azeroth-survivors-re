@@ -30,7 +30,7 @@ use benilla_legion::library::{
 };
 
 use benilla_formats::DialRanges;
-use benilla_legion::races::LegionRace;
+use benilla_legion::races::{LegionRace, SectionKey};
 
 use super::skin_composite::SkinSections;
 use super::{CharCreate, Characters, Creatures, ItemDisplays};
@@ -189,7 +189,7 @@ fn add_races(
             continue;
         }
         let mut bodies = [0u32; 2];
-        for sex in 0..2 {
+        for (sex, body) in bodies.iter_mut().enumerate() {
             let display = DISPLAY_BASE + race.displays[sex];
             let path = format!(
                 "Character\\{}\\{}\\legion_char_{}.mdx",
@@ -198,7 +198,7 @@ fn add_races(
                 race.models[sex]
             );
             creatures.catalog.add_display(display, &path, 1.0, 0.0);
-            bodies[sex] = display;
+            *body = display;
         }
         for &((sex, section, variation, color), files) in &race.sections {
             let paths = files.map(|f| {
@@ -251,7 +251,7 @@ fn add_races(
 /// colours, faces (on the first skin), hair styles, hair colours (of the first style), facial
 /// hair.
 fn ranges(race: &LegionRace, sex: u8) -> Option<DialRanges> {
-    let count = |f: &dyn Fn(&(u8, u8, u8, u8)) -> bool| {
+    let count = |f: &dyn Fn(&SectionKey) -> bool| {
         race.sections
             .iter()
             .filter(|(k, t)| k.0 == sex && t[0] != 0 && f(k))
