@@ -192,6 +192,10 @@ fn add_races(
     };
     let mut added = Vec::new();
     for id in data::LEGION_RACES {
+        // A race whose body the install no longer carries whole stays out.
+        if data::BODILESS_RACES.contains(&id) {
+            continue;
+        }
         let Some(race) = legion.0.race(id) else {
             continue;
         };
