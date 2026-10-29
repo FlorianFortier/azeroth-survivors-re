@@ -304,7 +304,13 @@ upstream merge. Each step is one pull request or a few.
    are a model per race), the class's 1.12.1 starting outfit; a guest without the data draws a
    Human for a Blood Elf and a Night Elf for a Draenei (`data::stand_in_body`). Read through the
    library: each body in both sexes by the client's loader, its skin at 256²
-   (`legions_races_read_as_1_12_1_races`). Not seen on screen here. **Second part done**: the
+   (`legions_races_read_as_1_12_1_races`). Seen on screen: the Blood Elf runs with its hands and
+   boots left behind, because 7.3.5's old `bloodelfmale.m2` is a gutted leftover of the HD
+   model's arrival in 6.1 (90 of its 117 bones have no parent, no arm, shoulder or spine key
+   bone; the Draenei's old body is whole), so it stays out (`data::BODILESS_RACES`) until its
+   HD body is read: an `SKID` `.skel` file holds that model's bones and sequences, its 83,000
+   vertices and 120,000 indices pass 1.12.1's 65,535, and its skin is layout 2, the
+   Pandaren's. **Second part done**: the
    Goblin and the Worgen, the same way (Cataclysm's bodies, the old layout at twice the size;
    race 9, the Goblin, is in 1.12.1's `ChrRaces` but not playable there, so its create entry is
    ours); a Gnome and a Human stand in for them. **Third part done**: the Pandaren. Mists of

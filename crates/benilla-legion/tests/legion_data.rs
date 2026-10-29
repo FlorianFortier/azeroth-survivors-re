@@ -321,6 +321,23 @@ fn legions_races_read_as_1_12_1_races() {
             let model = library.read(&path).unwrap().unwrap();
             let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
             assert!(draws.len() > 20, "{path}: {} draws", draws.len());
+            // Its skeleton: whole, but the Blood Elf's, which 7.3.5 left without most parents
+            // and the arm key bones (the mode keeps it out, `data::BODILESS_RACES`).
+            let skeleton = benilla_formats::parse_m2_skeleton(&model).unwrap();
+            let roots = skeleton.bones.iter().filter(|b| b.parent < 0).count();
+            let arms = skeleton.bones.iter().any(|b| (0..=3).contains(&b.key_bone));
+            println!("{path}: {} bones, {roots} roots", skeleton.bones.len());
+            if id == 10 {
+                assert!(
+                    roots > skeleton.bones.len() / 2 && !arms,
+                    "{path}: whole now?"
+                );
+            } else {
+                assert!(
+                    roots < skeleton.bones.len() / 4 && arms,
+                    "{path}: {roots} roots"
+                );
+            }
         }
         // Its skin, at 1.12.1's size.
         let skin = race

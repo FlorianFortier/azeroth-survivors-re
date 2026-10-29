@@ -5392,6 +5392,13 @@ pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 /// which `benilla_legion::layout` puts on 1.12.1's 256² atlas.
 pub(crate) const LEGION_RACES: [u8; 5] = [10, 11, 9, 22, 24];
 
+/// The races of [`LEGION_RACES`] whose pre-HD body Legion 7.3.5 no longer carries whole: the
+/// Blood Elf's (its HD body replaced it in 6.1) has 90 of its 117 bones without a parent and
+/// none of the arm, shoulder and spine key bones, so its hands and feet stay put while it runs.
+/// Never put into the character tables (`entities::legion`), so never offered; the name stays
+/// readable in a profile, and a host's Blood Elf still draws its stand-in.
+pub(crate) const BODILESS_RACES: [u8; 1] = [10];
+
 static LEGION_RACES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
 /// Note which of [`LEGION_RACES`] this machine's character tables took.
@@ -5968,6 +5975,7 @@ mod tests {
         // This machine has no Legion data: 1.12.1's eight alone.
         assert_eq!(playable_races(), RACES.to_vec());
         assert!(!legion_race(10));
+        assert!(BODILESS_RACES.iter().all(|r| LEGION_RACES.contains(r)));
         for race in LEGION_RACES {
             assert!(!race_classes(race).is_empty());
             assert!(!racials(race).is_empty());
