@@ -2404,7 +2404,12 @@ fn refresh_collection(
     else {
         return;
     };
-    let collected = store.profile.collected();
+    let collected: Vec<&data::ItemDef> = store
+        .profile
+        .collected()
+        .into_iter()
+        .filter(|i| data::zone_shown(i.zone))
+        .collect();
     let gear = store.profile.gear();
     let view = (
         collected.len(),
@@ -2417,7 +2422,7 @@ fn refresh_collection(
     }
     *shown = Some(view);
     let f = &*fonts;
-    let total = data::ITEMS.len();
+    let total = data::shown_items();
     let summary = bonus_summary(&store.profile.collection_bonuses());
     let progress = || kit::Progress {
         value: collected.len() as f32,
@@ -2777,7 +2782,7 @@ fn refresh_drops(
     store: Res<ProfileStore>,
     displays: Option<Res<crate::entities::ItemDisplays>>,
     body: Query<Entity, With<DropsBody>>,
-    mut shown: Local<Option<(usize, usize, Option<usize>, bool)>>,
+    mut shown: Local<Option<(usize, usize, Option<usize>, bool, bool)>>,
     mut seen_language: Local<u32>,
 ) {
     if rebuilt(&mut seen_language) {
@@ -2792,6 +2797,7 @@ fn refresh_drops(
         open_zones(&store),
         selection.class,
         displays.is_some(),
+        data::legion_looks(),
     );
     if *shown == Some(view) {
         return;
@@ -2827,9 +2833,26 @@ fn refresh_drops(
                     ));
                 }
             }
-            for item in data::zone_items(z) {
-                let have = collected.contains(&item);
-                let boss = data::roster(z).bosses[item.boss].name;
+            // The bonus boss's piece after the zone's own, where this machine posts the boss.
+            let bonus = data::shown_bonus_boss(z).zip(data::bonus_item(z));
+            for item in data::zone_items(z)
+                .into_iter()
+                .chain(bonus.map(|(_, item)| item))
+            {
+                let bonus_piece = bonus.is_some_and(|(_, b)| std::ptr::eq(b, item));
+                let have = if bonus_piece {
+                    store
+                        .profile
+                        .inventory
+                        .get(&item.name)
+                        .is_some_and(|n| *n > 0)
+                } else {
+                    collected.contains(&item)
+                };
+                let boss = match bonus {
+                    Some((b, _)) if bonus_piece => b.name,
+                    _ => data::roster(z).bosses[item.boss].name,
+                };
                 p.spawn(Node {
                     column_gap: Val::Px(10.0),
                     align_items: AlignItems::Center,
@@ -2871,12 +2894,16 @@ fn refresh_drops(
                         ));
                     });
                     kit::chip(row, f, &trf("{}: always", &[boss]), true);
-                    kit::chip(
-                        row,
-                        f,
-                        &trf("Horde: {}", &[&one_in(data::horde_chance(item))]),
-                        false,
-                    );
+                    if bonus_piece {
+                        kit::chip(row, f, tr("Bonus boss, once a run"), false);
+                    } else {
+                        kit::chip(
+                            row,
+                            f,
+                            &trf("Horde: {}", &[&one_in(data::horde_chance(item))]),
+                            false,
+                        );
+                    }
                     if have {
                         row.spawn(kit::text(&f.body, tr("Found"), 11.0, theme::GREEN));
                     }
@@ -2887,14 +2914,14 @@ fn refresh_drops(
 }
 
 /// The Codex: the horde, the bosses and the spells met in the runs, and the pieces found.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn refresh_codex(
     mut commands: Commands,
     fonts: Option<Res<KitFonts>>,
     store: Res<ProfileStore>,
     spells: Option<Res<crate::ui_action::Spells>>,
     body: Query<Entity, With<CodexBody>>,
-    mut shown: Local<Option<(usize, usize, usize, usize, bool)>>,
+    mut shown: Local<Option<(usize, usize, usize, usize, bool, bool, usize)>>,
     mut seen_language: Local<u32>,
 ) {
     if rebuilt(&mut seen_language) {
@@ -2904,12 +2931,25 @@ fn refresh_codex(
         return;
     };
     let codex = &store.profile.codex;
+    let collected = store
+        .profile
+        .collected()
+        .into_iter()
+        .filter(|i| data::zone_shown(i.zone))
+        .count();
+    // Legion's zones, classes and bonus bosses show once this machine has read them.
+    let shown_classes = data::CLASSES
+        .iter()
+        .filter(|c| data::class_shown(c))
+        .count();
     let view = (
         codex.horde.len(),
         codex.bosses.len(),
         codex.spells.len(),
-        store.profile.collected().len(),
+        collected,
         spells.is_some(),
+        data::legion_looks(),
+        shown_classes,
     );
     if *shown == Some(view) {
         return;
@@ -2928,6 +2968,7 @@ fn refresh_codex(
         let spell_keys: Vec<&str> = data::ABILITIES
             .iter()
             .map(|a| a.key)
+            .filter(|k| data::ability_shown(k))
             .chain(data::PASSIVES.iter().map(|p| p.key))
             .collect();
         p.spawn(Node {
@@ -2943,7 +2984,7 @@ fn refresh_codex(
                     seen_of(&spell_keys, &codex.spells),
                     spell_keys.len(),
                 ),
-                ("Items", store.profile.collected().len(), data::ITEMS.len()),
+                ("Items", collected, data::shown_items()),
             ] {
                 r.spawn(Node {
                     width: Val::Px(200.0),
@@ -2989,6 +3030,11 @@ fn refresh_codex(
                         format!("{} · ???", mmss(t))
                     };
                     kit::chip(row, f, &label, met);
+                }
+                if let Some(b) = data::shown_bonus_boss(z) {
+                    let met = codex.bosses.contains(b.name);
+                    let name = if met { b.name } else { "???" };
+                    kit::chip(row, f, &trf("Bonus · {}", &[name]), met);
                 }
             });
         }
@@ -3038,7 +3084,10 @@ fn refresh_codex(
             ..default()
         })
         .with_children(|g| {
-            for a in data::ABILITIES {
+            for a in data::ABILITIES
+                .iter()
+                .filter(|a| data::ability_shown(a.key))
+            {
                 let met = codex.spells.contains(a.key);
                 let tip = if met {
                     Tooltip(spell_tip(a, &stats, spells))
@@ -3429,7 +3478,7 @@ fn refresh_zone_list(
     selection: Res<Selection>,
     store: Res<ProfileStore>,
     list: Query<Entity, With<ZoneList>>,
-    mut shown: Local<Option<(usize, usize, usize)>>,
+    mut shown: Local<Option<(usize, usize, usize, bool)>>,
     mut seen_language: Local<u32>,
 ) {
     if rebuilt(&mut seen_language) {
@@ -3438,7 +3487,12 @@ fn refresh_zone_list(
     let (Some(fonts), Ok(list)) = (fonts, list.single()) else {
         return;
     };
-    let view = (selection.map, store.profile.zones.len(), open_zones(&store));
+    let view = (
+        selection.map,
+        store.profile.zones.len(),
+        open_zones(&store),
+        data::legion_looks(),
+    );
     if *shown == Some(view) {
         return;
     }
@@ -3542,6 +3596,18 @@ fn refresh_zone_list(
                         trf("Defeat {} to win.", &[final_boss]),
                         11.0,
                         theme::GOLD,
+                    ));
+                }
+                // The bonus boss at a post of its own, where this machine draws him.
+                if let Some((boss, item)) = data::shown_bonus_boss(i).zip(data::bonus_item(i)) {
+                    b.spawn(kit::text(
+                        &f.body,
+                        trf(
+                            "Bonus: {} waits at a post of his own, once a run, for {}.",
+                            &[boss.name, &item.name],
+                        ),
+                        11.0,
+                        hud::rgb(item.rarity.color()),
                     ));
                 }
             });

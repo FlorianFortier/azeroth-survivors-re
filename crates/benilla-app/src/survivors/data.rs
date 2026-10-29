@@ -5810,10 +5810,11 @@ pub(crate) fn met_horde(zone: usize, elapsed: f32, rules: &Rules) -> Vec<&'stati
     out
 }
 
-/// Every creature the campaign holds, horde and bosses, each name once: the Codex's whole.
+/// Every creature the zones this machine shows hold, horde and bosses, each name once, and the
+/// bonus bosses where it draws them: the Codex's whole.
 pub(crate) fn all_creatures() -> (Vec<&'static str>, Vec<&'static str>) {
     let (mut horde, mut bosses): (Vec<&'static str>, Vec<&'static str>) = (Vec::new(), Vec::new());
-    for z in 0..MAPS.len() {
+    for z in (0..MAPS.len()).filter(|&z| zone_shown(z)) {
         let r = roster(z);
         for e in &r.enemies {
             if !horde.contains(&e.name) {
@@ -5825,8 +5826,29 @@ pub(crate) fn all_creatures() -> (Vec<&'static str>, Vec<&'static str>) {
                 bosses.push(b.name);
             }
         }
+        if let Some(b) = shown_bonus_boss(z) {
+            bosses.push(b.name);
+        }
     }
     (horde, bosses)
+}
+
+/// A zone's bonus boss where this machine draws it ([`legion_looks`]), as its field posts it.
+pub(crate) fn shown_bonus_boss(zone: usize) -> Option<&'static EnemyDef> {
+    legion_looks().then(|| bonus_boss(zone)).flatten()
+}
+
+/// The campaign's pieces in the zones this machine shows: the collection's whole.
+pub(crate) fn shown_items() -> usize {
+    ITEMS.iter().filter(|i| zone_shown(i.zone)).count()
+}
+
+/// Whether a spell is one this machine offers: a spell no class lists, or one a shown class
+/// ([`class_shown`]) lists.
+pub(crate) fn ability_shown(key: &str) -> bool {
+    let lists = |c: &&ClassDef| c.start == key || c.pool.contains(&key);
+    let mut listing = CLASSES.iter().filter(lists).peekable();
+    listing.peek().is_none() || listing.any(class_shown)
 }
 
 /// The item a horde kill drops from `roll` (uniform in `[0, 1)`), if any: one in
@@ -5970,6 +5992,23 @@ mod tests {
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 38552), Some((6, 60)));
         assert_eq!(stand_in_body(49), None);
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 1913), None);
+    }
+
+    #[test]
+    fn the_main_screen_counts_what_this_machine_shows() {
+        // Without Legion's data: the classic zones' pieces, no bonus boss, no Legion spell.
+        assert_eq!(shown_items(), CLASSIC_ZONES * 5);
+        let gulch = MAPS.iter().position(|m| m.name == "Warsong Gulch").unwrap();
+        assert!(bonus_boss(gulch).is_some() && shown_bonus_boss(gulch).is_none());
+        let (_, bosses) = all_creatures();
+        assert!(!bosses.contains(&"Illidan Stormrage"));
+        for &id in &LEGION_CLASSES {
+            let c = CLASSES.iter().find(|c| c.id == id).unwrap();
+            assert!(!ability_shown(c.start), "{}", c.start);
+        }
+        let warrior = CLASSES.iter().find(|c| c.id == 1).unwrap();
+        assert!(ability_shown(warrior.start));
+        assert!(warrior.pool.iter().all(|k| ability_shown(k)));
     }
 
     #[test]
