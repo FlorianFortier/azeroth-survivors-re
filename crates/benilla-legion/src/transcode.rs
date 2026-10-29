@@ -7,7 +7,9 @@
 //! the materials, the bones, colours and texture weights with their keys, the sequences on one
 //! timeline, the attachments, the texture transforms, the particle and ribbon emitters
 //! ([`particles`], [`ribbons`]), the lookups and the bounds. Events, lights and cameras are left
-//! out. Legion's shader combos come down to one texture a batch, its base, and its blend modes to
+//! out. Legion's shader combos come down to one texture a batch, its base, sampled as the shader
+//! id says (the first UV set, the second, or an environment map: 1.12.1 reads that off the
+//! texture unit lookup, which Legion leaves empty), and its blend modes to
 //! 1.12.1's.
 //!
 //! The keys ([`Animation`]): a Legion track holds an array of keys per sequence, each timed from
@@ -115,7 +117,17 @@ pub fn to_vanilla(
     out.copy(&src, 0x68, 0x7c, 2)?; // replaceable texture lookup
     out.copy(&src, 0x78, 0x8c, 2)?; // bone lookup
     out.copy(&src, 0x80, 0x94, 2)?; // texture lookup
-    out.copy(&src, 0x88, 0x9c, 2)?; // texture unit lookup
+                                    // The texture unit lookup: Legion's is empty (its shader ids say what each unit samples),
+                                    // and 1.12.1 reads an entry past the table as an environment map. Three entries, which each
+                                    // batch names by its shader id ([`unit_coords`]).
+    out.array(
+        0x9c,
+        UNIT_LOOKUP.len(),
+        &UNIT_LOOKUP
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    );
     out.copy(&src, 0x90, 0xa4, 2)?; // transparency lookup
     out.copy(&src, 0xd8, 0xec, 2)?; // collision triangles
     out.copy(&src, 0xe0, 0xf4, 12)?; // collision vertices
@@ -375,8 +387,11 @@ fn transcode_skin(out: &mut Out, skin: &[u8], shows: &dyn Fn(u16) -> bool) -> Re
             continue;
         }
         let mut b = *b;
-        let count = u16::from_le_bytes([b[14], b[15]]).min(1);
+        let units = u16::from_le_bytes([b[14], b[15]]);
+        let count = units.min(1);
         b[14..16].copy_from_slice(&count.to_le_bytes());
+        let shader = u16::from_le_bytes([b[2], b[3]]);
+        b[18..20].copy_from_slice(&unit_coords(shader, units).to_le_bytes());
         recs.extend_from_slice(&b);
         kept += 1;
     }
@@ -385,6 +400,27 @@ fn transcode_skin(out: &mut Out, skin: &[u8], shows: &dyn Fn(u16) -> bool) -> Re
     view.extend_from_slice(&ofs.to_le_bytes());
     view.extend_from_slice(&s.u32(44)?.to_le_bytes()); // bones a draw holds at most
     Ok(view)
+}
+
+/// The texture unit lookup written into every model: a batch's `texture_coord_combo_index`
+/// names the first UV set, the second, or (past 2, as 1.12.1 reads it) an environment map.
+const UNIT_LOOKUP: [u16; 3] = [0, 1, 0xffff];
+
+/// Where a batch's kept unit, its first, takes its coordinates, as Legion's shader id says: an
+/// entry of [`UNIT_LOOKUP`]. A table shader (`0x8000`) samples its first unit by the first UV set
+/// but `Combiners_Mod_Depth` (27, an edge-faded environment map); a composed one marks an
+/// environment-mapped first unit with `0x80`, and a lone unit on the second UV set with `0x4000`.
+fn unit_coords(shader: u16, units: u16) -> u16 {
+    if shader & 0x8000 != 0 {
+        return if shader & 0x7fff == 27 { 2 } else { 0 };
+    }
+    if shader & 0x80 != 0 {
+        2
+    } else if shader & 0x4000 != 0 && units == 1 {
+        1
+    } else {
+        0
+    }
 }
 
 /// A sequence's place on the 1.12.1 timeline, and where its keys are: the sequence whose arrays
@@ -1009,10 +1045,26 @@ mod tests {
         assert_eq!(s.triangles().len(), 6);
         assert_eq!(s.submeshes().len(), 2);
         assert_eq!(s.submeshes()[1].triangle_start, 3);
-        // The hidden geoset's batch is gone; the kept one draws one texture.
+        // The hidden geoset's batch is gone; the kept one draws one texture, by the first UV set
+        // (Legion's empty unit lookup would read as an environment map).
         assert_eq!(s.batches().len(), 1);
         assert_eq!(s.batches()[0].skin_section_index, 0);
         assert_eq!(s.batches()[0].texture_count, 1);
+        assert_eq!(m.texture_unit_lookup, UNIT_LOOKUP);
+        assert!(!m.stage_is_env_mapped(&s.batches()[0], 0));
+    }
+
+    #[test]
+    fn a_batchs_coordinates_follow_its_shader_id() {
+        // A table shader's base: the first UV set; the edge-faded map: the environment.
+        assert_eq!(unit_coords(0x8000, 2), 0);
+        assert_eq!(unit_coords(0x8003, 3), 0);
+        assert_eq!(unit_coords(0x8000 | 27, 1), 2);
+        // Composed shaders: a plain modulate, an environment-mapped sheen, a second-set lone unit.
+        assert_eq!(unit_coords(0x0010, 1), 0);
+        assert_eq!(unit_coords(0x0090, 1), 2);
+        assert_eq!(unit_coords(0x4010, 1), 1);
+        assert_eq!(unit_coords(0x4014, 2), 0);
     }
 
     #[test]
