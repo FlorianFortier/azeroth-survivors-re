@@ -13,8 +13,8 @@ help: ## Show this help
 fetch-data: ## Download the game data (a WoW 1.12.1 client) from archive.org
 	./scripts/fetch-data.sh
 
-fetch-legion: ## Download Legion 7.3.5's game files (71 GB, checked); STREAM=1 reads archive.org as needed instead
-	./scripts/fetch-legion.sh $(if $(STREAM),--stream,)
+fetch-legion: ## Download Legion 7.3.5's game files (71 GB, checked); STREAM=1 reads archive.org as needed, LEGION=<folder> uses an install of yours
+	./scripts/fetch-legion.sh $(if $(LEGION),--install "$(LEGION)",$(if $(STREAM),--stream,))
 
 toolchain: ## Install the wasm toolchain (wasi-sdk, wasm-bindgen, binaryen)
 	./scripts/web-setup.sh

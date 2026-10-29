@@ -30,6 +30,9 @@ No World of Warcraft data comes with this folder. Fetch it beside the executable
                                         classes and Val'sharah
   ./scripts/fetch-legion.sh --stream    or: no big download, Legion read from archive.org as the
                                         game needs it (curl, and the network, at play time)
+  ./scripts/fetch-legion.sh --install <folder>
+                                        or: a Legion 7.3.5.26972 install already here (the folder
+                                        holding .build.info), remembered in legion-data/
 
 The scripts need curl, unzip, python3 and sha1sum (or shasum). Then run ./warcraft-survivors:
 it finds wow-data/ and legion-data/ beside itself, or in the folder it is run from. To use an

@@ -37,7 +37,7 @@ catalog); their examples draw a model to a PNG without a GPU. See [docs/EXPANSIO
 | `crates/wenilla-host` | local dev server: static files, `/data/*`, and the lobby at `/lobby`. Loopback by default. | wenilla's |
 | `web/` | the page side: `index.html`, `boot.js`, `platform.js`, `bridge.js`, `examples/`, `wasi_stubs.js` | wenilla's |
 | `scripts/fetch-data.sh` | downloads the 1.12.1 client and extracts its MPQs into `wow-data/` | ours |
-| `scripts/fetch-legion.sh`, `scripts/dist.sh` | Legion 7.3.5's game files (or a streamed copy's list) and WoWDBDefs' definitions, pinned, into `legion-data/`; the player build into `dist/`. The launcher (`crates/warcraft-survivors`) finds `wow-data/` and `legion-data/` beside itself or in the folder it runs from, a set variable winning | ours |
+| `scripts/fetch-legion.sh`, `scripts/dist.sh` | Legion 7.3.5's game files (or a streamed copy's list, or `--install`: the path of an install already on the machine) and WoWDBDefs' definitions, pinned, into `legion-data/`; the player build into `dist/`. The launcher (`crates/warcraft-survivors`) finds `wow-data/` and `legion-data/` beside itself or in the folder it runs from, a set variable winning | ours |
 | `scripts/web-setup.sh`, `scripts/web-build.sh` | toolchain and build for the wasm | wenilla's |
 | `third_party/` | patched `lua-src`, `mlua-sys` and `kira`; each has a `BENILLA.md` | vendored |
 | `.github/workflows/check.yml` | the PR gate: wasm check, host and UI tests, client-carry and survivors-table tests | ours |

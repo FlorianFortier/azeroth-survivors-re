@@ -9,6 +9,10 @@
 #   ./scripts/fetch-legion.sh --stream   nothing heavy: the game reads the copy on archive.org
 #                                        a few bytes at a time as it needs them (curl at run time),
 #                                        kept in legion-data/cache
+#   ./scripts/fetch-legion.sh --install <folder>
+#                                        a Legion 7.3.5.26972 install already on this machine (the
+#                                        folder holding .build.info): nothing of the game is
+#                                        downloaded, and its path is kept in legion-data/install.path
 #
 # Either way it fetches the WoWDBDefs definitions the client types Legion's tables with, pinned
 # to one commit, into legion-data/dbd. The launcher (`make native`, `make dist`) finds
@@ -41,10 +45,18 @@ TABLES=(
 )
 
 STREAM=0
+INSTALL_OWN=""
 case "${1:-}" in
     --stream) STREAM=1 ;;
+    --install)
+        INSTALL_OWN="${2:-}"
+        if [ ! -f "$INSTALL_OWN/.build.info" ]; then
+            echo "$0: --install needs the folder holding .build.info (got '${INSTALL_OWN}')" >&2
+            exit 2
+        fi
+        ;;
     "") ;;
-    *) echo "usage: $0 [--stream]"; exit 2 ;;
+    *) echo "usage: $0 [--stream | --install <folder>]"; exit 2 ;;
 esac
 
 if command -v sha1sum >/dev/null; then SHA1="sha1sum"; else SHA1="shasum -a 1"; fi
@@ -56,6 +68,17 @@ for t in "${TABLES[@]}"; do
     out="$LEGION_DIR/dbd/$t.dbd"
     [ -s "$out" ] || curl -sSfL -o "$out" "$DBD_URL/$t.dbd"
 done
+
+if [ -n "$INSTALL_OWN" ]; then
+    # An install of the player's own: only where it is, for the launcher.
+    INSTALL_OWN="$(cd "$INSTALL_OWN" && pwd)"
+    echo "$INSTALL_OWN" >"$LEGION_DIR/install.path"
+    rm -f "$LEGION_DIR/stream.url"
+    echo "Legion is read from $INSTALL_OWN"
+    echo "  WOW_LEGION=$INSTALL_OWN"
+    echo "  WOW_LEGION_DBD=$LEGION_DIR/dbd"
+    exit 0
+fi
 
 # The item's file list: name, size and SHA-1 of every file the install holds that the client
 # reads (.build.info, Data/config, Data/data but its shmem), as `size sha1 path` lines.
@@ -84,6 +107,7 @@ if [ "$STREAM" = 1 ]; then
     mkdir -p "$CACHE/Data"
     awk '$3 ~ /^Data\/data\// { sub(/^Data\/data\//, "", $3); print $3 }' "$LIST" >"$CACHE/Data/data.list"
     echo "$URL" >"$LEGION_DIR/stream.url"
+    rm -f "$LEGION_DIR/install.path"
     echo "Legion streams from archive.org, cached in $CACHE"
     echo "  WOW_LEGION=$URL"
     echo "  WOW_LEGION_CACHE=$CACHE"
@@ -121,7 +145,7 @@ while read -r size sha1 path; do
     fi
     echo "$sha1" >"$ok"
 done <"$LIST"
-rm -f "$LEGION_DIR/stream.url"
+rm -f "$LEGION_DIR/stream.url" "$LEGION_DIR/install.path"
 
 echo "Legion's game files are ready at $INSTALL"
 echo "  WOW_LEGION=$INSTALL"
