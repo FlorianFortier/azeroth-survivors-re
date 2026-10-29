@@ -275,12 +275,16 @@ make fetch-legion            # the install's game files, 71 GB from archive.org,
                              # against archive.org's SHA-1; resumable, re-runnable
 make fetch-legion STREAM=1   # no big download: the game reads the copy on archive.org as it
                              # needs it (a few hundred MB, cached), with curl, online at play time
+make fetch-legion LEGION=/path/to/WoW_Legion_7.3.5.26972
+                             # a Legion 7.3.5.26972 install already on this machine (the folder
+                             # holding .build.info): only the definitions are fetched, and the
+                             # launcher remembers the folder (legion-data/install.path)
 make native                  # finds wow-data/ and legion-data/ on its own
 ```
 
-Either way the definitions come pinned to one WoWDBDefs commit. To use a Legion install of your
-own, set `WOW_LEGION` (its folder) and `WOW_LEGION_DBD` (`legion-data/dbd`, or any folder of
-WoWDBDefs' `.dbd` files); a variable set wins over what the launcher finds. Without Legion's data
+Each way the definitions come pinned to one WoWDBDefs commit. `WOW_LEGION` (a Legion folder) and
+`WOW_LEGION_DBD` (`legion-data/dbd`, or any folder of WoWDBDefs' `.dbd` files) name them by hand
+for one launch; a variable set wins over what the launcher finds. Without Legion's data
 the game is 1.12.1's alone: Legion's races, classes and zone are not offered.
 
 ### A build for players
