@@ -1197,7 +1197,9 @@ fn record_run(
             .bosses
             .iter()
             .take(run.bosses as usize)
-            .map(|b| b.name.to_string())
+            .map(|b| b.name)
+            .chain(run.bonus_slain.iter().copied())
+            .map(String::from)
             .collect(),
         spells: run
             .abilities

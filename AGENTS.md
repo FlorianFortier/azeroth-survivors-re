@@ -290,7 +290,11 @@ google-chrome --user-data-dir=/tmp/wenilla-chrome --enable-unsafe-webgpu --remot
   the elite kind `data::BONUS` after `data::ELITES` (`data::elite_kind` reads either), falls
   once and drops its piece (`data::BONUS_ITEMS`: gear beyond the sixty, found by `data::item`
   and listed by `data::gear_items`, never in the collection); the balance simulator, without
-  the data, never meets it. Legion's weapon looks are item displays from
+  the data, never meets it. The main screen names him and his piece (the zone's row, Drop
+  Tables, the Codex) only where this machine draws him (`data::shown_bonus_boss`), and the Codex
+  records him from `Run::bonus_slain`. What the main screen counts (the collection's pieces, the
+  Codex's creatures and spells) is what this machine shows: `data::shown_items`,
+  `data::all_creatures`, `data::ability_shown`. Legion's weapon looks are item displays from
   `data::LEGION_ITEM_FIRST` (a worn entry carries sixteen bits), the glaive's first, then
   `data::LEGION_WEAPON_FAMILIES`' in order, each with a 1.12.1 icon of its family so gear's
   pools draw it (`entities::legion`); a piece with `ItemDef::look` wears that one where the

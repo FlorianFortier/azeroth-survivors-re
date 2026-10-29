@@ -730,6 +730,11 @@ pub(super) fn drop_loot(
             match kind.reward {
                 // The bonus boss drops its own piece.
                 data::Reward::Gear { .. } if k == data::BONUS => {
+                    if let Some(boss) = data::bonus_boss(selection.stage) {
+                        if !run.bonus_slain.contains(&boss.name) {
+                            run.bonus_slain.push(boss.name);
+                        }
+                    }
                     if let Some(item) = data::bonus_item(selection.stage) {
                         spawn_gem(&mut commands, run.guid(), at, GemKind::Item(item));
                         run.banner = Some((format!("{} dropped!", item.name), 4.0));

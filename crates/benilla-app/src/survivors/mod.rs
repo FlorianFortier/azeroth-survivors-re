@@ -670,6 +670,8 @@ pub(super) struct Run {
     pub rings: u32,
     /// The stage's final boss has fallen: the stage is cleared (`legs.rs`).
     pub final_slain: bool,
+    /// The bonus bosses slain this run ([`data::bonus_boss`]), for the Codex.
+    pub bonus_slain: Vec<&'static str>,
     pub won: bool,
     /// Every hero has fallen and stayed down.
     pub lost: bool,
@@ -719,6 +721,7 @@ impl Default for Run {
             bosses: 0,
             rings: 0,
             final_slain: false,
+            bonus_slain: Vec::new(),
             won: false,
             lost: false,
             next_guid: 1,
