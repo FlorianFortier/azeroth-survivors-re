@@ -18,8 +18,6 @@ use super::offer::Dealt;
 use super::{Owned, Phase, Rng, Run, Selection, Stats, Vitals};
 
 const GOLD: Color = Color::srgb(1.0, 0.82, 0.0);
-/// The mobility button's edge, an action button's 36 units.
-const MOBILITY_SIZE: f32 = super::frames::SLOT;
 const EDGE: Color = Color::srgb(0.55, 0.45, 0.25);
 const BUTTON: Color = Color::srgba(0.18, 0.06, 0.04, 0.95);
 const BUTTON_HOT: Color = Color::srgba(0.36, 0.12, 0.06, 0.98);
@@ -105,13 +103,6 @@ pub(super) struct AbilitySweep {
     index: usize,
 }
 
-/// The class mobility's action button, bottom centre over the XP bar; shown once it is learned.
-#[derive(Component)]
-pub(super) struct MobilitySlot;
-#[derive(Component)]
-pub(super) struct MobilityIcon;
-#[derive(Component)]
-pub(super) struct MobilitySweep(Handle<SweepUiMaterial>);
 #[derive(Component)]
 pub(super) struct OverTitle;
 #[derive(Component)]
@@ -168,7 +159,6 @@ pub(super) enum TipFor {
     Passive(usize),
     /// An index into the run's items.
     RunItem(usize),
-    Mobility,
     /// An index into the merchant's wares.
     Ware(usize),
 }
@@ -699,68 +689,6 @@ pub(super) fn setup_hud(
                     ..default()
                 },
             ));
-            // The mobility button occupies the sixth and final slot.
-            let last = super::frames::SLOT_LEFT
-                + super::frames::SLOT_STEP * super::frames::MOBILITY_SLOT_INDEX as f32;
-            root.spawn((
-                MobilitySlot,
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Percent(50.0),
-                    bottom: Val::Px(super::frames::SLOT_BOTTOM + layout.offset_y),
-                    margin: UiRect::left(Val::Px(
-                        -layout.width / 2.0 + last + layout.offset_x,
-                    )),
-                    display: Display::None,
-                    ..default()
-                },
-            ))
-            .with_children(|col| {
-                col.spawn((
-                    Node {
-                        width: Val::Px(MOBILITY_SIZE),
-                        height: Val::Px(MOBILITY_SIZE),
-                        ..default()
-                    },
-                    Interaction::default(),
-                    TipFor::Mobility,
-                ))
-                .with_children(|slot| {
-                    // The shared action-bar frame draws slot six; this child supplies its icon.
-                    slot.spawn((
-                        MobilityIcon,
-                        Node {
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
-                        ImageNode {
-                            color: Color::srgba(0.0, 0.0, 0.0, 0.6),
-                            ..default()
-                        },
-                    ));
-                    let handle = sweeps_init.add(SweepUiMaterial { sweep: 0.0 });
-                    slot.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
-                        MaterialNode(handle.clone()),
-                        MobilitySweep(handle),
-                    ));
-                    slot.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            top: Val::Px(1.0),
-                            right: Val::Px(3.0),
-                            ..default()
-                        },
-                        text(f, "F", 12.0, Color::srgb(0.6, 0.6, 0.6)),
-                    ));
-                });
-            });
             root.spawn(Node {
                 width: Val::Percent(100.0),
                 padding: UiRect::all(Val::Px(10.0)),
@@ -1753,7 +1681,7 @@ pub(super) fn refresh_hud(
             let entries: Vec<(u32, u16, f32, TipFor, Color)> = if is_abilities {
                 run.abilities
                     .iter()
-                    .take(super::frames::ABILITY_SLOT_COUNT)
+                    .take(super::frames::ACTION_SLOT_COUNT)
                     .enumerate()
                     .map(|(i, o)| {
                         (
@@ -1862,47 +1790,6 @@ pub(super) fn fill_icons(
             img.color = Color::WHITE;
         }
         commands.entity(e).insert(IconDone);
-    }
-}
-
-/// The mobility button: shown once learned, its icon the class's spell, its sweep the cooldown.
-#[allow(clippy::type_complexity)]
-pub(super) fn refresh_mobility(
-    run: Res<Run>,
-    mut commands: Commands,
-    mut slot: Query<&mut Node, With<MobilitySlot>>,
-    icon: Query<(Entity, Option<&SpellIcon>), With<MobilityIcon>>,
-    sweep: Query<&MobilitySweep>,
-    mut mats: ResMut<Assets<SweepUiMaterial>>,
-) {
-    let def = run.mobility();
-    if let Ok(mut node) = slot.single_mut() {
-        let display = if def.is_some() {
-            Display::Flex
-        } else {
-            Display::None
-        };
-        if node.display != display {
-            node.display = display;
-        }
-    }
-    let Some(def) = def else { return };
-    // A new spell re-arms the icon fill ([`fill_icons`]).
-    if let Ok((e, have)) = icon.single() {
-        if have.is_none_or(|s| s.0 != def.spell) {
-            commands
-                .entity(e)
-                .remove::<IconDone>()
-                .insert(SpellIcon(def.spell));
-        }
-    }
-    if let Ok(s) = sweep.single() {
-        let f = (run.mobile.cd / def.cooldown.max(0.01)).clamp(0.0, 1.0);
-        if let Some(m) = mats.get_mut(&s.0) {
-            if m.sweep != f {
-                m.sweep = f;
-            }
-        }
     }
 }
 
@@ -2769,14 +2656,7 @@ pub(super) fn icon_tooltip(
             .get(i)
             .map(|&(item, n)| item_tip(item, n, &stats)),
         TipFor::Ware(i) => run.shop.get(i).map(|w| ware_tip(w, &run, &stats)),
-        TipFor::Mobility => run.mobility().map(|m| {
-            vec![
-                TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),
-                TipLine::new("Press F", Color::WHITE)
-                    .right(format!("{} sec cooldown", num(m.cooldown)), Color::WHITE),
-                TipLine::new(m.desc, GOLD),
-            ]
-        }),
+
     };
     let Some(lines) = lines else { return };
     *shown = Some(seen);

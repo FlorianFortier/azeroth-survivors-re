@@ -44,9 +44,9 @@ const QUICKSLOT: &str = "Interface\\Buttons\\UI-Quickslot2";
 pub(super) const SLOT: f32 = 36.0;
 pub(super) const SLOT_STEP: f32 = 42.0;
 /// Six visible action slots: five learned abilities and one mobility spell.
+/// Six ordinary ability slots; class actives will be a separate action.
 pub(super) const ACTION_SLOT_COUNT: usize = 6;
-pub(super) const ABILITY_SLOT_COUNT: usize = ACTION_SLOT_COUNT - 1;
-pub(super) const MOBILITY_SLOT_INDEX: usize = ACTION_SLOT_COUNT - 1;
+pub(super) const ABILITY_SLOT_COUNT: usize = ACTION_SLOT_COUNT;
 pub(super) const SLOT_LEFT: f32 = 8.0;
 pub(super) const SLOT_BOTTOM: f32 = 4.0;
 /// The action bar's height: its art; the experience bar sits on it.
@@ -378,8 +378,7 @@ pub(super) fn spawn_frames(root: &mut ChildSpawnerCommands, f: &Handle<Font>) {
     });
 }
 
-/// The action bar's art and six empty frames, centred at the bottom. Five abilities and the
-/// movement spell occupy them (`hud.rs`).
+/// The action bar's art and six empty frames, centred at the bottom for learned abilities (`hud.rs`).
 pub(super) fn spawn_action_bar(
     root: &mut ChildSpawnerCommands,
     layout: &ActionBarLayout,
@@ -471,7 +470,6 @@ pub(super) fn apply_action_bar_layout(
         Query<&mut Node, With<hud::XpBar>>,
         Query<(&hud::XpBarPart, &mut Node)>,
         Query<&mut Node, With<hud::AbilityRow>>,
-        Query<&mut Node, With<hud::MobilitySlot>>,
     )>,
 ) {
     if !layout.is_changed() {
@@ -523,14 +521,6 @@ pub(super) fn apply_action_bar_layout(
         ));
     }
 
-    let last_slot = SLOT_LEFT + SLOT_STEP * MOBILITY_SLOT_INDEX as f32;
-    if let Ok(mut node) = nodes.p6().single_mut() {
-        node.left = Val::Percent(50.0);
-        node.bottom = Val::Px(SLOT_BOTTOM + layout.offset_y);
-        node.margin = UiRect::left(Val::Px(
-            -layout.width / 2.0 + last_slot + layout.offset_x,
-        ));
-    }
 }
 
 /// What to call the hero's target: the unit's own name where this machine plays it, else the
@@ -950,7 +940,7 @@ mod tests {
         assert!(!invalid_width.is_valid());
         assert!(!invalid_offset.is_valid());
         assert_eq!(ACTION_SLOT_COUNT, 6);
-        assert_eq!(ABILITY_SLOT_COUNT + 1, ACTION_SLOT_COUNT);
+        assert_eq!(ABILITY_SLOT_COUNT, ACTION_SLOT_COUNT);
     }
 
     #[test]

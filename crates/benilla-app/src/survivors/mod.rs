@@ -182,7 +182,6 @@ impl Plugin for SurvivorsPlugin {
                     hud::refresh_results,
                     hud::fill_icons,
                     hud::update_cooldown_sweeps,
-                    hud::refresh_mobility,
                     hud::show_panels,
                 )
                     .chain()

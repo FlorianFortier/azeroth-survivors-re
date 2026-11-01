@@ -11,9 +11,9 @@ use an AI agent and does not need Ollama, OpenCode or a game restart for layout 
 3. The **Survivors — Action Bar Layout** window appears alongside the existing debug panel.
 
 The controls adjust the action bar width and height and move the bar horizontally or vertically.
-The bar now has exactly six visible slots: five ability slots and one mobility slot. Ability icons
-beyond the first five remain part of the run, but are not drawn in this compact action bar. The XP
-bar and the spell/mobility row follow the same anchor. Changes are applied to the already spawned
+The bar has exactly six ordinary ability slots; no mobility spell occupies one of them. The XP bar
+and ability row follow the same anchor. A future class-active ability will be a separate action,
+without displacing any of these six learned-spell slots. Changes are applied to the already spawned
 HUD as soon as the editor values change.
 
 ## Save and external hot reload
