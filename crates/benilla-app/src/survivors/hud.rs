@@ -681,9 +681,15 @@ pub(super) fn setup_hud(
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
-                    bottom: Val::Px(super::frames::SLOT_BOTTOM + layout.offset_y),
+                    bottom: Val::Px((layout.height - super::frames::SLOT) / 2.0 + layout.offset_y),
                     margin: UiRect::left(Val::Px(
-                        -layout.width / 2.0 + super::frames::SLOT_LEFT + layout.offset_x,
+                        -layout.width / 2.0
+                            + (layout.width
+                                - (super::frames::SLOT
+                                    + super::frames::SLOT_STEP
+                                        * (super::frames::ACTION_SLOT_COUNT - 1) as f32))
+                                / 2.0
+                            + layout.offset_x,
                     )),
                     column_gap: Val::Px(super::frames::SLOT_STEP - super::frames::SLOT),
                     ..default()

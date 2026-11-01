@@ -11,10 +11,11 @@ use an AI agent and does not need Ollama, OpenCode or a game restart for layout 
 3. The **Survivors — Action Bar Layout** window appears alongside the existing debug panel.
 
 The controls adjust the action bar width and height and move the bar horizontally or vertically.
-The bar has exactly six ordinary ability slots; no mobility spell occupies one of them. The XP bar
-and ability row follow the same anchor. A future class-active ability will be a separate action,
-without displacing any of these six learned-spell slots. Changes are applied to the already spawned
-HUD as soon as the editor values change.
+The bar uses a compact ElvUI-inspired presentation: a dark translucent panel, a subtle border and
+six individually framed square ability slots. It does not use Blizzard's MainMenuBar or its engraved
+slot artwork. The six slots are ordinary learned abilities; no mobility spell occupies one of them.
+A future class-active ability will be a separate action, without displacing these six learned slots.
+Changes are applied to the already spawned HUD as soon as the editor values change.
 
 ## Save and external hot reload
 
@@ -28,7 +29,7 @@ built-in defaults in memory; use **Save layout** afterwards to update the file t
 You can override the watched file with the native development environment variable
 `WOW_SURVIVORS_UI_LAYOUT`.
 
-The accepted ranges are width 700–1400, height 20–100, horizontal offset -400–400 and vertical
+The accepted ranges are width 270–1200, height 48–100, horizontal offset -400–400 and vertical
 offset -150–150, all in the HUD's 768-reference-height coordinate space. Invalid TOML or values
 are reported in the editor and leave the last valid layout active.
 

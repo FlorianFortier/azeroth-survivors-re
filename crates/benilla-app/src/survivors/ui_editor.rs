@@ -150,8 +150,8 @@ pub(super) fn draw_editor(
             ui.label("Save writes the TOML file; external edits reload automatically.");
             ui.separator();
 
-            layout_slider(ui, "Width", &mut draft.width, 700.0, 1400.0);
-            layout_slider(ui, "Height", &mut draft.height, 20.0, 100.0);
+            layout_slider(ui, "Width", &mut draft.width, 270.0, 1200.0);
+            layout_slider(ui, "Height", &mut draft.height, 48.0, 100.0);
             layout_slider(ui, "Horizontal offset", &mut draft.offset_x, -400.0, 400.0);
             layout_slider(ui, "Vertical offset", &mut draft.offset_y, -150.0, 150.0);
 
