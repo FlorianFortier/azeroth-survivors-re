@@ -596,7 +596,7 @@ pub(super) fn setup_hud(
             Visibility::Hidden,
         ))
         .with_children(|root| {
-            // `MainMenuBar` under it all, its art, gryphons and twelve slots (`frames.rs`).
+            // `MainMenuBar` under it all: its art, gryphons and six visible slots (`frames.rs`).
             super::frames::spawn_action_bar(root, &layout);
             // `MainMenuExpBar`, 1024×13 at the bottom centre, stacked on the action bar.
             root.spawn((
@@ -685,7 +685,7 @@ pub(super) fn setup_hud(
                 });
             });
             minimap::spawn_cluster(root, f, &map);
-            // The spells, on the action bar's first slots, as `ActionButton1`.. sit.
+            // Up to five learned spells sit in the first five visible slots.
             root.spawn((
                 AbilityRow,
                 Node {
@@ -699,8 +699,7 @@ pub(super) fn setup_hud(
                     ..default()
                 },
             ));
-            // The mobility button on the bar's last slot, its key in the corner as
-            // `ActionButtonTemplate`'s `HotKey`.
+            // The mobility button occupies the sixth and final slot.
             let last = super::frames::SLOT_LEFT
                 + super::frames::SLOT_STEP * super::frames::MOBILITY_SLOT_INDEX as f32;
             root.spawn((
