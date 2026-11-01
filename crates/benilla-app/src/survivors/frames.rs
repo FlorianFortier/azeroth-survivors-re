@@ -87,10 +87,10 @@ impl ActionBarLayout {
 }
 
 #[derive(Component)]
-struct ActionBarBackgroundPart(usize);
+pub struct ActionBarBackgroundPart(usize);
 
 #[derive(Component)]
-struct ActionBarSlotFrame(usize);
+pub struct ActionBarSlotFrame(usize);
 
 #[derive(Component)]
 pub(super) struct ActionBarRoot;
