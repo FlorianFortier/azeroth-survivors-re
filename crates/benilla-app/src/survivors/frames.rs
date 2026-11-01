@@ -43,7 +43,6 @@ const QUICKSLOT: &str = "Interface\\Buttons\\UI-Quickslot2";
 /// `ActionButton1` at (8, 4) from the bar's bottom left, each 36 wide and 42 apart.
 pub(super) const SLOT: f32 = 36.0;
 pub(super) const SLOT_STEP: f32 = 42.0;
-/// Six visible action slots: five learned abilities and one mobility spell.
 /// Six ordinary ability slots; class actives will be a separate action.
 pub(super) const ACTION_SLOT_COUNT: usize = 6;
 pub(super) const ABILITY_SLOT_COUNT: usize = ACTION_SLOT_COUNT;
