@@ -40,6 +40,8 @@ pub(super) struct OverRoot;
 #[derive(Component)]
 pub(super) struct XpBar;
 #[derive(Component)]
+pub(super) struct XpBarPart(pub(super) usize);
+#[derive(Component)]
 pub(super) struct XpFill;
 #[derive(Component)]
 pub(super) struct XpText;
@@ -571,6 +573,7 @@ pub(super) fn setup_hud(
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     mut sweeps_init: ResMut<Assets<SweepUiMaterial>>,
+    layout: Res<super::frames::ActionBarLayout>,
 ) {
     let font = crate::char_select::wow_font(&asset_server);
     let number_font: Handle<Font> = asset_server.load("mpq://Fonts/ARIALN.ttf");
@@ -594,7 +597,7 @@ pub(super) fn setup_hud(
         ))
         .with_children(|root| {
             // `MainMenuBar` under it all, its art, gryphons and twelve slots (`frames.rs`).
-            super::frames::spawn_action_bar(root);
+            super::frames::spawn_action_bar(root, &layout);
             // `MainMenuExpBar`, 1024×13 at the bottom centre, stacked on the action bar.
             root.spawn((
                 XpBar,
@@ -602,9 +605,9 @@ pub(super) fn setup_hud(
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
-                    bottom: Val::Px(super::frames::BAR_TALL),
-                    margin: UiRect::left(Val::Px(-512.0)),
-                    width: Val::Px(1024.0),
+                    bottom: Val::Px(layout.height + layout.offset_y),
+                    margin: UiRect::left(Val::Px(-layout.width / 2.0 + layout.offset_x)),
+                    width: Val::Px(layout.width),
                     height: Val::Px(13.0),
                     ..default()
                 },
@@ -633,11 +636,12 @@ pub(super) fn setup_hud(
                     .enumerate()
                 {
                     bar.spawn((
+                        XpBarPart(i),
                         Node {
                             position_type: PositionType::Absolute,
-                            left: Val::Px(256.0 * i as f32),
+                            left: Val::Px(layout.width / 4.0 * i as f32),
                             top: Val::Px(0.0),
-                            width: Val::Px(256.0),
+                            width: Val::Px(layout.width / 4.0),
                             height: Val::Px(10.0),
                             ..default()
                         },
@@ -687,8 +691,10 @@ pub(super) fn setup_hud(
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
-                    bottom: Val::Px(super::frames::SLOT_BOTTOM),
-                    margin: UiRect::left(Val::Px(-512.0 + super::frames::SLOT_LEFT)),
+                    bottom: Val::Px(super::frames::SLOT_BOTTOM + layout.offset_y),
+                    margin: UiRect::left(Val::Px(
+                        -layout.width / 2.0 + super::frames::SLOT_LEFT + layout.offset_x,
+                    )),
                     column_gap: Val::Px(super::frames::SLOT_STEP - super::frames::SLOT),
                     ..default()
                 },
@@ -701,8 +707,10 @@ pub(super) fn setup_hud(
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
-                    bottom: Val::Px(super::frames::SLOT_BOTTOM),
-                    margin: UiRect::left(Val::Px(-512.0 + last)),
+                    bottom: Val::Px(super::frames::SLOT_BOTTOM + layout.offset_y),
+                    margin: UiRect::left(Val::Px(
+                        -layout.width / 2.0 + last + layout.offset_x,
+                    )),
                     display: Display::None,
                     ..default()
                 },

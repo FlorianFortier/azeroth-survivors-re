@@ -308,6 +308,10 @@ pitfalls. Multiplayer is [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md), syncing ups
 [docs/UPSTREAM.md](docs/UPSTREAM.md), and what later expansions' data (Wrath 3.3.5a) would take
 [docs/EXPANSIONS.md](docs/EXPANSIONS.md).
 
+For live Survivors HUD layout work in a native development build, see
+[docs/SURVIVORS-HUD-EDITOR.md](docs/SURVIVORS-HUD-EDITOR.md): the in-game controls and TOML file
+reload the action bar without restarting the process.
+
 ## Legal
 
 *Azeroth Survivors* is a free fan game by **Aethus**, not affiliated with or endorsed by
