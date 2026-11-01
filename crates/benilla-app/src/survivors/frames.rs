@@ -378,8 +378,8 @@ pub(super) fn spawn_frames(root: &mut ChildSpawnerCommands, f: &Handle<Font>) {
     });
 }
 
-/// The action bar's art and its twelve empty slots, centred at the bottom; the spells' icons and
-/// the movement spell's button sit on the slots (`hud.rs`).
+/// The action bar's art and six empty frames, centred at the bottom. Five abilities and the
+/// movement spell occupy them (`hud.rs`).
 pub(super) fn spawn_action_bar(
     root: &mut ChildSpawnerCommands,
     layout: &ActionBarLayout,
