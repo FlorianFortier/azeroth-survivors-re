@@ -1,0 +1,6 @@
+# Native development layout for the Survivors action bar.
+# Values use the HUD's 768-reference-height coordinate space.
+width = 294.0
+height = 56.0
+offset_x = 0.0
+offset_y = 0.0

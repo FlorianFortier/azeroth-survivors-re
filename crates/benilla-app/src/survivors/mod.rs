@@ -42,6 +42,8 @@ mod talents;
 mod targeting;
 mod treasure;
 mod units;
+#[cfg(all(feature = "dev", not(target_arch = "wasm32")))]
+mod ui_editor;
 
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
@@ -83,6 +85,7 @@ impl Plugin for SurvivorsPlugin {
             .init_resource::<legs::Legs>()
             .init_resource::<market::BuyQueue>()
             .init_resource::<hud::Offer>()
+            .init_resource::<frames::ActionBarLayout>()
             .init_resource::<cards::PendingPick>()
             .init_resource::<Session>()
             .init_resource::<sync::LocalPicks>()
@@ -179,7 +182,6 @@ impl Plugin for SurvivorsPlugin {
                     hud::refresh_results,
                     hud::fill_icons,
                     hud::update_cooldown_sweeps,
-                    hud::refresh_mobility,
                     hud::show_panels,
                 )
                     .chain()
@@ -205,6 +207,7 @@ impl Plugin for SurvivorsPlugin {
                     minimap::compose,
                     hero::drag_stage,
                     hero::frame_stage,
+                    frames::apply_action_bar_layout,
                 )
                     .chain()
                     .after(hud::show_panels),
@@ -234,6 +237,24 @@ impl Plugin for SurvivorsPlugin {
                     auto::drive.after(hud::keys).before(hud::refresh_menu),
                 )
                 .add_systems(Update, auto::plan.before(WorldStage::Input));
+        }
+
+        // Native development builds can edit and hot-reload the action bar without restarting.
+        #[cfg(all(feature = "dev", not(target_arch = "wasm32")))]
+        {
+            app.init_resource::<ui_editor::LayoutFileWatcher>()
+                .add_systems(
+                    Startup,
+                    ui_editor::load_action_bar_layout.before(hud::setup_hud),
+                )
+                .add_systems(
+                    Update,
+                    ui_editor::watch_action_bar_layout.before(frames::apply_action_bar_layout),
+                )
+                .add_systems(
+                    bevy_egui::EguiPrimaryContextPass,
+                    ui_editor::draw_editor,
+                );
         }
     }
 }

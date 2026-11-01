@@ -76,7 +76,8 @@ it holds; read it before changing the file.
 | `character.rs` | the main screen: title, tabs (Character, Collection, Drop Tables, Codex, Talents, Achievements, Rewards), the Character tab's class, hero and zone columns and bottom bar, and the full-screen Armory (race, sex and slots; the hero on a stage a drag turns; appearance dials and the pieces owned for the slot picked) |
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
-| `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`, `wave_line`) |
+| `frames.rs` | the HUD's WoW unit frames, damage meter and compact six-slot action bar (custom dark panel, no Blizzard MainMenuBar artwork) |
+| `ui_editor.rs` | the native dev-only action-bar layout editor and its live TOML reload/save (`ui-layouts/action_bar.toml`) |
 | `feel.rs` | how a hit feels on every machine: the struck model's brighten (the client's highlight bit, in `Last`) and the camera's shake (`Options::shake`), both read off `Struck`, which `units::Fx::number` writes; the shove itself is the simulation's (`data::knock_impulse`, `Enemy::knock`) |
 | `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls (and every gem on the field pulled in, `enemies::Vacuum`), the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |
 | `market.rs` | the shady merchant (three run items for the run's gold, restocked, dearer with each bought; the shop panel at it) and the jars and crates a hero breaks by walking into them (gold, a heal) |
@@ -103,6 +104,7 @@ string (`crate::webenv::var`: the prefix dropped, lowercased).
 | `WOW_NAME=…` | `?name=…` | the player's name in a lobby |
 | `WOW_LOBBY=…` | `?lobby=…` | the lobby server's address |
 | `WOW_SURVIVORS_AUTO=<class>[:idle\|:all\|:late]` | — | a hands-off test run; `WOW_SURVIVORS_MAP=<index or name>` picks the zone, `WOW_SURVIVORS_SHOTS=<dir>` saves screenshots |
+| `WOW_SURVIVORS_UI_LAYOUT=…` | — | native dev-only TOML path for the live action-bar layout editor |
 | `WOW_DATA=…` | — | the 1.12.1 client's `Data` folder |
 | `WOW_LEGION=…` | — | a Legion 7.3.5 install's folder (or a remote copy's URL, cached in `WOW_LEGION_CACHE`): its models and textures as `mpq://legion/…`; the launcher sets it (and the cache, and `WOW_LEGION_DBD`) from `legion-data/` when unset |
 | `WOW_LEGION_DBD=…` | — | a folder of WoWDBDefs' `.dbd` definitions (never copied here): Legion's creature displays join the catalog as 1,000,000 plus their id |

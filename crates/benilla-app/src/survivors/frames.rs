@@ -5,14 +5,15 @@
 //! - the **target frame** beside it: `TargetFrame`'s art, the target's name on its red bar, its
 //!   health and level, shown while the hero has a target;
 //! - the **damage meter** under the minimap: the run's damage by spell, a bar each, the top first;
-//! - the **action bar** at the bottom: `MainMenuBar`'s art and gryphons under the twelve slots the
-//!   hero's spells and its movement spell sit in, the experience bar on top.
+//! - the **action bar** at the bottom: a compact six-slot dark panel for learned abilities; the
+//!   experience bar sits above it.
 //!
 //! The run's own lines (the clock, the next boss, kills, gold, the chest's price, the keys) stay
 //! where the HUD has them. Everything here reads [`Run`] and the replicated units, so a guest's
 //! frames show what its host's do.
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::data;
 use super::enemies::Enemy;
@@ -34,18 +35,54 @@ const PORTRAIT: f32 = 64.0;
 const BAR_W: f32 = 119.0;
 const BAR_H: f32 = 12.0;
 
-/// The action bar's art: four 256-wide cuts of `UI-MainMenuBar-Dwarf`, and its gryphons.
-const BAR_ART_MAIN: &str = "Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf";
-const BAR_CUTS: [f32; 4] = [0.832_031_25, 0.582_031_25, 0.332_031_25, 0.082_031_25];
-const END_CAP: &str = "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Dwarf";
-const QUICKSLOT: &str = "Interface\\Buttons\\UI-Quickslot2";
-/// `ActionButton1` at (8, 4) from the bar's bottom left, each 36 wide and 42 apart.
+/// Compact ElvUI-inspired action bar: 36px buttons with a 6px gap.
 pub(super) const SLOT: f32 = 36.0;
 pub(super) const SLOT_STEP: f32 = 42.0;
-pub(super) const SLOT_LEFT: f32 = 8.0;
-pub(super) const SLOT_BOTTOM: f32 = 4.0;
-/// The action bar's height: its art; the experience bar sits on it.
-pub(super) const BAR_TALL: f32 = 43.0;
+/// Six ordinary ability slots; class actives will be a separate action.
+pub(super) const ACTION_SLOT_COUNT: usize = 6;
+/// Default height of the compact action-bar panel.
+pub(super) const BAR_TALL: f32 = 56.0;
+
+/// Editable action-bar layout values in the HUD's 768-reference-height coordinate space.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default)]
+pub(super) struct ActionBarLayout {
+    pub(super) width: f32,
+    pub(super) height: f32,
+    pub(super) offset_x: f32,
+    pub(super) offset_y: f32,
+}
+
+impl Default for ActionBarLayout {
+    fn default() -> Self {
+        Self {
+            width: 294.0,
+            height: BAR_TALL,
+            offset_x: 0.0,
+            offset_y: 0.0,
+        }
+    }
+}
+
+impl ActionBarLayout {
+    /// Reject corrupt or unreasonable external values instead of breaking the HUD.
+    pub(super) fn is_valid(&self) -> bool {
+        self.width.is_finite()
+            && (270.0..=1200.0).contains(&self.width)
+            && self.height.is_finite()
+            && (48.0..=100.0).contains(&self.height)
+            && self.offset_x.is_finite()
+            && (-400.0..=400.0).contains(&self.offset_x)
+            && self.offset_y.is_finite()
+            && (-150.0..=150.0).contains(&self.offset_y)
+    }
+}
+
+#[derive(Component)]
+pub struct ActionBarSlotFrame(usize);
+
+#[derive(Component)]
+pub(super) struct ActionBarRoot;
 
 /// How many spells the damage meter lists.
 const METER_ROWS: usize = 6;
@@ -329,77 +366,102 @@ pub(super) fn spawn_frames(root: &mut ChildSpawnerCommands, f: &Handle<Font>) {
     });
 }
 
-/// The action bar's art and its twelve empty slots, centred at the bottom; the spells' icons and
-/// the movement spell's button sit on the slots (`hud.rs`).
-pub(super) fn spawn_action_bar(root: &mut ChildSpawnerCommands) {
-    root.spawn(Node {
-        position_type: PositionType::Absolute,
-        left: Val::Percent(50.0),
-        bottom: Val::Px(0.0),
-        margin: UiRect::left(Val::Px(-512.0)),
-        width: Val::Px(1024.0),
-        height: Val::Px(BAR_TALL),
-        ..default()
-    })
-    .with_children(|b| {
-        // The gryphons, 128 square, three quarters outside the bar's ends.
-        b.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(-96.0),
-                bottom: Val::Px(0.0),
-                width: Val::Px(128.0),
-                height: Val::Px(128.0),
-                ..default()
-            },
-            unpainted(),
-            UiArt::crop(END_CAP, [0.0, 1.0, 0.0, 1.0]),
-        ));
-        b.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                right: Val::Px(-96.0),
-                bottom: Val::Px(0.0),
-                width: Val::Px(128.0),
-                height: Val::Px(128.0),
-                ..default()
-            },
-            ImageNode {
-                flip_x: true,
-                ..unpainted()
-            },
-            UiArt::crop(END_CAP, [0.0, 1.0, 0.0, 1.0]),
-        ));
-        for (i, top) in BAR_CUTS.into_iter().enumerate() {
-            b.spawn((
+/// A compact dark panel with six individual ability wells; no Blizzard action-bar art.
+pub(super) fn spawn_action_bar(
+    root: &mut ChildSpawnerCommands,
+    layout: &ActionBarLayout,
+) {
+    root.spawn((
+        ActionBarRoot,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            bottom: Val::Px(layout.offset_y),
+            margin: UiRect::left(Val::Px(-layout.width / 2.0 + layout.offset_x)),
+            width: Val::Px(layout.width),
+            height: Val::Px(layout.height),
+            border: UiRect::all(Val::Px(1.0)),
+            border_radius: BorderRadius::all(Val::Px(7.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.025, 0.03, 0.04, 0.92)),
+        BorderColor::all(Color::srgba(0.38, 0.42, 0.48, 0.95)),
+    ))
+    .with_children(|bar| {
+        let row_width = SLOT + SLOT_STEP * (ACTION_SLOT_COUNT - 1) as f32;
+        let first_left = (layout.width - row_width) / 2.0;
+        let slot_bottom = (layout.height - SLOT) / 2.0;
+        for i in 0..ACTION_SLOT_COUNT {
+            let left = first_left + SLOT_STEP * i as f32;
+            bar.spawn((
+                ActionBarSlotFrame(i),
                 Node {
                     position_type: PositionType::Absolute,
-                    left: Val::Px(256.0 * i as f32),
-                    bottom: Val::Px(0.0),
-                    width: Val::Px(256.0),
-                    height: Val::Px(BAR_TALL),
+                    left: Val::Px(left - 2.0),
+                    bottom: Val::Px(slot_bottom - 2.0),
+                    width: Val::Px(SLOT + 4.0),
+                    height: Val::Px(SLOT + 4.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::all(Val::Px(4.0)),
                     ..default()
                 },
-                unpainted(),
-                UiArt::crop(BAR_ART_MAIN, [0.0, 1.0, top, top + 0.167_968_75]),
-            ));
-        }
-        for i in 0..12 {
-            let left = SLOT_LEFT + SLOT_STEP * i as f32;
-            b.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(left - SLOT * 0.42),
-                    bottom: Val::Px(SLOT_BOTTOM - SLOT * 0.42 - 1.0),
-                    width: Val::Px(SLOT * 1.84),
-                    height: Val::Px(SLOT * 1.84),
-                    ..default()
-                },
-                unpainted(),
-                UiArt::crop(QUICKSLOT, [0.0, 1.0, 0.0, 1.0]),
+                BackgroundColor(Color::srgba(0.075, 0.085, 0.10, 0.98)),
+                BorderColor::all(Color::srgba(0.30, 0.34, 0.40, 1.0)),
             ));
         }
     });
+}
+
+/// Apply a changed layout to the live panel, its six wells, the XP bar and ability row.
+#[allow(clippy::type_complexity)]
+pub(super) fn apply_action_bar_layout(
+    layout: Res<ActionBarLayout>,
+    mut nodes: ParamSet<(
+        Query<&mut Node, With<ActionBarRoot>>,
+        Query<(&ActionBarSlotFrame, &mut Node)>,
+        Query<&mut Node, With<hud::XpBar>>,
+        Query<(&hud::XpBarPart, &mut Node)>,
+        Query<&mut Node, With<hud::AbilityRow>>,
+    )>,
+) {
+    if !layout.is_changed() {
+        return;
+    }
+
+    if let Ok(mut node) = nodes.p0().single_mut() {
+        node.left = Val::Percent(50.0);
+        node.bottom = Val::Px(layout.offset_y);
+        node.margin = UiRect::left(Val::Px(-layout.width / 2.0 + layout.offset_x));
+        node.width = Val::Px(layout.width);
+        node.height = Val::Px(layout.height);
+    }
+
+    let row_width = SLOT + SLOT_STEP * (ACTION_SLOT_COUNT - 1) as f32;
+    let first_left = (layout.width - row_width) / 2.0;
+    let slot_bottom = (layout.height - SLOT) / 2.0;
+    for (slot, mut node) in &mut nodes.p1() {
+        let left = first_left + SLOT_STEP * slot.0 as f32;
+        node.left = Val::Px(left - 2.0);
+        node.bottom = Val::Px(slot_bottom - 2.0);
+    }
+
+    if let Ok(mut node) = nodes.p2().single_mut() {
+        node.left = Val::Percent(50.0);
+        node.bottom = Val::Px(layout.height + layout.offset_y);
+        node.margin = UiRect::left(Val::Px(-layout.width / 2.0 + layout.offset_x));
+        node.width = Val::Px(layout.width);
+    }
+
+    for (part, mut node) in &mut nodes.p3() {
+        node.left = Val::Px(layout.width / 4.0 * part.0 as f32);
+        node.width = Val::Px(layout.width / 4.0);
+    }
+
+    if let Ok(mut node) = nodes.p4().single_mut() {
+        node.left = Val::Percent(50.0);
+        node.bottom = Val::Px(slot_bottom + layout.offset_y);
+        node.margin = UiRect::left(Val::Px(-layout.width / 2.0 + first_left + layout.offset_x));
+    }
 }
 
 /// What to call the hero's target: the unit's own name where this machine plays it, else the
@@ -794,6 +856,31 @@ mod tests {
         assert!((rows[0].2 - 0.6).abs() < 1e-6);
         let many: Vec<(u32, f64)> = (0..20).map(|i| (i, f64::from(i) + 1.0)).collect();
         assert_eq!(meter_rows(&many).len(), METER_ROWS);
+    }
+
+
+    #[test]
+    fn action_bar_layout_round_trips_through_toml() {
+        let layout = ActionBarLayout::default();
+        let encoded = toml::to_string(&layout).expect("default layout serializes");
+        let decoded: ActionBarLayout = toml::from_str(&encoded).expect("default layout parses");
+        assert_eq!(decoded, layout);
+        assert!(decoded.is_valid());
+    }
+
+    #[test]
+    fn action_bar_layout_rejects_out_of_range_values() {
+        let invalid_width = ActionBarLayout {
+            width: f32::NAN,
+            ..ActionBarLayout::default()
+        };
+        let invalid_offset = ActionBarLayout {
+            offset_y: 999.0,
+            ..ActionBarLayout::default()
+        };
+        assert!(!invalid_width.is_valid());
+        assert!(!invalid_offset.is_valid());
+        assert_eq!(ACTION_SLOT_COUNT, 6);
     }
 
     #[test]
