@@ -77,6 +77,7 @@ it holds; read it before changing the file.
 | `menu.rs` | the older pick screen built from the glue screens' own art, behind `?new_menu=0`; its pick helpers (`pick_class`, `all_looks`, `save_pick`…) serve `character.rs` too |
 | `hud.rs` | the in-run HUD, pause, results, tooltips, and `start_run` |
 | `frames.rs` | the HUD's WoW frames: the player and target unit frames at the top left, the damage meter (`Vitals::damage_by`, each hit credited to its `Hit::spell`), the action bar with its gryphons under the spells and the movement spell, and the line under the clock (`next_boss_line`, `wave_line`) |
+| `frames.rs` | the HUD's WoW frames and the six-slot action bar (five ability slots plus mobility) |
 | `ui_editor.rs` | the native dev-only action-bar layout editor and its live TOML reload/save (`ui-layouts/action_bar.toml`) |
 | `feel.rs` | how a hit feels on every machine: the struck model's brighten (the client's highlight bit, in `Last`) and the camera's shake (`Options::shake`), both read off `Struck`, which `units::Fx::number` writes; the shove itself is the simulation's (`data::knock_impulse`, `Enemy::knock`) |
 | `legs.rs` | the run in stages: the boss portal that calls a stage's final boss once its time has come, the stage's rewards when it falls (and every gem on the field pulled in, `enemies::Vacuum`), the portal onward to the next zone (everyone taken over and the zone loaded again), and the final swarm to hold out |

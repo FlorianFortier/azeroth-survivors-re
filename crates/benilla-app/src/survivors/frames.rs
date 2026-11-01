@@ -43,6 +43,10 @@ const QUICKSLOT: &str = "Interface\\Buttons\\UI-Quickslot2";
 /// `ActionButton1` at (8, 4) from the bar's bottom left, each 36 wide and 42 apart.
 pub(super) const SLOT: f32 = 36.0;
 pub(super) const SLOT_STEP: f32 = 42.0;
+/// Six visible action slots: five learned abilities and one mobility spell.
+pub(super) const ACTION_SLOT_COUNT: usize = 6;
+pub(super) const ABILITY_SLOT_COUNT: usize = ACTION_SLOT_COUNT - 1;
+pub(super) const MOBILITY_SLOT_INDEX: usize = ACTION_SLOT_COUNT - 1;
 pub(super) const SLOT_LEFT: f32 = 8.0;
 pub(super) const SLOT_BOTTOM: f32 = 4.0;
 /// The action bar's height: its art; the experience bar sits on it.
@@ -437,7 +441,7 @@ pub(super) fn spawn_action_bar(
                 UiArt::crop(BAR_ART_MAIN, [0.0, 1.0, top, top + 0.167_968_75]),
             ));
         }
-        for i in 0..12 {
+        for i in 0..ACTION_SLOT_COUNT {
             let left = SLOT_LEFT + SLOT_STEP * i as f32;
             b.spawn((
                 ActionBarSlotFrame(i),
@@ -519,7 +523,7 @@ pub(super) fn apply_action_bar_layout(
         ));
     }
 
-    let last_slot = SLOT_LEFT + SLOT_STEP * 11.0;
+    let last_slot = SLOT_LEFT + SLOT_STEP * MOBILITY_SLOT_INDEX as f32;
     if let Ok(mut node) = nodes.p6().single_mut() {
         node.left = Val::Percent(50.0);
         node.bottom = Val::Px(SLOT_BOTTOM + layout.offset_y);
@@ -945,6 +949,8 @@ mod tests {
         };
         assert!(!invalid_width.is_valid());
         assert!(!invalid_offset.is_valid());
+        assert_eq!(ACTION_SLOT_COUNT, 6);
+        assert_eq!(ABILITY_SLOT_COUNT + 1, ACTION_SLOT_COUNT);
     }
 
     #[test]

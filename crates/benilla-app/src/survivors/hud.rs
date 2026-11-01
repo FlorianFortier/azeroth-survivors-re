@@ -701,7 +701,8 @@ pub(super) fn setup_hud(
             ));
             // The mobility button on the bar's last slot, its key in the corner as
             // `ActionButtonTemplate`'s `HotKey`.
-            let last = super::frames::SLOT_LEFT + super::frames::SLOT_STEP * 11.0;
+            let last = super::frames::SLOT_LEFT
+                + super::frames::SLOT_STEP * super::frames::MOBILITY_SLOT_INDEX as f32;
             root.spawn((
                 MobilitySlot,
                 Node {
@@ -726,22 +727,7 @@ pub(super) fn setup_hud(
                     TipFor::Mobility,
                 ))
                 .with_children(|slot| {
-                    // `UI-Quickslot2` is the empty slot's 64×64 frame, the button 36 inside it.
-                    slot.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            left: Val::Px(-MOBILITY_SIZE * 0.42),
-                            top: Val::Px(-MOBILITY_SIZE * 0.42),
-                            width: Val::Px(MOBILITY_SIZE * 1.84),
-                            height: Val::Px(MOBILITY_SIZE * 1.84),
-                            ..default()
-                        },
-                        ImageNode {
-                            color: Color::NONE,
-                            ..default()
-                        },
-                        UiArt::crop("Interface\\Buttons\\UI-Quickslot2", [0.0, 1.0, 0.0, 1.0]),
-                    ));
+                    // The shared action-bar frame draws slot six; this child supplies its icon.
                     slot.spawn((
                         MobilityIcon,
                         Node {
@@ -1768,6 +1754,7 @@ pub(super) fn refresh_hud(
             let entries: Vec<(u32, u16, f32, TipFor, Color)> = if is_abilities {
                 run.abilities
                     .iter()
+                    .take(super::frames::ABILITY_SLOT_COUNT)
                     .enumerate()
                     .map(|(i, o)| {
                         (
