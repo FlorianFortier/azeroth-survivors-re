@@ -772,3 +772,99 @@ fn an_hd_body_reads_its_skeleton_out_of_its_skel() {
         assert!(in_anim.is_some(), "no .anim sequence moves");
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions (ZoneLight, ZoneLightPoint): LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn valsharah_takes_its_zones_light() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    let (lights, params) = library.map_lights(1220).unwrap();
+    use benilla_legion::lights::ZONE_LIGHT_BASE;
+    let zones: Vec<_> = lights.iter().filter(|l| l.id >= ZONE_LIGHT_BASE).collect();
+    println!("{} zone cells", zones.len());
+    assert!(zones.len() > 500, "{} zone cells", zones.len());
+    // The Field of Dreamers, where the mode's Val'sharah is played (`data::MAPS`).
+    let field = [2330.0f32, 6480.0, 147.0];
+    let dist = |p: [f32; 3]| {
+        (0..3)
+            .map(|i| (p[i] - field[i]).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    };
+    // 1.12.1's blend lays the spheres covering a point farthest first, each over what is under
+    // it by its alpha: a sphere's share is its alpha times what the nearer ones leave.
+    let alpha = |l: &benilla_legion::lights::LegionLight| {
+        let d = dist(l.pos);
+        if d >= l.falloff_end {
+            0.0
+        } else if d <= l.falloff_start {
+            1.0
+        } else {
+            (l.falloff_end - d) / (l.falloff_end - l.falloff_start)
+        }
+    };
+    let mut covering: Vec<_> = lights
+        .iter()
+        .filter(|l| !l.global && alpha(l) > 0.0)
+        .collect();
+    covering.sort_by(|a, b| dist(a.pos).total_cmp(&dist(b.pos)));
+    let mut left = 1.0;
+    let mut shares = Vec::new();
+    for l in &covering {
+        shares.push((l.id, l.params[0], left * alpha(l)));
+        left *= 1.0 - alpha(l);
+    }
+    println!(
+        "shares, nearest first: {:?}; the global's {left}",
+        &shares[..shares.len().min(4)]
+    );
+    // ZoneLight 1150, "ValSharah" (Light 5722, its clear weather's params 3064), lights it all.
+    let valsharah: f32 = shares.iter().filter(|s| s.1 == 3064).map(|s| s.2).sum();
+    assert!(valsharah > 0.99, "{valsharah}");
+    // A spot still lights over its zone: halfway to its full strength's edge, it is laid last.
+    let spots: Vec<_> = lights
+        .iter()
+        .filter(|l| !l.global && l.id < ZONE_LIGHT_BASE && l.falloff_start > 1.0)
+        .collect();
+    for s in &spots {
+        let at = [s.pos[0] + s.falloff_start / 2.0, s.pos[1], s.pos[2]];
+        let d = |l: &benilla_legion::lights::LegionLight| {
+            (0..3)
+                .map(|i| (l.pos[i] - at[i]).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        let last = lights
+            .iter()
+            .filter(|l| !l.global && d(l) <= l.falloff_end)
+            .min_by(|a, b| d(a).total_cmp(&d(b)))
+            .unwrap();
+        assert!(
+            last.id < ZONE_LIGHT_BASE,
+            "spot {} under cell {}",
+            s.id,
+            last.id
+        );
+    }
+    // Its noon is brighter than the Broken Isles' global, which lit the field before.
+    let noon = |id: u32| {
+        let p = params.iter().find(|p| p.id == id).unwrap();
+        let c = p.int_bands[1]
+            .iter()
+            .rev()
+            .find(|(t, _)| *t <= 1440)
+            .map_or(0, |k| k.1);
+        (c >> 16 & 0xff) + (c >> 8 & 0xff) + (c & 0xff)
+    };
+    let global = lights.iter().find(|l| l.global).unwrap().params[0];
+    println!(
+        "ambient at noon: Val'sharah {}, global {}",
+        noon(3064),
+        noon(global)
+    );
+    assert!(noon(3064) > noon(global));
+}
