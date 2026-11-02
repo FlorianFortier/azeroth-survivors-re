@@ -825,7 +825,8 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
         Bolt {
             damage: 13.0,
             cooldown: 1.2,
-            range: 24.0
+            range: 24.0,
+            visual: 122
         }
     ),
     ability!(
@@ -837,7 +838,8 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             duration: 9.0,
             cooldown: 2.0,
             range: 22.0,
-            count: 2
+            count: 2,
+            visual: 5174
         }
     ),
     ability!(
@@ -859,7 +861,8 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             radius: 8.0,
             duration: 7.0,
             effect: Effect::Slow(0.6, 1.5),
-            overhead: true
+            overhead: true,
+            visual: 339
         }
     ),
     ability!(
@@ -871,7 +874,8 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             range: 20.0,
             count: 3,
             duration: 10.0,
-            mark: 5570
+            mark: 5570,
+            visual: 339
         }
     ),
     ability!(
@@ -7046,5 +7050,86 @@ mod tests {
         let kinds: Vec<Reward> = ELITES.iter().map(|e| e.reward).collect();
         assert!(kinds.contains(&Reward::RunItem) && kinds.contains(&Reward::SpellRank));
         assert!(kinds.iter().any(|r| matches!(r, Reward::Gear { .. })));
+    }
+
+    /// Guests without expansion data need visual fallbacks for every spell past vanilla's ids.
+    /// Spell ids ≤5000 are 1.12.1's; anything >5000 needs an explicit `visual:` that resolves.
+    #[test]
+    fn all_non_vanilla_spells_have_visual_fallback() {
+        let mut missing = Vec::new();
+        for a in ABILITIES {
+            // Spell ids above 5000 are expansion-era; vanilla caps well below this.
+            if a.spell > 5_000 && a.visual == 0 {
+                missing.push(format!(
+                    "{}: spell={} (kind={:?}) lacks visual: fallback",
+                    a.key, a.spell, a.kind
+                ));
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "abilities without visual fallback for guests:\n{}",
+            missing.join("\n")
+        );
+    }
+
+    /// Phase 1 fix: Druid abilities with expansion spells now carry vanilla visuals.
+    #[test]
+    fn druid_has_complete_visual_coverage() {
+        let druid_keys = ["wrath", "moonfire", "hurricane", "insect_swarm"];
+        for key in druid_keys {
+            let a = ability(key);
+            if a.spell > 5_000 {
+                assert!(
+                    a.visual != 0,
+                    "{}: spell={} needs explicit visual: fallback for guests",
+                    key,
+                    a.spell
+                );
+            }
+        }
+    }
+
+    /// Legion classes (DK=6, Monk=10, DH=12) use expansion spells; their pool abilities must have visuals.
+    #[test]
+    fn legion_classes_have_complete_visual_coverage() {
+        let legion_class_ids = [6u8, 10u8, 12u8]; // Death Knight, Monk, Demon Hunter
+        for &class_id in &legion_class_ids {
+            let c = CLASSES
+                .iter()
+                .find(|c| c.id == class_id)
+                .unwrap_or_else(|| panic!("class id {} not found", class_id));
+
+            // Legion data is not loaded in tests, so class_shown returns false.
+            // We still verify that their abilities have visual fallbacks.
+            let _ = class_shown(c); // Keep accessible for future checks if needed.
+
+            // Every pool ability must have a visual fallback.
+            for key in c.pool {
+                let a = ability(key);
+                assert!(
+                    a.spell > 30_000,
+                    "{} (class {}): spell={} expected to be Legion-era",
+                    key,
+                    c.name,
+                    a.spell
+                );
+                assert!(
+                    a.visual != 0 && a.visual < 30_000,
+                    "{} (class {}): needs visual: fallback (<30k) for guests without Legion",
+                    key,
+                    c.name
+                );
+            }
+
+            // Mobility spell too.
+            if let Some(mob) = super::super::mobility::for_class(class_id) {
+                assert!(
+                    mob.spell > 30_000 && mob.visual() < 30_000,
+                    "{} mobility: needs vanilla visual fallback",
+                    c.name
+                );
+            }
+        }
     }
 }
