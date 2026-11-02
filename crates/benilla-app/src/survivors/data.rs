@@ -1229,6 +1229,14 @@ pub(crate) fn ability(key: &str) -> &'static AbilityDef {
         .unwrap_or_else(|| panic!("survivors: no ability {key:?}"))
 }
 
+/// Find the Survivors implementation for an exact source SpellID.
+///
+/// This is deliberately an exact numeric lookup: spell names and icons from later client
+/// builds are presentation metadata, not enough evidence to infer a gameplay implementation.
+pub(crate) fn ability_for_spell_id(spell_id: u32) -> Option<&'static AbilityDef> {
+    ABILITIES.iter().find(|ability| ability.spell == spell_id)
+}
+
 pub(crate) const MAX_PASSIVE_LEVEL: u8 = 5;
 pub(crate) const MAX_ABILITIES: usize = 6;
 pub(crate) const MAX_PASSIVES: usize = 6;
@@ -5969,6 +5977,56 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef], might: f32) -> Vec<EnemyDef> {
 #[cfg(test)]
 mod tests {
     //! The tables' invariants and the run's curves. Pure data: no app, no game files.
+
+    use super::*;
+
+    #[test]
+    fn legion_talent_spells_resolve_only_by_exact_spell_id() {
+        // These six IDs are the only exact SpellID-to-AbilityDef matches in the verified
+        // 7.3.5 talent inventory. Repeated talent seats may reference the same spell.
+        let expected = [
+            (6_789, "death_coil"),
+            (12_292, "sweeping_strikes"),
+            (17_877, "shadowburn"),
+            (115_098, "chi_wave"),
+            (116_847, "rushing_jade_wind"),
+            (211_053, "fel_barrage"),
+        ];
+
+        for (spell_id, key) in expected {
+            let ability = ability_for_spell_id(spell_id)
+                .unwrap_or_else(|| panic!("missing exact mapping for SpellID {spell_id}"));
+            assert_eq!(ability.key, key);
+            assert_eq!(ability.spell, spell_id);
+        }
+
+        // Consecration is only a normalized-name candidate in the audit, not an exact match.
+        assert!(ability_for_spell_id(202_297).is_none());
+        assert!(ability_for_spell_id(0).is_none());
+    }
+
+    #[test]
+    fn legion_talent_spell_adaptation_does_not_invent_visual_fallbacks() {
+        let without_fallback = [6_789, 12_292, 17_877];
+        for spell_id in without_fallback {
+            let ability = ability_for_spell_id(spell_id).unwrap();
+            assert_eq!(
+                ability.visual(),
+                spell_id,
+                "SpellID {spell_id} has no verified nonzero Vanilla visual fallback"
+            );
+        }
+
+        let with_fallback = [
+            (115_098, 421),
+            (116_847, 1_680),
+            (211_053, 686),
+        ];
+        for (spell_id, fallback) in with_fallback {
+            let ability = ability_for_spell_id(spell_id).unwrap();
+            assert_eq!(ability.visual(), fallback);
+        }
+    }
 
     #[test]
     fn legions_races_stand_in_for_themselves_only_where_the_data_is() {
