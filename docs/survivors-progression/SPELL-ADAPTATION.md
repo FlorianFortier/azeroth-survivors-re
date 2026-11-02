@@ -84,3 +84,71 @@ A new AbilityDef must declare its gameplay behavior and a valid visual strategy 
 ## Validation
 
 The new tests are part of `survivors::data`'s unit-test module. CI must run the repository's normal formatter, `benilla-app` library check and Survivors tests. This PR has not been compiled or visually tested on a local Windows game installation by the authoring environment.
+
+
+## Follow-up: effect and visual-chain audit for the eight exposed specializations
+
+The local 7.3.5.26972 extraction supplied after the initial catalogue adds three reports:
+
+- `talent-spell-details.csv`: 144 unique talent SpellIDs, one deduplicated row per `(spell_id, effect_index)`.
+- `talent-visual-chain.csv`: 144 talent-spell visual lookups.
+- `talent-unresolved-references.csv`: 260 unresolved references, representing 87 unique source values.
+
+The validation summary reports all 144 SpellIDs processed and non-empty classification/evidence fields. Those classifications must not be interpreted as gameplay roles:
+
+- 114 rows are labeled `ACTIVE` by the extractor because an actionable aura pattern was found.
+- 30 rows are `UNKNOWN` and explicitly flagged for manual review.
+- No rows were classified `PASSIVE`, `SUMMON` or `TRANSFORMATION`.
+- The audit itself notes that the passive heuristic did not match known passive aura patterns, and that transformation aura 305 was deduplicated.
+
+**Conclusion:** `ACTIVE` is a preliminary extraction heuristic, not proof that the talent SpellID is a player-cast active ability. Aura-based talents can be passive modifiers or proc handlers. Role assignment requires checking the complete talent context and linked/triggered spells.
+
+### Visual-chain status
+
+| Lookup result | Count |
+|---|---:|
+| No `SpellXSpellVisual` row for the talent SpellID | 86 |
+| `SpellXSpellVisual` row exists but no valid kits were resolved | 58 |
+| Talent-spell rows with a valid kit in this report | 0 |
+
+The unresolved-reference report contains 86 missing talent-to-visual mappings and 174 references to `SpellVisualKitID = 4294967295`. This does not prove the actual cast has no visual: some talent spells are auras/procs whose triggered spell carries the cast visual.
+
+### Triggered spells requiring a second extraction pass
+
+The details report contains 17 nonzero `effect_trigger_spell` links. Their target SpellIDs were not included as roots in the supplied visual-chain report:
+
+| Talent spell | Talent SpellID | Triggered SpellID | Specialization IDs |
+|---|---:|---:|---|
+| Rushing Jade Wind | 116847 | 148187 | 268, 269 |
+| Power Strikes | 121817 | 129914 | 269 |
+| Breath of Sindragosa | 152279 | 155166 | 251 |
+| Frozen Pulse | 194909 | 195750 | 251 |
+| Blighted Rune Weapon | 194918 | 195758 | 252 |
+| Bloodworms | 195679 | 196361 | 250 |
+| Eye of the Tiger | 196607 | 196608 | 268, 269 |
+| Refreshing Jade Wind | 196725 | 162530 | 270 |
+| Special Delivery | 196730 | 196734 | 268 |
+| Prepared | 203551 | 203650 | 577 |
+| Demon Blades | 203555 | 203796 | 577 |
+| Master of the Glaive | 203556 | 213405 | 577 |
+| Desperate Instincts | 205411 | 205478 | 577 |
+| Runic Attenuation | 207104 | 221322 | 251 |
+| Avalanche | 207142 | 207150 | 251 |
+| Blade Turning | 247254 | 247253 | 581 |
+| Chaos Blades | 247938 | 211797 | 577 |
+
+These are source-data links, not confirmed cast animations. The target spells must be extracted and inspected before deciding whether they represent a cast, periodic proc, damage event, summon, or purely internal aura application.
+
+### Required next local extraction
+
+Extract the 17 triggered SpellIDs above as additional roots from `Spell`, `SpellEffect`, `SpellMisc`, `SpellCooldowns`, `SpellCastTimes`, `SpellRange`, `SpellDuration`, `SpellXSpellVisual` and the related visual-kit/effect/model attachment tables.
+
+For each target, also follow nonzero `SpellEffect.TriggerSpell` references one level further, recording the parent SpellID and effect index. Produce:
+
+- `trigger-spell-details.csv`
+- `trigger-visual-chain.csv`
+- `trigger-unresolved-references.csv`
+
+Preserve raw source fields and unresolved references. Do not label these target spells as Survivors actives solely because they are referenced by a talent.
+
+The three source reports remain local. This repository contains only this summarized, non-asset audit and the exact-ID code adapter.
