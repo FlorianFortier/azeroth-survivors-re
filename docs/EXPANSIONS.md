@@ -393,6 +393,16 @@ upstream merge. Each step is one pull request or a few.
    the water over its ground at 85 % and nearly all of their wet corners (69 % with rows and
    columns swapped, so the grid's orientation is the right one); 317 lights and 127 params,
    every params' eighteen colours keyed (`the_broken_isles_water_and_light_read_as_1_12_1s`).
+   Seen on screen: Val'sharah cold and dark. No sphere covers the Field of Dreamers, so the
+   Broken Isles' global lit it; from Cataclysm a zone's own light is a polygon (`ZoneLight`,
+   `ZoneLightPoint`) naming a `Light` row. Each polygon is now tiled with 1.12.1's spheres
+   (`lights::zone_cells`, one every 120 yards, full to 300, gone at 400, all at the map's spots'
+   median height so the ground distance alone decides; a cell to the smallest polygon holding
+   it, none within a spot's reach): 1.12.1 lays the nearest sphere last, so a point takes its
+   zone's light, a spot still lights over its zone, and the global stays where no zone is. The
+   field takes Val'sharah's own (`ZoneLight` 1150, params 3064) whole, its noon ambient a
+   quarter brighter than the global's (`valsharah_takes_its_zones_light`); an older
+   `legion-data/dbd` gets the two definitions by running `fetch-legion.sh` again.
    **Fourth part done**: Val'sharah, the campaign's thirteenth zone (`data::MAPS`, after
    Naxxramas, `MapDef::legion`), on the Field of Dreamers (19_27, its ground at 143 to 148:
    the flattest dry ground at the heart of the zone, found from the tiles' `AreaTable` ids and

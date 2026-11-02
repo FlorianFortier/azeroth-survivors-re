@@ -41,7 +41,7 @@ TABLES=(
     AnimationData CharHairGeosets CharSections CharacterFacialHairStyles ChrRaces
     ChrSpecialization CreatureDisplayInfo CreatureModelData Item ItemAppearance ItemDisplayInfo
     ItemModifiedAppearance Light LightData LightParams LiquidMaterial LiquidType ModelFileData
-    Spell SpellMisc Talent TextureFileData
+    Spell SpellMisc Talent TextureFileData ZoneLight ZoneLightPoint
 )
 
 STREAM=0
