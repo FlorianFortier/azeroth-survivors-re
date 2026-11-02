@@ -428,6 +428,22 @@ impl Library {
 
     /// The model in file `file` as a 1.12.1 MD20: `replace` fills its replaceable textures by
     /// type, `shows` picks its geosets.
+    /// The `.skel` file `id`, its parents' chunks standing in for those it lacks.
+    fn skeleton(&self, id: u32) -> Result<crate::skel::Skel> {
+        let mut skel = crate::skel::parse(&self.casc.read_id(id)?)?;
+        // A few levels at most: a loop in the data is no reason to hang.
+        for _ in 0..4 {
+            let Some(parent) = skel.parent.take() else {
+                break;
+            };
+            let up = crate::skel::parse(&self.casc.read_id(parent)?)?;
+            let next = up.parent;
+            skel = skel.with_parent(up);
+            skel.parent = next;
+        }
+        Ok(skel)
+    }
+
     fn transcode(
         &self,
         file: u32,
@@ -436,6 +452,16 @@ impl Library {
         wide: bool,
     ) -> Result<Vec<u8>> {
         let mut chunks = md21::split(&self.casc.read_id(file)?)?;
+        // An HD model's bones, sequences and attachments, out of its `.skel` and back in.
+        let skeleton = match chunks.skel {
+            Some(id) => {
+                let skel = self.skeleton(id)?;
+                chunks.md20 = crate::skel::merge(&chunks.md20, &skel)?;
+                chunks.anims = skel.anims;
+                true
+            }
+            None => false,
+        };
         let m = model::parse(&chunks.md20)?;
         let skin = chunks
             .skins
@@ -457,7 +483,16 @@ impl Library {
             .anims
             .iter()
             .filter(|a| a.2 != 0)
-            .filter_map(|&(id, variation, f)| Some((id, variation, self.casc.read_id(f).ok()?)))
+            .filter_map(|&(id, variation, f)| {
+                let file = self.casc.read_id(f).ok()?;
+                // A skeleton's `.anim` keeps its bones' keys apart.
+                let file = if skeleton {
+                    crate::skel::anim_bones(&file)
+                } else {
+                    file
+                };
+                Some((id, variation, file))
+            })
             .collect();
         let animation = Animation {
             files: &files,
