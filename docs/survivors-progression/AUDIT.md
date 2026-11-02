@@ -174,7 +174,7 @@ Cet audit n'a pas modifié le protocole.
 | Sept rangées, trois choix exclusifs | Parser Legion le représente ; adaptateur le convertit en rangs | Modèle de domaine à séparer |
 | Progression indépendante par spécialisation | Profil par classe | Clé de sauvegarde à revoir |
 | Archétype de gameplay par spec | Bonus statistiques par thème de talent | Définition des identités manquante |
-| Déblocage de sorts depuis talents | Pool par classe | Filtrage par spec et déblocement manquants |
+| Déblocage de sorts depuis talents | Pool par classe | Filtrage par spécialisation et déblocages manquants |
 | Transformation de sorts | Perks de cartes augmentent des paramètres | Modificateurs explicites de comportement manquants |
 | Actif de classe | Pas de contrat général de capacité active dans la progression | Système gameplay/HUD/network à définir |
 | Progression de compte liée aux classes | Achievements, perks et collectibles génériques | Objectifs de maîtrise et récompenses thématiques manquants |
