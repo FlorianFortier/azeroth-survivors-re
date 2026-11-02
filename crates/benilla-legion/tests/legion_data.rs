@@ -710,3 +710,65 @@ fn the_pandaren_reads_onto_1_12_1s_atlas() {
         assert!(in_face > 50);
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install: LEGION_URL, LEGION_CACHE"]
+fn an_hd_body_reads_its_skeleton_out_of_its_skel() {
+    let casc = casc();
+    // The Blood Elf's HD bodies (`ChrRaces`' `HighResMaleDisplayID`/`…Female…`, 62127/62128).
+    for file in [1100087u32, 1100258] {
+        let chunks = md21::split(&casc.read_id(file).unwrap()).unwrap();
+        assert_eq!(model::parse(&chunks.md20).unwrap().bones.len(), 0);
+        let skel =
+            benilla_legion::skel::parse(&casc.read_id(chunks.skel.unwrap()).unwrap()).unwrap();
+        assert!(skel.parent.is_none() && skel.anims.len() > 40);
+        let md20 = benilla_legion::skel::merge(&chunks.md20, &skel).unwrap();
+        let m = model::parse(&md20).unwrap();
+        // A whole skeleton this time: few roots, the arms' key bones there.
+        let roots = m.bones.iter().filter(|b| b.parent < 0).count();
+        assert!(
+            m.bones.len() > 200 && roots < m.bones.len() / 4,
+            "{roots} roots"
+        );
+        assert!(m.bones.iter().any(|b| b.key_bone == 0) && m.bones.iter().any(|b| b.key_bone == 3));
+        assert!(m.sequences > 300);
+
+        // The body alone (group 0's skin), as the client reads it: its run keyed from an .anim,
+        // its stand from the file.
+        let files: Vec<(u16, u16, Vec<u8>)> = skel
+            .anims
+            .iter()
+            .filter(|a| a.2 != 0)
+            .map(|&(id, v, f)| {
+                (
+                    id,
+                    v,
+                    benilla_legion::skel::anim_bones(&casc.read_id(f).unwrap()),
+                )
+            })
+            .collect();
+        let animation = transcode::Animation {
+            files: &files,
+            ..Default::default()
+        };
+        let skin = casc.read_id(chunks.skins[0]).unwrap();
+        let vanilla = transcode::to_vanilla(&md20, &skin, &[], |id| id == 0, &animation).unwrap();
+        let skeleton = benilla_formats::parse_m2_skeleton(&vanilla).unwrap();
+        assert_eq!(skeleton.bones.len(), m.bones.len());
+        let clips = benilla_formats::parse_m2_animations(&vanilla);
+        let turning = |anim: u16| {
+            clips.iter().find(|c| c.anim_id == anim).map_or(0, |c| {
+                c.bones.iter().filter(|b| b.rotation.len() > 1).count()
+            })
+        };
+        let in_anim = skel.anims.iter().map(|a| a.0).find(|&a| turning(a) > 10);
+        println!(
+            "{file}: {} bones, {roots} roots, stand turns {}, run {}, from an .anim: {in_anim:?}",
+            m.bones.len(),
+            turning(0),
+            turning(5)
+        );
+        assert!(turning(0) > 10 && turning(5) > 10);
+        assert!(in_anim.is_some(), "no .anim sequence moves");
+    }
+}

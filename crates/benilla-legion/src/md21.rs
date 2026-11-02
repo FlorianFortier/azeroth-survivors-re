@@ -13,6 +13,8 @@ pub struct Md21 {
     pub textures: Vec<u32>,
     /// `(animation id, sub-animation id, file data id)` of the sequences kept in `.anim` files.
     pub anims: Vec<(u16, u16, u32)>,
+    /// The `.skel` file holding an HD model's bones and sequences (`SKID`, from 7.3).
+    pub skel: Option<u32>,
     /// Every other chunk's id, for a probe.
     pub other: Vec<[u8; 4]>,
 }
@@ -43,20 +45,8 @@ pub fn split(file: &[u8]) -> Result<Md21> {
             b"MD21" => out.md20 = body.to_vec(),
             b"SFID" => out.skins = ids().collect(),
             b"TXID" => out.textures = ids().collect(),
-            b"AFID" => {
-                out.anims = body
-                    .as_chunks::<8>()
-                    .0
-                    .iter()
-                    .map(|c| {
-                        (
-                            u16::from_le_bytes([c[0], c[1]]),
-                            u16::from_le_bytes([c[2], c[3]]),
-                            u32::from_le_bytes([c[4], c[5], c[6], c[7]]),
-                        )
-                    })
-                    .collect()
-            }
+            b"AFID" => out.anims = anim_ids(body),
+            b"SKID" => out.skel = u32_at(body, 0).filter(|&s| s != 0),
             _ => out.other.push(id),
         }
         at += 8 + size;
@@ -65,6 +55,21 @@ pub fn split(file: &[u8]) -> Result<Md21> {
         return Err(Error::Format("no MD21 chunk holding an MD20 model".into()));
     }
     Ok(out)
+}
+
+/// An `AFID` chunk: `(animation id, variation, file data id)` each eight bytes.
+pub(crate) fn anim_ids(body: &[u8]) -> Vec<(u16, u16, u32)> {
+    body.as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| {
+            (
+                u16::from_le_bytes([c[0], c[1]]),
+                u16::from_le_bytes([c[2], c[3]]),
+                u32::from_le_bytes([c[4], c[5], c[6], c[7]]),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -83,10 +88,12 @@ mod tests {
         chunk(b"SFID", &[7, 0, 0, 0, 8, 0, 0, 0]);
         chunk(b"TXID", &[0, 0, 0, 0, 9, 0, 0, 0]);
         chunk(b"PFID", &[1, 0, 0, 0]);
+        chunk(b"SKID", &[3, 0, 0, 0]);
         let m = split(&f).unwrap();
         assert_eq!(&m.md20[..4], b"MD20");
         assert_eq!(m.skins, [7, 8]);
         assert_eq!(m.textures, [0, 9]);
         assert_eq!(m.other, [*b"PFID"]);
+        assert_eq!(m.skel, Some(3));
     }
 }
