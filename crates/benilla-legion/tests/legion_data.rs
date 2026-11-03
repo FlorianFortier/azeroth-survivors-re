@@ -940,3 +940,68 @@ fn an_hd_body_fits_1_12_1s_indices() {
         assert!(draws.len() > 20, "{} draws", draws.len());
     }
 }
+
+#[test]
+#[ignore = "needs a Legion install: LEGION_URL, LEGION_CACHE"]
+fn the_field_of_dreamers_carries_legions_ground() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let library = Library::open(source, None).unwrap();
+    let adt = library
+        .read("world/maps/legionbrokenisles/legionbrokenisles_19_27.adt")
+        .unwrap()
+        .unwrap();
+    // The tile's chunks, magics as written (reversed).
+    let mut chunks = Vec::new();
+    let mut at = 0;
+    while at + 8 <= adt.len() {
+        let size = u32::from_le_bytes(adt[at + 4..at + 8].try_into().unwrap()) as usize;
+        chunks.push((&adt[at..at + 4], &adt[at + 8..at + 8 + size]));
+        at += 8 + size;
+    }
+    let find = |m: &[u8]| chunks.iter().find(|c| c.0 == m).unwrap().1;
+    let split = |b: &[u8]| -> Vec<String> {
+        let mut v: Vec<String> = b
+            .split(|&c| c == 0)
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        v.pop();
+        v
+    };
+    let mtex = split(find(b"XETM"));
+    let heights = split(find(b"XTHM"));
+    let mtxp = find(b"PXTM");
+    println!("{mtex:?}\n{heights:?}");
+    // Ten ground textures, each by its specular variant, each with its height texture and scale.
+    assert_eq!(mtex.len(), 10);
+    assert_eq!(heights.len(), mtex.len());
+    assert_eq!(mtxp.len(), mtex.len() * 16);
+    assert!(mtex.iter().all(|t| t.starts_with("Legion\\spec\\")));
+    assert!(heights.iter().all(|h| h.starts_with("Legion\\")));
+    for t in mtex.iter().chain(&heights) {
+        let path = t.replace('\\', "/").to_ascii_lowercase();
+        let blp = library.read(&path).unwrap().unwrap();
+        assert_eq!(&blp[..4], b"BLP2", "{t}");
+        // The terrain loader's `_s` ask answers the same file.
+        if let Some(stem) = path.strip_suffix(".blp").filter(|p| p.contains("/spec/")) {
+            assert_eq!(
+                library.read(&format!("{stem}_s.blp")).unwrap().unwrap(),
+                blp
+            );
+        }
+    }
+    // Every chunk's vertex colours where the header's `+0x74` points.
+    let mut coloured = 0;
+    for (_, mcnk) in chunks.iter().filter(|c| c.0 == b"KNCM") {
+        let ofs = u32::from_le_bytes(mcnk[0x74..0x78].try_into().unwrap()) as usize;
+        if ofs != 0 && &mcnk[ofs - 8..ofs - 4] == b"VCCM" {
+            coloured += 1;
+        }
+    }
+    assert_eq!(coloured, 256);
+    // And 1.12.1's reader still reads the tile whole.
+    let tile = benilla_formats::adt_to_tile_mesh(&adt).unwrap();
+    assert_eq!(tile.chunks.len(), 256);
+}

@@ -10,6 +10,9 @@
 //!
 //! - `legion/half/<file data id>.blp`: a texture at half its size (a race's skins, for 1.12.1's
 //!   256² body atlas, [`crate::races`]);
+//! - `legion/spec/<file data id>.blp`, and `…_s.blp` the same: a ground texture's specular
+//!   variant, under the name a tile gives it and the one the terrain loader asks for
+//!   ([`crate::terrain`]);
 //! - `…/legion_char_<file data id>.m2`, in any folder: a character body, every geoset kept for the
 //!   client's own selection (a wide layout's skin coordinates moved to 1.12.1's atlas);
 //! - `legion/layout2/skin/<id>.blp`, `legion/layout2/face/<id>_<upper|lower>.blp`: a Pandaren
@@ -269,6 +272,13 @@ impl Library {
                 .read_id(file)
                 .map(|b| crate::races::half_blp(&b))
                 .map_err(Error::from)
+        } else if let Some(file) = rest
+            .strip_prefix("spec/")
+            .and_then(|r| number(r, "_s.blp").or_else(|| number(r, ".blp")))
+        {
+            // A ground texture whose specular variant this is (its mask in alpha), under both the
+            // name the tile gives and the `_s` the terrain loader asks for ([`crate::terrain`]).
+            self.casc.read_id(file).map_err(Error::from)
         } else if let Some(file) = number(rest, ".blp") {
             self.casc.read_id(file).map_err(Error::from)
         } else {

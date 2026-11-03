@@ -412,6 +412,19 @@ upstream merge. Each step is one pull request or a few.
    field takes Val'sharah's own (`ZoneLight` 1150, params 3064) whole, its noon ambient a
    quarter brighter than the global's (`valsharah_takes_its_zones_light`); an older
    `legion-data/dbd` gets the two definitions by running `fetch-legion.sh` again.
+   Seen on screen next: the ground flat beside Legion's. Its textures repeat two to four times
+   more than Legion's scale asks (`MTXP`'s flags), it has no vertex colours (`MCCV`) and its
+   layers meet in soft alpha where Legion's meet by height. The tile now carries them where
+   1.12.1's reader looks past (`terrain`: Legion's `MTXP`, an `MHTX` chunk naming each
+   texture's `_h` height texture, `MCCV` at the header's `+0x74` as Wrath places it; each
+   texture by its `_s` specular variant, under the library's `spec/` folder), and the client's
+   terrain shader has a Legion lane (`benilla-assets`' `legion_terrain.rs`, `LEGION_TERRAIN`,
+   native only, a tile's table switching it): each layer at its own scale, Legion's weights
+   lifted by height so the highest shows where layers meet, the vertex colours (baked per chunk
+   to a 17×17 grid, 127 for one) and the specular mask. Read on the Field of Dreamers' tile: ten
+   textures, each with its `_s` and `_h`, and 256 coloured chunks
+   (`the_field_of_dreamers_carries_legions_ground`); the lane compiles under wgpu's compiler
+   (`terrain_shader.rs`). Not seen on screen here.
    **Fourth part done**: Val'sharah, the campaign's thirteenth zone (`data::MAPS`, after
    Naxxramas, `MapDef::legion`), on the Field of Dreamers (19_27, its ground at 143 to 148:
    the flattest dry ground at the heart of the zone, found from the tiles' `AreaTable` ids and

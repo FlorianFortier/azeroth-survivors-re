@@ -10,6 +10,8 @@ benilla-blp = { path = "../benilla-blp" }
 benilla-casc = { path = "../benilla-casc" }
 
 [dev-dependencies]
+# Compiles the terrain shader's Legion lane (`tests/terrain_shader.rs`), as wgpu does.
+naga = { version = "27", features = ["wgsl-in"] }
 benilla-formats = { path = "../benilla-formats" }
 benilla-m2 = { path = "../benilla-m2" }
 benilla-wdt = { path = "../benilla-wdt" }
