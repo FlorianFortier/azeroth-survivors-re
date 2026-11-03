@@ -13,7 +13,7 @@
 
 mod lifecycle;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use benilla_assets::bone_target_id;
 use bevy::animation::AnimatedBy;
@@ -51,12 +51,14 @@ pub(crate) struct SpellFx {
 /// Get-or-insert this path's cache entry and start its load: the only way to reach
 /// [`SpellFx::models`], since a map change clears it and a standing aura never re-sends `Begin`.
 pub(super) fn ensure_model(fx: &mut SpellFx, asset_server: &AssetServer, path: &str) {
-    fx.models
-        .entry(path.to_string())
-        .or_insert_with(|| DisplayModel {
-            handle: ModelHandle::M2(asset_server.load(m2_url(path))),
+    fx.models.entry(path.to_string()).or_insert_with(|| {
+        let url = m2_url(path);
+        debug!(path, asset_url = %url, "spell fx: requesting M2 model");
+        DisplayModel {
+            handle: ModelHandle::M2(asset_server.load(url)),
             ..super::empty_shell()
-        });
+        }
+    });
 }
 
 /// Per-instance tint clones, material id → `(RGB loop, attach time)`: one cast is one phase, so an
@@ -566,6 +568,17 @@ pub(super) fn resolve_spell_fx(
                     effects,
                     ..
                 } => {
+                    if *spell_id == 152_279 {
+                        debug!(
+                            entity = ?entity,
+                            spell_id,
+                            persistent,
+                            ?class,
+                            ?stage,
+                            effect_count = effects.len(),
+                            "spell fx: received Breath of Sindragosa Begin"
+                        );
+                    }
                     // A persistent Begin first reaps the same (spell, class): a re-applied aura's
                     // old node decays out while the new one is born, as in the reference.
                     if *persistent {
@@ -719,6 +732,7 @@ pub(super) fn attach_spell_fx(
     asset_server: Res<AssetServer>,
     spells: Option<Res<crate::ui_action::Spells>>,
     time: Res<Time>,
+    mut pending_reported: Local<HashSet<String>>,
     mut wow_materials: ResMut<Assets<WowModelMaterial>>,
     mut tint_reg: ResMut<FxTintAnims>,
     mut uv_reg: ResMut<benilla_world::doodad_anim::UvAnimMaterials>,
@@ -736,6 +750,14 @@ pub(super) fn attach_spell_fx(
             // Self-termination (the cast-release flash ran its span).
             if let Some(expires) = inst.expires {
                 if now >= expires {
+                    if inst.spell_id == 152_279 {
+                        warn!(
+                            unit = ?unit,
+                            spell_id = inst.spell_id,
+                            path = %inst.path,
+                            "spell fx: Breath of Sindragosa expired before its model attached"
+                        );
+                    }
                     if let Some(root) = inst.root {
                         // The `0x6203e0` teardown: the particles outlive the flash.
                         drain_instance_emitters(&mut emitters, root);
@@ -786,8 +808,17 @@ pub(super) fn attach_spell_fx(
                 return true; // unreachable: just inserted
             };
             if dm.parts.is_none() {
+                if inst.spell_id == 152_279 && pending_reported.insert(inst.path.clone()) {
+                    warn!(
+                        unit = ?unit,
+                        spell_id = inst.spell_id,
+                        path = %inst.path,
+                        "spell fx: Breath of Sindragosa M2 has not built any display parts yet"
+                    );
+                }
                 return true; // model still loading
             }
+            pending_reported.remove(&inst.path);
             // The world-plant slot (kit field 12): no attach tag (`0x61fcf0` pushes -1), planted
             // once in world space (`0x620c86` via `0x620a90`), riding no bone.
             let planted = inst.tag == benilla_formats::WORLD_EFFECT_TAG;
@@ -799,7 +830,7 @@ pub(super) fn attach_spell_fx(
             }
             // Ground-anchored: a world plant, or an instance on the base point (`0x13`) or the unit
             // root. A chest-anchored one keeps its flat quads as geometry (`ProtectionFrom*`).
-            let (root, ground_anchor) = if planted {
+            let (root, ground_anchor, resolved_tag) = if planted {
                 let follow =
                     inst.persistent && spell_has_root_aura(spells.as_deref(), inst.spell_id);
                 let root = commands
@@ -814,7 +845,7 @@ pub(super) fn attach_spell_fx(
                     // Chain-only visibility: the wrapper draws nothing, its children do.
                     .vis_chain_only()
                     .id();
-                (root, true)
+                (root, true, benilla_formats::WORLD_EFFECT_TAG)
             } else {
                 // `CMissile`'s cascade: the slot's tag, `0xf`, `0x13`, else the unit root.
                 let point = bones.and_then(|b| {
@@ -828,6 +859,7 @@ pub(super) fn attach_spell_fx(
                         })
                 });
                 let ground_anchor = point.is_none_or(|(tag, ..)| tag == 0x13);
+                let resolved_tag = point.map_or(0, |(tag, ..)| tag);
                 let (parent, offset) = point.map_or((unit, Vec3::ZERO), |(_, j, o)| (j, o));
                 let root = commands
                     .spawn((Transform::from_translation(offset), Visibility::default()))
@@ -835,7 +867,7 @@ pub(super) fn attach_spell_fx(
                     .vis_chain_only()
                     .id();
                 commands.entity(parent).add_child(root);
-                (root, ground_anchor)
+                (root, ground_anchor, resolved_tag)
             };
             // Parts were checked ready above, so this always attaches.
             attach_effect_visuals(
@@ -858,6 +890,21 @@ pub(super) fn attach_spell_fx(
                 &mut palettes,
                 None, // an attach-point kit effect opens on its model's own `Stand`
             );
+            if inst.spell_id == 152_279 {
+                debug!(
+                    unit = ?unit,
+                    spell_id = inst.spell_id,
+                    path = %inst.path,
+                    requested_tag = inst.tag,
+                    resolved_tag,
+                    parts = dm.parts.as_ref().map_or(0, Vec::len),
+                    emitters = dm.emitters.len(),
+                    ribbons = dm.ribbons.len(),
+                    animations = dm.animations.as_ref().map_or(0, |a| a.clips.len()),
+                    first_seq_span = ?dm.first_seq_span,
+                    "spell fx: Breath of Sindragosa model attached"
+                );
+            }
             inst.root = Some(root);
             if !inst.persistent {
                 // One pass of sequence 0, from the raw sequence table: a sequence with no bone
