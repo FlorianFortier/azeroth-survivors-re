@@ -1527,8 +1527,12 @@ pub fn m2bones_file(path: &Path) -> Result<()> {
             pivot[0], pivot[1], pivot[2]
         );
 
-        for (label, relative) in [("T", 16usize), ("R", 36usize), ("S", 56usize)] {
-            let tracks = read_v272_track(data, offset + relative, label)?;
+        for (label, relative, value_stride) in [
+            ("T", 16usize, 12usize),
+            ("R", 36usize, 8usize),
+            ("S", 56usize, 12usize),
+        ] {
+            let tracks = read_v272_track(data, offset + relative, label, value_stride)?;
             if tracks.iter().any(|track| track.key_count > 0) {
                 let summaries = tracks
                     .iter()
@@ -1560,7 +1564,12 @@ struct V272TrackSequence {
     times: Vec<u32>,
 }
 
-fn read_v272_track(data: &[u8], offset: usize, label: &str) -> Result<Vec<V272TrackSequence>> {
+fn read_v272_track(
+    data: &[u8],
+    offset: usize,
+    label: &str,
+    value_stride: usize,
+) -> Result<Vec<V272TrackSequence>> {
     checked_slice(data, offset, 20, &format!("{label} track descriptor"))?;
     let time_arrays = read_u32(data, offset + 4)? as usize;
     let time_arrays_offset = read_u32(data, offset + 8)? as usize;
@@ -1602,11 +1611,20 @@ fn read_v272_track(data: &[u8], offset: usize, label: &str) -> Result<Vec<V272Tr
                 .checked_add(sequence.checked_mul(8).context("value array offset overflow")?)
                 .context("value array offset overflow")?;
             let (count, offset) = read_array(data, inner)?;
-            // Values are type-specific in v272 (including packed quaternions), so this dump
-            // reports key counts and timestamps without assuming a single value encoding.
-            if count > 0 {
-                checked_slice(data, offset, count, "track values")?;
-            }
+            // Translation/scale are C3 vectors; rotations are packed 8-byte quaternions.
+            checked_slice(
+                data,
+                offset,
+                count
+                    .checked_mul(value_stride)
+                    .context("track value byte size overflow")?,
+                "track values",
+            )?;
+            ensure!(
+                times.is_empty() || times.len() == count,
+                "{label} track sequence {sequence} has {} timestamps but {count} values",
+                times.len()
+            );
             count
         } else {
             0
@@ -1718,7 +1736,7 @@ mod legion_m2_tests {
         data[40..44].copy_from_slice(&667u32.to_le_bytes());
         data[44..46].copy_from_slice(&[0xaa, 0xbb]);
 
-        let tracks = read_v272_track(&data, 0, "rotation").unwrap();
+        let tracks = read_v272_track(&data, 0, "rotation", 1).unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].key_count, 2);
         assert_eq!(tracks[0].times, vec![0, 667]);
