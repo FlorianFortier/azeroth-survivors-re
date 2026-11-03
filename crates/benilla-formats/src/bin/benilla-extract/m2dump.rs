@@ -1,6 +1,6 @@
 //! The single-model M2 dumps: each reads one `.m2` and prints all it carries for one concern.
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{ensure, Context, Result};
 use benilla_formats::{Chain, M2AnimSummary};
 use std::path::Path;
 
@@ -1517,7 +1517,7 @@ pub fn m2bones_file(path: &Path) -> Result<()> {
         ];
         let parent_label = if parent < 0 {
             "-".to_string()
-        } else if parent as u32 >= bone_count {
+        } else if parent as usize >= bone_count {
             format!("{parent} (OUT OF RANGE)")
         } else {
             parent.to_string()
@@ -1676,4 +1676,51 @@ fn checked_slice<'a>(
             data.len()
         )
     })
+}
+
+
+#[cfg(test)]
+mod legion_m2_tests {
+    use super::*;
+
+    #[test]
+    fn unwraps_md21_payload_and_accepts_raw_md20() {
+        let payload = b"MD20\x10\x01\x00\x00";
+        let mut wrapped = b"MD21".to_vec();
+        wrapped.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        wrapped.extend_from_slice(payload);
+
+        assert_eq!(unwrap_md21(&wrapped).unwrap(), payload);
+        assert_eq!(unwrap_md21(payload).unwrap(), payload);
+    }
+
+    #[test]
+    fn rejects_truncated_md21_payload() {
+        let wrapped = b"MD21\x08\x00\x00\x00MD20";
+        assert!(unwrap_md21(wrapped).is_err());
+    }
+
+    #[test]
+    fn reads_nested_v272_track_timestamps() {
+        // Track descriptor: one sequence array for both timestamps and values.
+        let mut data = vec![0u8; 48];
+        data[4..8].copy_from_slice(&1u32.to_le_bytes());
+        data[8..12].copy_from_slice(&20u32.to_le_bytes());
+        data[12..16].copy_from_slice(&1u32.to_le_bytes());
+        data[16..20].copy_from_slice(&28u32.to_le_bytes());
+        // Timestamp array: two u32 keys at byte 36.
+        data[20..24].copy_from_slice(&2u32.to_le_bytes());
+        data[24..28].copy_from_slice(&36u32.to_le_bytes());
+        // Value array: two values at byte 44.
+        data[28..32].copy_from_slice(&2u32.to_le_bytes());
+        data[32..36].copy_from_slice(&44u32.to_le_bytes());
+        data[36..40].copy_from_slice(&0u32.to_le_bytes());
+        data[40..44].copy_from_slice(&667u32.to_le_bytes());
+        data[44..46].copy_from_slice(&[0xaa, 0xbb]);
+
+        let tracks = read_v272_track(&data, 0, "rotation").unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].key_count, 2);
+        assert_eq!(tracks[0].times, vec![0, 667]);
+    }
 }
