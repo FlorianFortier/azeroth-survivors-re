@@ -285,7 +285,8 @@ fn legions_races_read_as_1_12_1_races() {
     let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
     let library = Library::open(source, Some(&dbd)).unwrap();
     for (id, file, models, horde) in [
-        (10u8, "BloodElf", [117170, 116921], true),
+        // The Blood Elf in its HD body (`races::HD_RACES`), its old one gutted.
+        (10u8, "BloodElf", [1100087, 1100258], true),
         (11, "Draenei", [117721, 117437], false),
         (9, "Goblin", [119376, 119369], true),
         (22, "Worgen", [307454, 307453], false),
@@ -321,23 +322,16 @@ fn legions_races_read_as_1_12_1_races() {
             let model = library.read(&path).unwrap().unwrap();
             let draws = benilla_formats::parse_m2_render_submeshes(&model, "", &[]).unwrap();
             assert!(draws.len() > 20, "{path}: {} draws", draws.len());
-            // Its skeleton: whole, but the Blood Elf's, which 7.3.5 left without most parents
-            // and the arm key bones (the mode keeps it out, `data::BODILESS_RACES`).
+            // Its skeleton whole: few roots, the arms' key bones there (the Blood Elf's HD body
+            // out of its `.skel`).
             let skeleton = benilla_formats::parse_m2_skeleton(&model).unwrap();
             let roots = skeleton.bones.iter().filter(|b| b.parent < 0).count();
             let arms = skeleton.bones.iter().any(|b| (0..=3).contains(&b.key_bone));
             println!("{path}: {} bones, {roots} roots", skeleton.bones.len());
-            if id == 10 {
-                assert!(
-                    roots > skeleton.bones.len() / 2 && !arms,
-                    "{path}: whole now?"
-                );
-            } else {
-                assert!(
-                    roots < skeleton.bones.len() / 4 && arms,
-                    "{path}: {roots} roots"
-                );
-            }
+            assert!(
+                roots < skeleton.bones.len() / 4 && arms,
+                "{path}: {roots} roots"
+            );
         }
         // Its skin, at 1.12.1's size.
         let skin = race
@@ -346,11 +340,12 @@ fn legions_races_read_as_1_12_1_races() {
             .find(|((s, b, v, c), _)| (*s, *b, *v, *c) == (0, 0, 0, 0))
             .unwrap()
             .1[0];
-        let half = library
-            .read(&format!("legion/half/{skin}.blp"))
-            .unwrap()
-            .unwrap();
-        let blp = benilla_blp::decode(&half).unwrap();
+        let atlas = if race.layout == 2 {
+            format!("legion/layout2/skin/{skin}.blp")
+        } else {
+            format!("legion/half/{skin}.blp")
+        };
+        let blp = benilla_blp::decode(&library.read(&atlas).unwrap().unwrap()).unwrap();
         assert_eq!((blp.width, blp.height), (256, 256));
     }
 }

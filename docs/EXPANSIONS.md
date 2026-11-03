@@ -325,7 +325,17 @@ upstream merge. Each step is one pull request or a few.
    skin draws (an HD body's profile 0 the first 30,000 of 83,000, the rest its lower levels of
    detail; the Pandaren's 21,000 of 61,000). The Blood Elf's HD male keeps 9 hair styles of 16
    (64,269 indices of 120,765), the female 18 of 20 (65,496 of 95,853), both read whole by the
-   client's loader (`an_hd_body_fits_1_12_1s_indices`). **Second part done**: the
+   client's loader (`an_hd_body_fits_1_12_1s_indices`). **Third part done**: the Blood Elf is
+   offered again, in its HD body (`benilla_legion::races::HD_RACES`: `ChrRaces`'
+   `HighRes…DisplayID`s 62127 and 62128, `CharSections`' sections 5 to 9 as 0 to 4, its layout
+   `CharComponentTexLayoutHiResID`, 2, the Pandaren's). Layout 2 puts the scalp where the face
+   is (`CharComponentTextureSections`' types 9 and 10, both at (512, 0, 512²)), so its hair's
+   scalp square is cut into the hair's two tiles as the face's is (`entities::legion`). The
+   library checks its layout at open (`WIDE_RACES`), fits it within 1.12.1's reach and keeps
+   its hair styles to those fitted (nine of sixteen for the male, eighteen of twenty for the
+   female); its bodies read whole, 250 and 243 bones (`legions_races_read_as_1_12_1_races`).
+   A host's Blood Elf is still a Human on a machine without the data (`data::LEGION_BODIES`).
+   Not seen on screen here. **Second part done**: the
    Goblin and the Worgen, the same way (Cataclysm's bodies, the old layout at twice the size;
    race 9, the Goblin, is in 1.12.1's `ChrRaces` but not playable there, so its create entry is
    ours); a Gnome and a Human stand in for them. **Third part done**: the Pandaren. Mists of

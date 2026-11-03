@@ -192,10 +192,6 @@ fn add_races(
     };
     let mut added = Vec::new();
     for id in data::LEGION_RACES {
-        // A race whose body the install no longer carries whole stays out.
-        if data::BODILESS_RACES.contains(&id) {
-            continue;
-        }
         let Some(race) = legion.0.race(id) else {
             continue;
         };
@@ -223,8 +219,9 @@ fn add_races(
                     format!("Legion\\Half\\{f}.blp")
                 }
             });
-            // The Pandaren's layout: its skin as 1.12.1's atlas, its one face square cut into
-            // the face's two tiles (the lower first, as 1.12.1's face rows hold them).
+            // The Pandaren's layout (and the Blood Elf's HD body): its skin as 1.12.1's atlas, its
+            // one face square cut into the face's two tiles (the lower first, as 1.12.1's face
+            // rows hold them), its scalp's square likewise into the hair's (columns 1 and 2).
             if race.layout == 2 {
                 match (section, files) {
                     (0, [f, ..]) if f != 0 => paths[0] = format!("Legion\\Layout2\\Skin\\{f}.blp"),
@@ -232,6 +229,11 @@ fn add_races(
                         let f = if b != 0 { b } else { a };
                         paths[0] = format!("Legion\\Layout2\\Face\\{f}_lower.blp");
                         paths[1] = format!("Legion\\Layout2\\Face\\{f}_upper.blp");
+                    }
+                    (3, [_, b, c]) if b != 0 || c != 0 => {
+                        let f = if c != 0 { c } else { b };
+                        paths[1] = format!("Legion\\Layout2\\Face\\{f}_lower.blp");
+                        paths[2] = format!("Legion\\Layout2\\Face\\{f}_upper.blp");
                     }
                     _ => {}
                 }

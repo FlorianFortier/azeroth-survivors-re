@@ -5397,15 +5397,9 @@ pub(crate) const RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 /// Legion's playable races the mode takes in their pre-HD bodies where Legion's data is
 /// (`entities::legion`): the Blood Elf, the Draenei, the Goblin, the Worgen and the Pandaren,
 /// `ChrRaces` ids. The Pandaren's bodies wear Mists of Pandaria's texture layout (1024×512),
-/// which `benilla_legion::layout` puts on 1.12.1's 256² atlas.
+/// which `benilla_legion::layout` puts on 1.12.1's 256² atlas. The Blood Elf wears its HD body
+/// in that layout (`benilla_legion::races::HD_RACES`): 7.3.5 keeps its pre-HD one gutted.
 pub(crate) const LEGION_RACES: [u8; 5] = [10, 11, 9, 22, 24];
-
-/// The races of [`LEGION_RACES`] whose pre-HD body Legion 7.3.5 no longer carries whole: the
-/// Blood Elf's (its HD body replaced it in 6.1) has 90 of its 117 bones without a parent and
-/// none of the arm, shoulder and spine key bones, so its hands and feet stay put while it runs.
-/// Never put into the character tables (`entities::legion`), so never offered; the name stays
-/// readable in a profile, and a host's Blood Elf still draws its stand-in.
-pub(crate) const BODILESS_RACES: [u8; 1] = [10];
 
 static LEGION_RACES_IN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
 
@@ -5554,9 +5548,10 @@ const BODIES: [(u32, u32); 8] = [
     (1478, 1479),
 ];
 
-/// Legion's body displays of [`LEGION_RACES`] (`ChrRaces`' `MaleDisplayID`, `FemaleDisplayID`).
+/// Legion's body displays of [`LEGION_RACES`] (`ChrRaces`' `MaleDisplayID`, `FemaleDisplayID`;
+/// the Blood Elf's `HighResMaleDisplayID`, `HighResFemaleDisplayID`).
 const LEGION_BODIES: [(u8, (u32, u32)); 5] = [
-    (10, (15476, 15475)),
+    (10, (62127, 62128)),
     (11, (16125, 16126)),
     (9, (6894, 6895)),
     (22, (29422, 29423)),
@@ -6017,11 +6012,7 @@ mod tests {
             );
         }
 
-        let with_fallback = [
-            (115_098, 421),
-            (116_847, 1_680),
-            (211_053, 686),
-        ];
+        let with_fallback = [(115_098, 421), (116_847, 1_680), (211_053, 686)];
         for (spell_id, fallback) in with_fallback {
             let ability = ability_for_spell_id(spell_id).unwrap();
             assert_eq!(ability.visual(), fallback);
@@ -6033,7 +6024,6 @@ mod tests {
         // This machine has no Legion data: 1.12.1's eight alone.
         assert_eq!(playable_races(), RACES.to_vec());
         assert!(!legion_race(10));
-        assert!(BODILESS_RACES.iter().all(|r| LEGION_RACES.contains(r)));
         for race in LEGION_RACES {
             assert!(!race_classes(race).is_empty());
             assert!(!racials(race).is_empty());
@@ -6045,7 +6035,8 @@ mod tests {
         // The Blood Elf's paladin and the Draenei's shaman, as The Burning Crusade made them.
         assert!(race_classes(10).contains(&2) && race_classes(11).contains(&7));
         // A host's Blood Elf body, on a machine without the data: a Human's, of the same sex.
-        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 15476), Some((1, 49)));
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 62127), Some((1, 49)));
+        assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 62128), Some((1, 50)));
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 16126), Some((4, 56)));
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 6895), Some((7, 1564)));
         assert_eq!(stand_in_body(LEGION_DISPLAY_BASE + 29422), Some((1, 49)));

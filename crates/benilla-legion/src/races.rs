@@ -1,8 +1,11 @@
 //! Legion's playable races in their pre-HD bodies, as 1.12.1's character tables hold a race: the
-//! body displays (`ChrRaces`' `MaleDisplayID`/`FemaleDisplayID`, not the `HighRes…` ones), the
-//! skin, face, facial hair, hair and underwear textures (`CharSections`' sections 0 to 4, the old
-//! layout; 5 to 9 are the HD bodies'), the hair geosets (`CharHairGeosets`) and the facial hair's
-//! (`CharacterFacialHairStyles`).
+//! body displays (`ChrRaces`' `MaleDisplayID`/`FemaleDisplayID`), the skin, face, facial hair,
+//! hair and underwear textures (`CharSections`' sections 0 to 4, the old layout), the hair
+//! geosets (`CharHairGeosets`) and the facial hair's (`CharacterFacialHairStyles`).
+//!
+//! A race of [`HD_RACES`] takes its HD body instead, its pre-HD one no longer whole in 7.3.5: the
+//! `HighRes…DisplayID`s (their skeletons out of their `.skel`s, [`crate::skel`]), `CharSections`'
+//! sections 5 to 9 as 0 to 4, and its layout `CharComponentTexLayoutHiResID` (2, the Pandaren's).
 //!
 //! Legion ships the old layout's textures at twice 1.12.1's size (512² for a 256² atlas): the
 //! client reads them through [`half_blp`], their first mip level dropped, so they land on the
@@ -54,6 +57,10 @@ pub(crate) struct Races {
     facial: Table,
 }
 
+/// The races whose HD body stands in for their pre-HD one: the Blood Elf, whose old body 7.3.5
+/// keeps as a gutted leftover (90 of its 117 bones without a parent).
+pub const HD_RACES: [u8; 1] = [10];
+
 /// `CharSections` flags a playable body's rows never carry: alternates (0x4), death knights'
 /// (0x8), the demon hunter's and the HD bodies' extras (0x20), unused rows (0x100).
 const SKIPPED_FLAGS: i64 = 0x4 | 0x8 | 0x20 | 0x100;
@@ -77,10 +84,23 @@ impl Races {
         model: impl Fn(u32) -> u32,
     ) -> Option<LegionRace> {
         let row = self.races.get(u32::from(id))?;
-        let displays = [
-            row.int("MaleDisplayID")? as u32,
-            row.int("FemaleDisplayID")? as u32,
-        ];
+        let hd = HD_RACES.contains(&id);
+        let (male, female, layout, first) = if hd {
+            (
+                "HighResMaleDisplayID",
+                "HighResFemaleDisplayID",
+                "CharComponentTexLayoutHiResID",
+                5,
+            )
+        } else {
+            (
+                "MaleDisplayID",
+                "FemaleDisplayID",
+                "CharComponentTextureLayoutID",
+                0,
+            )
+        };
+        let displays = [row.int(male)? as u32, row.int(female)? as u32];
         let race = Some(i64::from(id));
         // Each key's best row so far: its rank, its textures.
         let mut sections: BTreeMap<SectionKey, (i64, [u32; 3])> = BTreeMap::new();
@@ -92,12 +112,12 @@ impl Races {
         {
             let flags = r.int("Flags").unwrap_or(0);
             let base = r.int("BaseSection").unwrap_or(-1);
-            if flags & SKIPPED_FLAGS != 0 || !(0..=4).contains(&base) {
+            if flags & SKIPPED_FLAGS != 0 || !(first..=first + 4).contains(&base) {
                 continue;
             }
             let key = (
                 r.int("SexID").unwrap_or(0) as u8,
-                base as u8,
+                (base - first) as u8,
                 r.int("VariationIndex").unwrap_or(0) as u8,
                 r.int("ColorIndex").unwrap_or(0) as u8,
             );
@@ -151,7 +171,7 @@ impl Races {
         Some(LegionRace {
             id,
             file: row.text("ClientFileString")?.to_string(),
-            layout: row.int("CharComponentTextureLayoutID").unwrap_or(1) as u8,
+            layout: row.int(layout).unwrap_or(1) as u8,
             horde: row.int("Alliance") == Some(1),
             displays,
             models: displays.map(&model),
