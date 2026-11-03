@@ -1163,6 +1163,18 @@ pub(super) fn simulate_particles(
             );
         }
 
+        // A deterministic, side-effect-free sample of the authored spawn kernel. This does
+        // not consume the live emitter RNG or alter the actual particle stream.
+        let cone_probe_dirs = if diagnostic.is_some_and(|d| d.spell_id == 152_279) {
+            [0x1357_9bdf_u32, 0x2468_ace1, 0xdead_beef, 0x7f4a_7c15]
+                .map(|mut probe_rng| {
+                    let (_, dir) = emit_local(def, &now, &mut probe_rng);
+                    dir.to_array()
+                })
+        } else {
+            [[0.0; 3]; 4]
+        };
+
         // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
         // the parent and child draw commits so the counters describe the complete frame result.
         if let Some(diag) = diagnostic.as_deref_mut() {
@@ -1174,10 +1186,24 @@ pub(super) fn simulate_particles(
                     emitter_age = *age,
                     sequence = ?clock_seq,
                     sequence_elapsed = elapsed_s,
+                    emitter_shape = ?def.shape,
+                    emitter_flags = format_args!("{:#010x}", def.flags),
                     emitting,
                     authored_rate = rate,
                     effective_rate = rate * density * dist_lod,
                     accumulator = *accumulator,
+                    emission_speed = now.emission_speed,
+                    speed_variation = now.speed_variation,
+                    vertical_range_rad = now.vertical_range,
+                    vertical_range_deg = now.vertical_range.to_degrees(),
+                    horizontal_range_rad = now.horizontal_range,
+                    horizontal_range_deg = now.horizontal_range.to_degrees(),
+                    gravity = now.gravity,
+                    particle_lifespan = now.lifespan,
+                    area_length = now.area_length,
+                    area_width = now.area_width,
+                    z_source = now.z_source,
+                    cone_probe_dirs_wow = ?cone_probe_dirs,
                     live_particles = particles.len(),
                     draining = *draining,
                     gated = *gated,
