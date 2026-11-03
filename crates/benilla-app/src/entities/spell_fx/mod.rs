@@ -382,6 +382,18 @@ pub(crate) fn attach_effect_visuals(
             );
         }
         if diagnostic_spell_id == Some(152_279) {
+            debug!(
+                spell_id = 152_279,
+                emitter_index,
+                bone_index = em.def.bone,
+                skeleton_bone_count = dm.skeleton.joints.len(),
+                bone_resolved = (em.def.bone as usize) < joints.len(),
+                bone_pivot = ?em.bone_pivot,
+                emitter_position = ?em.def.position,
+                emitter_shape = ?em.def.shape,
+                emitter_flags = em.def.flags,
+                "spell fx: Breath of Sindragosa emitter binding"
+            );
             let texture = em.texture.is_some();
             let lifespan = em.def.params.peak_lifespan();
             let rate = em.def.timing.peak_rate();
