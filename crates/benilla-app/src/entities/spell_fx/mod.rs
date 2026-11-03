@@ -377,6 +377,7 @@ pub(crate) fn attach_effect_visuals(
                 particles::ParticleEmitterDiagnostic {
                     spell_id,
                     emitter_index,
+                    last_log_age: -1.0,
                 },
             );
         }
