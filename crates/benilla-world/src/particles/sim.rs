@@ -1190,16 +1190,32 @@ pub(super) fn simulate_particles(
         } else {
             [[0.0; 3]; 4]
         };
-        let (root_forward_bevy, root_up_bevy) = water_gt.map_or(
+        let root_rotation = water_gt.map(|gt| gt.to_scale_rotation_translation().1);
+        let owner_gt = (*owner).and_then(|e| owners.transforms.get(e).ok().copied());
+        let owner_rotation = owner_gt.map(|gt| gt.to_scale_rotation_translation().1);
+        let (root_forward_bevy, root_up_bevy) = root_rotation.map_or(
             ([0.0; 3], [0.0; 3]),
-            |gt| {
-                let (_, rotation, _) = gt.to_scale_rotation_translation();
-                (
-                    (rotation * Vec3::NEG_Z).to_array(),
-                    (rotation * Vec3::Y).to_array(),
-                )
-            },
+            |rotation| (
+                (rotation * Vec3::NEG_Z).to_array(),
+                (rotation * Vec3::Y).to_array(),
+            ),
         );
+        let bone_rotation_relative_to_effect_root = match (root_rotation, owner_rotation) {
+            (Some(root), Some(bone)) => Some(root.inverse() * bone),
+            _ => None,
+        };
+        let emitter_axis_in_effect_root = match root_rotation {
+            Some(root) => Some(
+                (root.inverse()
+                    * if anchored {
+                        emit_place.rotation * (emit_place.scale * Vec3::Y)
+                    } else {
+                        placement.rotation * (placement.scale * Vec3::Y)
+                    })
+                .normalize_or_zero(),
+            ),
+            None => None,
+        };
 
         // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
         // the parent and child draw commits so the counters describe the complete frame result.
@@ -1243,6 +1259,9 @@ pub(super) fn simulate_particles(
                     .to_array(),
                     effect_root_forward_bevy = ?root_forward_bevy,
                     effect_root_up_bevy = ?root_up_bevy,
+                    emitter_owner_rotation_bevy_world = ?owner_rotation,
+                    bone_rotation_relative_to_effect_root = ?bone_rotation_relative_to_effect_root,
+                    emitter_axis_in_effect_root = ?emitter_axis_in_effect_root,
                     live_particles = particles.len(),
                     draining = *draining,
                     gated = *gated,
