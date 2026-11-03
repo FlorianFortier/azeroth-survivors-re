@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use avian3d::prelude::SpatialQuery;
 use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
 use bevy::camera::primitives::{Frustum, Sphere as CullSphere};
@@ -25,6 +27,17 @@ struct StepEnv {
     kill_origin: Option<Vec3>,
     /// The frame's shared follow-delta vector, stored frame (zero when unauthored).
     follow: Vec3,
+}
+
+/// Throttle one emitter's diagnostic output to its first frame and then twice per second.
+fn diagnostic_due(last_log: &mut HashMap<Entity, f32>, entity: Entity, age: f32) -> bool {
+    let last = last_log.entry(entity).or_insert(-1.0);
+    if *last < 0.0 || age - *last >= 0.5 {
+        *last = age;
+        true
+    } else {
+        false
+    }
 }
 
 /// One step of the reference integrator (`0x7b2680`): age and kill; the follow-delta add, skipped
@@ -406,6 +419,7 @@ pub(super) fn simulate_particles(
             Option<&RenderLayers>,
             Option<&EffectLightOverride>,
             Option<&crate::interior::EmitterLitBy>,
+            Option<&super::ParticleEmitterDiagnostic>,
         ),
         Without<WorldCamera>,
     >,
@@ -428,7 +442,12 @@ pub(super) fn simulate_particles(
     // A hosted emitter's sequence: its host's live `AnimationPlayer` slot and clip time.
     hosts: Query<(&AnimationPlayer, &benilla_assets::ModelAnimations)>,
     mut dumps: super::dumps::Dumps,
+    mut diagnostic_log_age: Local<HashMap<Entity, f32>>,
 ) {
+    // Bound stale entries across many short one-shot spell casts.
+    if diagnostic_log_age.len() > 1024 {
+        diagnostic_log_age.clear();
+    }
     let Ok((world_cam, cam_tf, frustum, camera, projection, cam_local)) = cam.single() else {
         return;
     };
@@ -465,6 +484,7 @@ pub(super) fn simulate_particles(
         layers,
         light_override,
         lit_by,
+        diagnostic,
     ) in &mut emitters
     {
         // The camera the quads face, the LOD measures from and the draw targets: a booth-layered
@@ -479,6 +499,21 @@ pub(super) fn simulate_particles(
             emitter.frozen,
             emitter.draining,
         ) {
+            if let Some(diag) = diagnostic.filter(|_| {
+                diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+            }) {
+                debug!(
+                    spell_id = diag.spell_id,
+                    emitter_index = diag.emitter_index,
+                    emitter_age = emitter.age,
+                    live_particles = emitter.particles.len(),
+                    frozen = emitter.frozen,
+                    draining = emitter.draining,
+                    gated = true,
+                    reason = "scene_frozen",
+                    "spell fx: particle pipeline skipped"
+                );
+            }
             if !emitter.gated {
                 emitter.gated = true;
                 for slot in &emitter.model_instances {
@@ -528,6 +563,21 @@ pub(super) fn simulate_particles(
                 gates.room_admits(f),
             );
             if !in_set {
+                if let Some(diag) = diagnostic.filter(|_| {
+                    diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+                }) {
+                    debug!(
+                        spell_id = diag.spell_id,
+                        emitter_index = diag.emitter_index,
+                        emitter_age = emitter.age,
+                        live_particles = emitter.particles.len(),
+                        frozen = false,
+                        draining = emitter.draining,
+                        gated = true,
+                        reason = "outside_emitter_draw_set",
+                        "spell fx: particle pipeline skipped"
+                    );
+                }
                 // Frozen: nothing pushed is nothing drawn; model instances hide once.
                 if !emitter.gated {
                     emitter.gated = true;
@@ -558,6 +608,22 @@ pub(super) fn simulate_particles(
             if let Some(at) = subject {
                 if owner_hidden || !crate::view::within_farclip(farclip, cam_pos, cam_fwd, at, 0.0)
                 {
+                    if let Some(diag) = diagnostic.filter(|_| {
+                        diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+                    }) {
+                        debug!(
+                            spell_id = diag.spell_id,
+                            emitter_index = diag.emitter_index,
+                            emitter_age = emitter.age,
+                            live_particles = emitter.particles.len(),
+                            owner_hidden,
+                            frozen = false,
+                            draining = emitter.draining,
+                            gated = true,
+                            reason = "owner_hidden_or_past_farclip",
+                            "spell fx: particle pipeline skipped"
+                        );
+                    }
                     if !emitter.gated {
                         emitter.gated = true;
                         for slot in &emitter.model_instances {
@@ -603,7 +669,7 @@ pub(super) fn simulate_particles(
             children,
             geometry: _,
             model_instances,
-            gated: _,
+            gated,
             frozen: _,
             clip,
         } = &mut *emitter;
@@ -994,6 +1060,8 @@ pub(super) fn simulate_particles(
             } else {
                 0.0
             };
+        let vertices_before = quads.verts.len();
+        let draws_before = quads.draws.len();
         let start = quads.begin();
         if want_quads && !particles.is_empty() {
             expand_quads(def, particles, &frame, placement, &cam, &mut quads.verts);
@@ -1101,6 +1169,33 @@ pub(super) fn simulate_particles(
                     clip: *clip,
                 },
             );
+        }
+
+        // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
+        // the parent and child draw commits so the counters describe the complete frame result.
+        if let Some(diag) = diagnostic.filter(|_| {
+            diagnostic_due(&mut diagnostic_log_age, entity, *age)
+        }) {
+                debug!(
+                    spell_id = diag.spell_id,
+                    emitter_index = diag.emitter_index,
+                    entity = ?entity,
+                    emitter_age = *age,
+                    sequence = ?clock_seq,
+                    sequence_elapsed = elapsed_s,
+                    emitting,
+                    authored_rate = rate,
+                    effective_rate = rate * density * dist_lod,
+                    accumulator = *accumulator,
+                    live_particles = particles.len(),
+                    draining = *draining,
+                    gated = *gated,
+                    texture_loaded = images.contains(&*texture),
+                    quad_path_enabled = want_quads,
+                    vertices_written = quads.verts.len() - vertices_before,
+                    draws_committed = quads.draws.len() - draws_before,
+                    "spell fx: particle pipeline"
+                );
         }
     }
 }
