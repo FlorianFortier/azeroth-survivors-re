@@ -206,7 +206,6 @@ pub enum OwnerLoss {
     Drain,
 }
 
-/// The live entities an emitter rides, named so a call site cannot swap them.
 /// Diagnostic identity for a single spell-effect particle emitter.
 /// Present only on explicitly instrumented effects; it has no simulation or rendering behavior.
 #[derive(Component, Clone, Copy, Debug)]
@@ -215,6 +214,7 @@ pub struct ParticleEmitterDiagnostic {
     pub emitter_index: usize,
 }
 
+/// The live entities an emitter rides, named so a call site cannot swap them.
 #[derive(Clone, Copy, Default)]
 pub struct EmitterFrames {
     /// The entity whose live transform is the placement: `(entity, [0; 3])` for a whole model,
