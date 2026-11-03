@@ -939,6 +939,19 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             visual: 120
         }
     ),
+    // Frost's Legion capstone: a broad frontal breath with a lingering damage-over-time.
+    // Its custom Legion M2 visuals are emitted by units::Fx when SpellID 152279 is cast.
+    ability!(
+        "breath_of_sindragosa",
+        152279,
+        Cone {
+            damage: 24.0,
+            dot: 7.0,
+            cooldown: 14.0,
+            radius: 16.0,
+            duration: 3.5
+        }
+    ),
     ability!(
         "death_coil_dk",
         47541,
@@ -2100,6 +2113,7 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "obliterate",
             "frost_strike",
             "howling_blast",
+            "breath_of_sindragosa",
             "death_coil_dk",
             "remorseless_winter",
             "outbreak",
@@ -5985,6 +5999,7 @@ mod tests {
             (17_877, "shadowburn"),
             (115_098, "chi_wave"),
             (116_847, "rushing_jade_wind"),
+            (152_279, "breath_of_sindragosa"),
             (211_053, "fel_barrage"),
         ];
 
@@ -5998,6 +6013,18 @@ mod tests {
         // Consecration is only a normalized-name candidate in the audit, not an exact match.
         assert!(ability_for_spell_id(202_297).is_none());
         assert!(ability_for_spell_id(0).is_none());
+    }
+
+    #[test]
+    fn breath_of_sindragosa_is_a_frost_cone_with_a_lingering_dot() {
+        let breath = ability_for_spell_id(152_279).expect("Breath of Sindragosa mapping");
+        assert_eq!(breath.key, "breath_of_sindragosa");
+        assert_eq!(breath.kind, Kind::Cone);
+        assert_eq!(breath.visual(), 152_279);
+        assert!(breath.damage > 0.0);
+        assert!(breath.dot > 0.0);
+        assert!(breath.duration > 0.0);
+        assert!(breath.cooldown > breath.duration);
     }
 
     #[test]
