@@ -438,6 +438,12 @@ impl Fx<'_> {
     /// `SMSG_SPELL_GO`: the cast kit on the caster, and a missile or an impact at each hit.
     pub fn cast(&mut self, caster: Entity, spell: u32, hits: &[Entity], dest: Option<Vec3>) {
         if spell == 152_279 {
+            debug!(
+                caster = ?caster,
+                spell_id = spell,
+                hits = hits.len(),
+                "survivors: Breath of Sindragosa cast; emitting Legion SpellFx"
+            );
             self.legion_spell_fx.write(SpellKitFx::Begin {
                 entity: caster,
                 spell_id: spell,
