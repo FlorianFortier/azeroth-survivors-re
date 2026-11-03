@@ -19,13 +19,14 @@ mod shakecensus;
 mod spellvis;
 mod thudcensus;
 
-/// Read WoW 1.12.1 asset archives (MPQ).
+/// Inspect Vanilla MPQ archives and standalone Legion M2 files.
 #[derive(Parser)]
 #[command(
     name = "benilla-extract",
     version,
     about,
-    allow_negative_numbers = true
+    allow_negative_numbers = true,
+    subcommand_precedence_over_arg = true
 )]
 struct Cli {
     /// A single `.MPQ` file, or a vanilla `Data` directory (opens the full patch chain).
