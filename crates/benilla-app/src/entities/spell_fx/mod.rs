@@ -166,6 +166,7 @@ pub(crate) fn attach_effect_visuals(
     ground_anchor: bool,
     host: EffectHost,
     stage: Option<FxStage>,
+    diagnostic_spell_id: Option<u32>,
     mats: &mut FxMaterials,
     ibps: &Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
     palettes: &mut benilla_world::rig_palette::RigPalettes,
@@ -351,31 +352,56 @@ pub(crate) fn attach_effect_visuals(
             commands.entity(decal).insert(mat_anim);
         }
     }
-    for em in &dm.emitters {
+    for (emitter_index, em) in dm.emitters.iter().enumerate() {
         let owner = joints
             .get(em.def.bone as usize)
             .map_or((root, [0.0; 3]), |&j| (j, em.bone_pivot));
-        particles::spawn_emitter(
+        let spawned = particles::spawn_emitter(
             commands,
             em,
             Transform::IDENTITY,
             particles::EmitterFrames {
                 owner: Some(owner),
-                // The cloud sorts at the instance root; the bone only places births.
                 anchor: Some(root),
                 on_owner_loss,
-                // The particles' model is this instance, whose chain carries the host's fade.
                 alpha: Some(root),
-                // Every `Spells\` emitter sets the unlit bit; a lit one would take the scene light.
                 light_node: None,
             },
-            // Rate and enable windows follow the current sequence, as the animate kernel `0x714260`
-            // samples it; global sequences run on the instance's own age.
             match seq_host {
                 Some(h) => particles::EmitClock::Host(h),
                 None => particles::EmitClock::Effect(played_seq),
             },
         );
+        if diagnostic_spell_id == Some(152_279) {
+            let texture = em.texture.is_some();
+            let lifespan = em.def.params.peak_lifespan();
+            let rate = em.def.timing.peak_rate();
+            let reason = if std::env::var_os("WOW_NO_PARTICLES").is_some() {
+                "WOW_NO_PARTICLES is set"
+            } else if !texture && em.geometry.is_none() {
+                "emitter texture is unresolved"
+            } else if lifespan <= 0.0 {
+                "emitter has no positive lifespan"
+            } else if rate <= 0.0 {
+                "emitter has no positive peak rate"
+            } else if spawned.is_none() {
+                "spawn_emitter rejected the emitter for another reason"
+            } else {
+                "spawned"
+            };
+            debug!(
+                spell_id = 152_279,
+                emitter_index,
+                texture_loaded = texture,
+                peak_lifespan = lifespan,
+                peak_rate = rate,
+                geometry_model = em.geometry.is_some(),
+                recursion_model = em.recursion.is_some(),
+                spawned = spawned.is_some(),
+                reason,
+                "spell fx: Breath of Sindragosa particle emitter"
+            );
+        }
     }
     for rb in &dm.ribbons {
         let (owner, use_pivot) = joints
@@ -880,6 +906,7 @@ pub(super) fn attach_spell_fx(
                 EffectHost { parent: Some(unit) },
                 // A kit effect is a `CEffect`: it runs the stage's lifecycle.
                 Some(inst.stage),
+                Some(inst.spell_id),
                 &mut FxMaterials {
                     store: &mut wow_materials,
                     tint: &mut tint_reg,
