@@ -8,7 +8,10 @@ use bevy::prelude::*;
 use super::data::Weapon;
 use super::RunEntity;
 use crate::combat_text::CombatTextSpawn;
-use crate::creature_anim::{CastEvent, CastEventKind, PlaySeq, SpellGoTargets, SwingMessage};
+use crate::creature_anim::{
+    CastEvent, CastEventKind, FxClass, FxStage, PlaySeq, SpellGoTargets, SpellKitFx, SwingMessage,
+};
+use crate::creature_anim::spell_visual::FxSlot;
 use crate::net::{FieldChanged, Guid, NetEntity, ObjectStore};
 
 const FIELD_HEALTH: u16 = 22;
@@ -424,6 +427,7 @@ pub(super) struct Fx<'w> {
     swings: MessageWriter<'w, SwingMessage>,
     text: MessageWriter<'w, CombatTextSpawn>,
     struck: MessageWriter<'w, super::feel::Struck>,
+    legion_spell_fx: MessageWriter<'w, SpellKitFx>,
     log: Option<ResMut<'w, FxLog>>,
 }
 
@@ -433,6 +437,27 @@ const MAX_VISUAL_HITS: usize = 12;
 impl Fx<'_> {
     /// `SMSG_SPELL_GO`: the cast kit on the caster, and a missile or an impact at each hit.
     pub fn cast(&mut self, caster: Entity, spell: u32, hits: &[Entity], dest: Option<Vec3>) {
+        if spell == 152_279 {
+            self.legion_spell_fx.write(SpellKitFx::Begin {
+                entity: caster,
+                spell_id: spell,
+                persistent: false,
+                class: FxClass::Hold,
+                stage: FxStage::OneShot,
+                effects: vec![
+                    FxSlot {
+                        tag: 34,
+                        effect: 19_257,
+                        path: "Legion\\948165.m2".to_string(),
+                    },
+                    FxSlot {
+                        tag: 34,
+                        effect: 19_258,
+                        path: "Legion\\948167.m2".to_string(),
+                    },
+                ],
+            });
+        }
         if let Some(log) = self.log.as_deref_mut() {
             log.0.push(FxEvent::Cast {
                 caster,
