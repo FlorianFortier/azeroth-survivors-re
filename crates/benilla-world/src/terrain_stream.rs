@@ -712,6 +712,13 @@ fn stream_terrain(
                 shadow_array: adt.shadow_array.clone(),
                 params: Vec4::new(benilla_formats::TERRAIN_LAYER_TILES, 0.0, 0.0, 0.0),
                 light_buf: shared_light.0.clone(),
+                // Legion's ground, native only; its lane off on a 1.12.1 tile.
+                #[cfg(not(target_arch = "wasm32"))]
+                legion_heights: adt.legion.heights.clone(),
+                #[cfg(not(target_arch = "wasm32"))]
+                legion_colours: adt.legion.colours.clone(),
+                #[cfg(not(target_arch = "wasm32"))]
+                legion: adt.legion.params.clone(),
             },
         });
         // One static trimesh per tile from the drawn chunks, built off-thread, riding the root.

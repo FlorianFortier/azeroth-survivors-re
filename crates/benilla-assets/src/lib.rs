@@ -35,6 +35,9 @@ pub use model::{
     ATTRIBUTE_WOW_JOINT_WEIGHT, ATTRIBUTE_WOW_MERGED_SLOT,
 };
 mod adt;
+// Legion's ground, native only (`benilla-legion` writes it): our own.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod legion_terrain;
 mod terrain;
 mod wdt;
 pub use adt::{chunk_to_mesh, chunks_to_mesh, AdtLoader, AdtTile, ChunkShading};

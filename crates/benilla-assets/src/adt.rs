@@ -40,6 +40,9 @@ pub struct AdtTile {
     /// The decoded MCNK chunks, kept resident: the app derives the collider, the MCLQ liquids and
     /// the ground clutter from them.
     pub chunks: Vec<ChunkMesh>,
+    /// Legion's ground on a tile `benilla-legion` wrote; its lane off on a 1.12.1 tile.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub legion: crate::legion_terrain::LegionTile,
 }
 
 /// One drawn chunk's array indices, uniform over its vertices.
@@ -144,6 +147,11 @@ impl AssetLoader for AdtLoader {
         reader.read_to_end(&mut bytes).await?;
         let to_io = |e: anyhow::Error| std::io::Error::other(format!("{e:#}"));
         let tile = adt_to_tile_mesh(&bytes).map_err(to_io)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let legion = crate::legion_terrain::read(&bytes);
+        // Each drawn chunk's alpha index and place, for its Legion vertex colours.
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut legion_slots: Vec<(u32, u32, u32)> = Vec::new();
 
         // Layer array: a solid-green fallback at index 0, then each unique layer texture, packed
         // once the whole tile is read.
@@ -182,7 +190,13 @@ impl AssetLoader for AdtLoader {
                 li[slot] = li[0];
             }
 
-            let ai = match &chunk.alpha_map {
+            let alpha_map = chunk.alpha_map.as_deref();
+            // A Legion chunk of one layer takes an empty map: its own slot, for its colours.
+            #[cfg(not(target_arch = "wasm32"))]
+            let alpha_map = alpha_map.or(legion
+                .as_ref()
+                .map(|_| &crate::legion_terrain::NO_ALPHA[..]));
+            let ai = match alpha_map {
                 Some(rgba) => {
                     alpha_buf.extend_from_slice(rgba);
                     alpha_count += 1;
@@ -198,6 +212,8 @@ impl AssetLoader for AdtLoader {
                 }
                 None => -1.0,
             };
+            #[cfg(not(target_arch = "wasm32"))]
+            legion_slots.push((ai, chunk.index_x, chunk.index_y));
             shading.push(ChunkShading {
                 layers: li,
                 alpha: ai,
@@ -225,6 +241,23 @@ impl AssetLoader for AdtLoader {
             packed.data.len() >> 10
         );
         let layer_array = layer_array_image(LAYER_TEX_SIZE, layer_count, packed);
+        #[cfg(not(target_arch = "wasm32"))]
+        let legion = {
+            // The layer array's entries in their order, entry 0 the fallback's.
+            let mut keys: Vec<(u32, String)> =
+                layer_index.iter().map(|(k, &i)| (i, k.clone())).collect();
+            keys.sort();
+            let keys: Vec<String> = keys.into_iter().map(|(_, k)| k).collect();
+            crate::legion_terrain::build(
+                ctx,
+                legion.as_ref(),
+                &keys,
+                &legion_slots,
+                alpha_count,
+                normalize_path,
+            )
+            .await
+        };
         let alpha_array = alpha_array_image(ALPHA_MAP_SIZE, alpha_count, alpha_buf);
         let shadow_array = shadow_array_image(SHADOW_MAP_SIZE, shadow_count, shadow_buf);
 
@@ -236,6 +269,8 @@ impl AssetLoader for AdtLoader {
             doodads: tile.doodads,
             wmos: tile.wmos,
             chunks: tile.chunks,
+            #[cfg(not(target_arch = "wasm32"))]
+            legion,
         })
     }
 

@@ -2,8 +2,13 @@
 //! normals, `_tex0`'s textures, layers, alpha and shadow, `_obj0`'s doodads) written back as one
 //! monolithic 1.12.1 ADT, the form the client's terrain reader takes.
 //!
-//! What 1.12.1 has no room for is left out: the vertex colours (`MCCV`), the texture scales and
-//! height textures (`MAMP`, `MTXP`), the far doodads (`_obj1`), the level of detail (`_lod`). The
+//! What Legion's ground adds rides along where 1.12.1's reader looks past it: the texture scales
+//! and height parameters (`MTXP`, as Legion's, one per `MTEX` name), the height textures' names
+//! ([`HEIGHT_NAMES`], `Legion\<file data id>.blp` or empty, one per `MTEX` name), each chunk's
+//! vertex colours (`MCCV`, at the header's `+0x74` as Wrath places it). A ground texture with a
+//! specular variant (`_s`, its mask in alpha) is named by it, under the library's `spec/` folder.
+//! What 1.12.1's client has no room for is left out: the far doodads (`_obj1`), the level of
+//! detail (`_lod`), `MAMP`. The
 //! alpha is decoded whatever its form (Legion's big alpha, 8-bit, raw or run-length) and written
 //! run-length, which the 1.12.1 reader takes in either alpha mode; a high-resolution hole map
 //! becomes the 4×4 one (a block open where any of its four cells is). Each chunk's first liquid
@@ -343,6 +348,9 @@ impl<F: Fn(&str) -> Option<u32>> Resolve for F {
 /// A 1.12.1 texture for one the install lacks.
 const MISSING_TEXTURE: &str = "Tileset\\Generic\\Black.blp";
 
+/// The chunk naming each ground texture's height texture (`_h`, its height in alpha).
+pub const HEIGHT_NAMES: [u8; 4] = *b"MHTX";
+
 /// The NUL-separated names of a string table, by their offsets.
 fn names(blob: &[u8]) -> Vec<(u32, String)> {
     let mut out = Vec::new();
@@ -374,15 +382,25 @@ pub fn adt(
     let tex_chunks = chunks(tex0);
     let obj_chunks = obj0.map(chunks).unwrap_or_default();
 
-    // Textures, in MTEX order so the layers' indices hold.
-    let mtex: Vec<String> = find(&tex_chunks, b"MTEX")
-        .map(names)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(_, n)| match resolve.file_id(&n) {
-            Some(id) => format!("Legion\\{id}.blp"),
-            None => MISSING_TEXTURE.to_string(),
+    // Textures, in MTEX order so the layers' indices hold: by the specular variant where there is
+    // one, each with its height texture.
+    let names_in = find(&tex_chunks, b"MTEX").map(names).unwrap_or_default();
+    let variant = |n: &str, suffix: &str| {
+        n.strip_suffix(".blp")
+            .or_else(|| n.strip_suffix(".BLP"))
+            .and_then(|stem| resolve.file_id(&format!("{stem}{suffix}.blp")))
+    };
+    let mtex: Vec<String> = names_in
+        .iter()
+        .map(|(_, n)| match (variant(n, "_s"), resolve.file_id(n)) {
+            (Some(s), _) => format!("Legion\\spec\\{s}.blp"),
+            (None, Some(id)) => format!("Legion\\{id}.blp"),
+            (None, None) => MISSING_TEXTURE.to_string(),
         })
+        .collect();
+    let heights: Vec<String> = names_in
+        .iter()
+        .map(|(_, n)| variant(n, "_h").map_or_else(String::new, |h| format!("Legion\\{h}.blp")))
         .collect();
 
     // Models: each placement's name through MMID; a model the install lacks drops its
@@ -479,6 +497,15 @@ pub fn adt(
         blob.push(0);
     }
     put(&mut out, b"MTEX", &blob);
+    if let Some(mtxp) = find(&tex_chunks, b"MTXP") {
+        put(&mut out, b"MTXP", mtxp);
+    }
+    let mut blob = Vec::new();
+    for h in &heights {
+        blob.extend_from_slice(h.as_bytes());
+        blob.push(0);
+    }
+    put(&mut out, &HEIGHT_NAMES, &blob);
     let (mut blob, mut ids) = (Vec::new(), Vec::new());
     for m in &models {
         ids.extend_from_slice(&(blob.len() as u32).to_le_bytes());
@@ -554,6 +581,7 @@ fn mcnk(
     let flags = u32_at(header, 0);
     let sub = chunks(&root[128..]);
     let heights = find(&sub, b"MCVT").unwrap_or(&[]);
+    let colours = find(&sub, b"MCCV").filter(|c| c.len() >= 145 * 4);
     let mut normals = find(&sub, b"MCNR").unwrap_or(&[]).to_vec();
     normals.resize(448, 0);
     let tex_sub = chunks(tex);
@@ -615,6 +643,7 @@ fn mcnk(
         None => (0, 0),
     };
     let ofs_sound = at(b"MCSE", &[], &mut body);
+    let ofs_colour = colours.map_or(0, |c| at(b"MCCV", c, &mut body));
     let (liquid_bit, ofs_liquid, size_liquid) = match &liquid {
         Some((bit, block)) => (*bit, at(b"MCLQ", block, &mut body), block.len() as u32),
         None => (0, 0, 0),
@@ -645,6 +674,8 @@ fn mcnk(
     set(0x64, size_liquid);
     // The chunk's corner, as Legion's.
     h[0x68..0x74].copy_from_slice(&header[0x68..0x74]);
+    // Its vertex colours where Wrath's header points at them; 1.12.1's leaves this word 0.
+    h[0x74..0x78].copy_from_slice(&ofs_colour.to_le_bytes());
 
     let mut out = Vec::new();
     let mut data = h.to_vec();

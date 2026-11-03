@@ -722,6 +722,7 @@ dependencies = [
  "benilla-m2",
  "benilla-wdt",
  "image",
+ "naga",
 ]
 
 [[package]]

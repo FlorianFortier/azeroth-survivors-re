@@ -28,6 +28,58 @@ struct TerrainParams {
 };
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> t: TerrainParams;
 
+#ifdef LEGION_TERRAIN
+// legion-ground-begin
+// Legion's ground on a tile `benilla-legion` wrote (`legion_terrain.rs`), native only: each layer
+// at its own scale, the layers blended by height where they meet, the chunk's vertex colours.
+@group(#{MATERIAL_BIND_GROUP}) @binding(111) var legion_heights: texture_2d_array<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(112) var legion_colours: texture_2d_array<f32>;
+// `flags.x` 1 on a Legion tile; per layer-array entry its scale (x, the texture's span in
+// 1.12.1's repeats), height scale (y) and offset (z).
+struct LegionGround {
+    flags: vec4<f32>,
+    layers: array<vec4<f32>, 64>,
+};
+@group(#{MATERIAL_BIND_GROUP}) @binding(113) var<uniform> legion: LegionGround;
+
+struct LegionLayer {
+    colour: vec4<f32>,
+    height: f32,
+};
+
+// One layer: its texture at its own scale, and its height there (its `_h` texture's alpha, scaled
+// and offset as its `MTXP` says).
+fn legion_layer(uv: vec2<f32>, tiles: f32, layer: i32, bias: f32) -> LegionLayer {
+    let p = legion.layers[clamp(layer, 0, 63)];
+    let tuv = uv * tiles / max(p.x, 1.0);
+    var out: LegionLayer;
+    out.colour = textureSampleBias(layer_array, splat_samp, tuv, layer, bias);
+    out.height = textureSampleBias(legion_heights, splat_samp, tuv, layer, bias).a * p.y + p.z;
+    return out;
+}
+
+// The ground's colour (rgb) and sheen mask (a): Legion's weights (layer 0 what the others leave),
+// each lifted by its height so the highest shows where layers meet, then the chunk's vertex
+// colours, 127 for one.
+fn legion_ground(uv: vec2<f32>, tiles: f32, li: vec4<i32>, a: vec4<f32>, ai: i32, bias: f32) -> vec4<f32> {
+    let l0 = legion_layer(uv, tiles, li.x, bias);
+    let l1 = legion_layer(uv, tiles, li.y, bias);
+    let l2 = legion_layer(uv, tiles, li.z, bias);
+    let l3 = legion_layer(uv, tiles, li.w, bias);
+    let w = vec4<f32>(1.0 - clamp(a.r + a.g + a.b, 0.0, 1.0), a.r, a.g, a.b);
+    let wh = w * vec4<f32>(l0.height, l1.height, l2.height, l3.height);
+    let top = max(max(wh.x, wh.y), max(wh.z, wh.w));
+    let lift = (vec4<f32>(1.0) - clamp(vec4<f32>(top) - wh, vec4<f32>(0.0), vec4<f32>(1.0))) * w;
+    let n = lift / max(dot(lift, vec4<f32>(1.0)), 0.0001);
+    let c = l0.colour * n.x + l1.colour * n.y + l2.colour * n.z + l3.colour * n.w;
+    // The 17×17 grid's texel centres sit on the chunk's vertices.
+    let cuv = (uv * 16.0 + vec2<f32>(0.5)) / 17.0;
+    let vc = textureSampleLevel(legion_colours, splat_samp, cuv, ai, 0.0).rgb * 2.0;
+    return vec4<f32>(clamp(c.rgb * vc, vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
+}
+// legion-ground-end
+#endif
+
 // The shared global light (`lighting::global_light`), updated in place once a frame; this mirrors
 // its row layout, which must match.
 struct WowLight {
@@ -204,6 +256,16 @@ fn fragment(in: TerrainVsOut) -> @location(0) vec4<f32> {
     specmask = mix(specmask, s1.a, a.r);
     specmask = mix(specmask, s2.a, a.g);
     specmask = mix(specmask, s3.a, a.b);
+
+#ifdef LEGION_TERRAIN
+    // A Legion tile's ground takes Legion's blend over 1.12.1's (`legion.flags` is per tile, so
+    // the branch is uniform and its samples keep their derivatives).
+    if (legion.flags.x > 0.5) {
+        let ground = legion_ground(in.uv, t.params.x, li, a, ai, view.mip_bias);
+        color = ground.rgb;
+        specmask = ground.a;
+    }
+#endif
 
     let primary = in.primary;
 

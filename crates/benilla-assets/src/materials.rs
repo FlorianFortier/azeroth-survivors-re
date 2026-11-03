@@ -413,6 +413,20 @@ pub struct TerrainExtension {
     /// The shared global light, rows 0-5 (light, fog, farclip).
     #[storage(90, read_only, buffer)]
     pub light_buf: Buffer,
+
+    // Legion's ground (`crate::legion_terrain`), native only: the `LEGION_TERRAIN` lane.
+    /// The ground textures' height textures, in the layer array's order.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[texture(111, dimension = "2d_array", visibility(fragment))]
+    pub legion_heights: Handle<Image>,
+    /// Each chunk's vertex colours, at its alpha index.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[texture(112, dimension = "2d_array", visibility(fragment))]
+    pub legion_colours: Handle<Image>,
+    /// The lane's switch and its per-layer scales and height blend.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[uniform(113)]
+    pub legion: crate::legion_terrain::LegionTerrainParams,
 }
 
 impl MaterialExtension for TerrainExtension {
@@ -422,6 +436,20 @@ impl MaterialExtension for TerrainExtension {
     }
     fn fragment_shader() -> ShaderRef {
         "embedded://benilla_assets/shaders/terrain.wgsl".into()
+    }
+
+    /// Legion's ground lane, native only; a 1.12.1 tile keeps it off by its table.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("LEGION_TERRAIN".into());
+        }
+        Ok(())
     }
 }
 
