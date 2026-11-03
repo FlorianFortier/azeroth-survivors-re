@@ -394,6 +394,37 @@ pub(crate) fn attach_effect_visuals(
                 emitter_flags = em.def.flags,
                 "spell fx: Breath of Sindragosa emitter binding"
             );
+            if let Some(anims) = dm.animations.as_ref() {
+                for (clip_index, clip) in anims.clips.iter().enumerate() {
+                    let pose_bone = anims
+                        .pose
+                        .clips
+                        .get(clip_index)
+                        .and_then(|pose| pose.bones.iter().find(|bone| bone.bone == em.def.bone));
+                    let quarter_time = clip.duration * 0.25;
+                    let half_time = clip.duration * 0.5;
+                    debug!(
+                        spell_id = 152_279,
+                        emitter_index,
+                        bone_index = em.def.bone,
+                        clip_index,
+                        anim_id = clip.anim_id,
+                        seq_index = clip.seq_index,
+                        clip_duration = clip.duration,
+                        poses_bones = clip.poses_bones,
+                        pose_bone_present = pose_bone.is_some(),
+                        translation_track = pose_bone.is_some_and(|bone| !bone.translation.is_empty()),
+                        rotation_track = pose_bone.is_some_and(|bone| !bone.rotation.is_empty()),
+                        scale_track = pose_bone.is_some_and(|bone| !bone.scale.is_empty()),
+                        rotation_t0 = ?pose_bone.and_then(|bone| bone.rotation.sample(0.0)),
+                        rotation_t25 = ?pose_bone.and_then(|bone| bone.rotation.sample(quarter_time)),
+                        rotation_t50 = ?pose_bone.and_then(|bone| bone.rotation.sample(half_time)),
+                        translation_t0 = ?pose_bone.and_then(|bone| bone.translation.sample(0.0)),
+                        translation_t25 = ?pose_bone.and_then(|bone| bone.translation.sample(quarter_time)),
+                        "spell fx: Breath of Sindragosa bone animation"
+                    );
+                }
+            }
             let texture = em.texture.is_some();
             let lifespan = em.def.params.peak_lifespan();
             let rate = em.def.timing.peak_rate();
