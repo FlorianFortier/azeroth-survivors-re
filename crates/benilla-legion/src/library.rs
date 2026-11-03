@@ -667,8 +667,8 @@ fn liquid_kinds<S: Source>(casc: &Casc<S>, dir: &Path) -> Result<HashMap<u16, (u
 }
 
 /// The races whose body texture layout [`Library::open`] checks: Legion's playable races past
-/// 1.12.1's and the Burning Crusade's.
-const WIDE_RACES: [u8; 5] = [9, 22, 24, 25, 26];
+/// 1.12.1's and the Burning Crusade's, and those in their HD body ([`crate::races::HD_RACES`]).
+const WIDE_RACES: [u8; 6] = [9, 10, 22, 24, 25, 26];
 
 /// A DB2 table from the install, typed by its definition in `dir`.
 pub fn table<S: Source>(casc: &Casc<S>, dir: &Path, name: &str) -> Result<Table> {
