@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use avian3d::prelude::SpatialQuery;
 use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
 use bevy::camera::primitives::{Frustum, Sphere as CullSphere};
@@ -406,6 +408,7 @@ pub(super) fn simulate_particles(
             Option<&RenderLayers>,
             Option<&EffectLightOverride>,
             Option<&crate::interior::EmitterLitBy>,
+            Option<&super::ParticleEmitterDiagnostic>,
         ),
         Without<WorldCamera>,
     >,
@@ -428,6 +431,7 @@ pub(super) fn simulate_particles(
     // A hosted emitter's sequence: its host's live `AnimationPlayer` slot and clip time.
     hosts: Query<(&AnimationPlayer, &benilla_assets::ModelAnimations)>,
     mut dumps: super::dumps::Dumps,
+    mut diagnostic_log_age: Local<HashMap<Entity, f32>>,
 ) {
     let Ok((world_cam, cam_tf, frustum, camera, projection, cam_local)) = cam.single() else {
         return;
@@ -465,6 +469,7 @@ pub(super) fn simulate_particles(
         layers,
         light_override,
         lit_by,
+        diagnostic,
     ) in &mut emitters
     {
         // The camera the quads face, the LOD measures from and the draw targets: a booth-layered
@@ -603,7 +608,7 @@ pub(super) fn simulate_particles(
             children,
             geometry: _,
             model_instances,
-            gated: _,
+            gated,
             frozen: _,
             clip,
         } = &mut *emitter;
@@ -994,6 +999,8 @@ pub(super) fn simulate_particles(
             } else {
                 0.0
             };
+        let vertices_before = quads.verts.len();
+        let draws_before = quads.draws.len();
         let start = quads.begin();
         if want_quads && !particles.is_empty() {
             expand_quads(def, particles, &frame, placement, &cam, &mut quads.verts);
@@ -1101,6 +1108,42 @@ pub(super) fn simulate_particles(
                     clip: *clip,
                 },
             );
+        }
+
+        // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
+        // the parent and child draw commits so the counters describe the complete frame result.
+        if let Some(diag) = diagnostic {
+            let should_log = {
+                let last = diagnostic_log_age.entry(entity).or_insert(-1.0);
+                if *age - *last >= 0.5 || *last < 0.0 {
+                    *last = *age;
+                    true
+                } else {
+                    false
+                }
+            };
+            if should_log {
+                debug!(
+                    spell_id = diag.spell_id,
+                    emitter_index = diag.emitter_index,
+                    entity = ?entity,
+                    emitter_age = *age,
+                    sequence = ?clock_seq,
+                    sequence_elapsed = elapsed_s,
+                    emitting,
+                    authored_rate = rate,
+                    effective_rate = rate * density * dist_lod,
+                    accumulator = *accumulator,
+                    live_particles = particles.len(),
+                    draining = *draining,
+                    gated = *gated,
+                    texture_loaded = images.contains(&*texture),
+                    quad_path_enabled = want_quads,
+                    vertices_written = quads.verts.len() - vertices_before,
+                    draws_committed = quads.draws.len() - draws_before,
+                    "spell fx: particle pipeline"
+                );
+            }
         }
     }
 }
