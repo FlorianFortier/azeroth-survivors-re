@@ -212,6 +212,8 @@ pub enum OwnerLoss {
 pub struct ParticleEmitterDiagnostic {
     pub spell_id: u32,
     pub emitter_index: usize,
+    /// Simulation age at the last diagnostic record; -1 means not logged yet.
+    pub last_log_age: f32,
 }
 
 /// The live entities an emitter rides, named so a call site cannot swap them.
