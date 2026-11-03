@@ -1177,11 +1177,15 @@ pub(super) fn simulate_particles(
         let cone_probe_dirs_bevy = if diagnostic.as_deref().is_some_and(|d| d.spell_id == 152_279) {
             cone_probe_dirs.map(|dir| {
                 let dir = wow_to_bevy(dir);
-                if anchored {
-                    (emit_place.rotation * (emit_place.scale * dir)).normalize_or_zero().to_array()
+                let world_dir = if anchored {
+                    // World-mode births bake the live emitter matrix at spawn time.
+                    emit_place.rotation * (emit_place.scale * dir)
                 } else {
-                    dir.normalize_or_zero().to_array()
-                }
+                    // Model-space births stay local; expand_quads applies the live placement
+                    // matrix when drawing them.
+                    placement.rotation * (placement.scale * dir)
+                };
+                world_dir.normalize_or_zero().to_array()
             })
         } else {
             [[0.0; 3]; 4]
@@ -1229,8 +1233,14 @@ pub(super) fn simulate_particles(
                     cone_probe_dirs_bevy_world = ?cone_probe_dirs_bevy,
                     emitter_bone_index = def.bone,
                     emitter_owner = ?owner,
-                    emitter_position_world = ?emitter_world,
-                    emitter_axis_bevy_world = ?(emit_place.rotation * (emit_place.scale * Vec3::Y)).normalize_or_zero().to_array(),
+                    emitter_origin_stored_frame = ?emitter_world,
+                    emitter_axis_bevy_world = ?(if anchored {
+                        emit_place.rotation * (emit_place.scale * Vec3::Y)
+                    } else {
+                        placement.rotation * (placement.scale * Vec3::Y)
+                    })
+                    .normalize_or_zero()
+                    .to_array(),
                     effect_root_forward_bevy = ?root_forward_bevy,
                     effect_root_up_bevy = ?root_up_bevy,
                     live_particles = particles.len(),
