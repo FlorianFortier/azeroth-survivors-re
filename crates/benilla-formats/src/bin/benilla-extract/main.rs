@@ -717,6 +717,7 @@ fn main() -> Result<()> {
         Command::M2attach { internal_path } => m2dump::m2attach(&mut chain, &internal_path)?,
         Command::M2anim { internal_path } => m2dump::m2anim(&mut chain, &internal_path)?,
         Command::M2bones { internal_path } => m2dump::m2bones(&mut chain, &internal_path)?,
+        Command::M2bonesFile { .. } => unreachable!("handled before opening the MPQ chain"),
         Command::M2batch { internal_path } => m2dump::m2batch(&mut chain, &internal_path)?,
         Command::M2alpha { internal_path } => m2dump::m2alpha(&mut chain, &internal_path)?,
         Command::M2part { internal_path } => m2dump::m2part(&mut chain, &internal_path)?,
