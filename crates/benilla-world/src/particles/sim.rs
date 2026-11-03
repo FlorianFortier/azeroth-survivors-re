@@ -1165,7 +1165,7 @@ pub(super) fn simulate_particles(
 
         // A deterministic, side-effect-free sample of the authored spawn kernel. This does
         // not consume the live emitter RNG or alter the actual particle stream.
-        let cone_probe_dirs = if diagnostic.is_some_and(|d| d.spell_id == 152_279) {
+        let cone_probe_dirs = if diagnostic.as_deref().is_some_and(|d| d.spell_id == 152_279) {
             [0x1357_9bdf_u32, 0x2468_ace1, 0xdead_beef, 0x7f4a_7c15]
                 .map(|mut probe_rng| {
                     let (_, dir) = emit_local(def, &now, &mut probe_rng);
@@ -1187,7 +1187,7 @@ pub(super) fn simulate_particles(
                     sequence = ?clock_seq,
                     sequence_elapsed = elapsed_s,
                     emitter_shape = ?def.shape,
-                    emitter_flags = format_args!("{:#010x}", def.flags),
+                    emitter_flags = def.flags,
                     emitting,
                     authored_rate = rate,
                     effective_rate = rate * density * dist_lod,
