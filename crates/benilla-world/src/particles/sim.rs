@@ -29,6 +29,17 @@ struct StepEnv {
     follow: Vec3,
 }
 
+/// Throttle one emitter's diagnostic output to its first frame and then twice per second.
+fn diagnostic_due(last_log: &mut HashMap<Entity, f32>, entity: Entity, age: f32) -> bool {
+    let last = last_log.entry(entity).or_insert(-1.0);
+    if *last < 0.0 || age - *last >= 0.5 {
+        *last = age;
+        true
+    } else {
+        false
+    }
+}
+
 /// One step of the reference integrator (`0x7b2680`): age and kill; the follow-delta add, skipped
 /// on a fresh particle (`0x7b2744`); `pos += dt·v` with gravity on the frame's up axis
 /// (`pos.up −= ½·g·dt²`, `v.up −= g·dt`); drag `v −= min(dt·drag, 1)·v`. A kill-outbound emitter
@@ -488,7 +499,9 @@ pub(super) fn simulate_particles(
             emitter.frozen,
             emitter.draining,
         ) {
-            if let Some(diag) = diagnostic {
+            if let Some(diag) = diagnostic.filter(|_| {
+                diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+            }) {
                 debug!(
                     spell_id = diag.spell_id,
                     emitter_index = diag.emitter_index,
@@ -550,7 +563,9 @@ pub(super) fn simulate_particles(
                 gates.room_admits(f),
             );
             if !in_set {
-                if let Some(diag) = diagnostic {
+                if let Some(diag) = diagnostic.filter(|_| {
+                    diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+                }) {
                     debug!(
                         spell_id = diag.spell_id,
                         emitter_index = diag.emitter_index,
@@ -593,7 +608,9 @@ pub(super) fn simulate_particles(
             if let Some(at) = subject {
                 if owner_hidden || !crate::view::within_farclip(farclip, cam_pos, cam_fwd, at, 0.0)
                 {
-                    if let Some(diag) = diagnostic {
+                    if let Some(diag) = diagnostic.filter(|_| {
+                        diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+                    }) {
                         debug!(
                             spell_id = diag.spell_id,
                             emitter_index = diag.emitter_index,
@@ -1156,17 +1173,9 @@ pub(super) fn simulate_particles(
 
         // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
         // the parent and child draw commits so the counters describe the complete frame result.
-        if let Some(diag) = diagnostic {
-            let should_log = {
-                let last = diagnostic_log_age.entry(entity).or_insert(-1.0);
-                if *age - *last >= 0.5 || *last < 0.0 {
-                    *last = *age;
-                    true
-                } else {
-                    false
-                }
-            };
-            if should_log {
+        if let Some(diag) = diagnostic.filter(|_| {
+            diagnostic_due(&mut diagnostic_log_age, entity, *age)
+        }) {
                 debug!(
                     spell_id = diag.spell_id,
                     emitter_index = diag.emitter_index,
@@ -1187,7 +1196,6 @@ pub(super) fn simulate_particles(
                     draws_committed = quads.draws.len() - draws_before,
                     "spell fx: particle pipeline"
                 );
-            }
         }
     }
 }
