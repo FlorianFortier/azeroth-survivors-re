@@ -491,20 +491,20 @@ pub(super) fn simulate_particles(
             emitter.frozen,
             emitter.draining,
         ) {
-            if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
-                diagnostic_due(*diag, emitter.age)
-            }) {
-                debug!(
-                    spell_id = diag.spell_id,
-                    emitter_index = diag.emitter_index,
-                    emitter_age = emitter.age,
-                    live_particles = emitter.particles.len(),
-                    frozen = emitter.frozen,
-                    draining = emitter.draining,
-                    gated = true,
-                    reason = "scene_frozen",
-                    "spell fx: particle pipeline skipped"
-                );
+            if let Some(diag) = diagnostic.as_deref_mut() {
+                if diagnostic_due(diag, emitter.age) {
+                    debug!(
+                        spell_id = diag.spell_id,
+                        emitter_index = diag.emitter_index,
+                        emitter_age = emitter.age,
+                        live_particles = emitter.particles.len(),
+                        frozen = emitter.frozen,
+                        draining = emitter.draining,
+                        gated = true,
+                        reason = "scene_frozen",
+                        "spell fx: particle pipeline skipped"
+                    );
+                }
             }
             if !emitter.gated {
                 emitter.gated = true;
@@ -555,20 +555,20 @@ pub(super) fn simulate_particles(
                 gates.room_admits(f),
             );
             if !in_set {
-                if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
-                    diagnostic_due(*diag, emitter.age)
-                }) {
-                    debug!(
-                        spell_id = diag.spell_id,
-                        emitter_index = diag.emitter_index,
-                        emitter_age = emitter.age,
-                        live_particles = emitter.particles.len(),
-                        frozen = false,
-                        draining = emitter.draining,
-                        gated = true,
-                        reason = "outside_emitter_draw_set",
-                        "spell fx: particle pipeline skipped"
-                    );
+                if let Some(diag) = diagnostic.as_deref_mut() {
+                    if diagnostic_due(diag, emitter.age) {
+                        debug!(
+                            spell_id = diag.spell_id,
+                            emitter_index = diag.emitter_index,
+                            emitter_age = emitter.age,
+                            live_particles = emitter.particles.len(),
+                            frozen = false,
+                            draining = emitter.draining,
+                            gated = true,
+                            reason = "outside_emitter_draw_set",
+                            "spell fx: particle pipeline skipped"
+                        );
+                    }
                 }
                 // Frozen: nothing pushed is nothing drawn; model instances hide once.
                 if !emitter.gated {
@@ -600,21 +600,21 @@ pub(super) fn simulate_particles(
             if let Some(at) = subject {
                 if owner_hidden || !crate::view::within_farclip(farclip, cam_pos, cam_fwd, at, 0.0)
                 {
-                    if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
-                        diagnostic_due(*diag, emitter.age)
-                    }) {
-                        debug!(
-                            spell_id = diag.spell_id,
-                            emitter_index = diag.emitter_index,
-                            emitter_age = emitter.age,
-                            live_particles = emitter.particles.len(),
-                            owner_hidden,
-                            frozen = false,
-                            draining = emitter.draining,
-                            gated = true,
-                            reason = "owner_hidden_or_past_farclip",
-                            "spell fx: particle pipeline skipped"
-                        );
+                    if let Some(diag) = diagnostic.as_deref_mut() {
+                        if diagnostic_due(diag, emitter.age) {
+                            debug!(
+                                spell_id = diag.spell_id,
+                                emitter_index = diag.emitter_index,
+                                emitter_age = emitter.age,
+                                live_particles = emitter.particles.len(),
+                                owner_hidden,
+                                frozen = false,
+                                draining = emitter.draining,
+                                gated = true,
+                                reason = "owner_hidden_or_past_farclip",
+                                "spell fx: particle pipeline skipped"
+                            );
+                        }
                     }
                     if !emitter.gated {
                         emitter.gated = true;
@@ -1165,9 +1165,8 @@ pub(super) fn simulate_particles(
 
         // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
         // the parent and child draw commits so the counters describe the complete frame result.
-        if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
-            diagnostic_due(*diag, *age)
-        }) {
+        if let Some(diag) = diagnostic.as_deref_mut() {
+            if diagnostic_due(diag, *age) {
                 debug!(
                     spell_id = diag.spell_id,
                     emitter_index = diag.emitter_index,
@@ -1188,6 +1187,7 @@ pub(super) fn simulate_particles(
                     draws_committed = quads.draws.len() - draws_before,
                     "spell fx: particle pipeline"
                 );
+            }
         }
     }
 }
