@@ -1,7 +1,8 @@
 //! The single-model M2 dumps: each reads one `.m2` and prints all it carries for one concern.
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use benilla_formats::{Chain, M2AnimSummary};
+use std::path::Path;
 
 use crate::{normalize, yn};
 
@@ -1440,4 +1441,304 @@ pub fn m2cam(chain: &mut Chain, internal_path: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+
+/// Dump the bone hierarchy from a standalone Legion M2 file.
+///
+/// Legion files are commonly wrapped in an MD21 chunk: the first eight bytes are the
+/// chunk magic and payload length, followed by the embedded MD20 model. Version 272 uses
+/// 88-byte bone records and 20-byte tracks whose key arrays are nested once per sequence.
+/// This reader is deliberately narrow and does not change the Vanilla benilla-m2 parser.
+pub fn m2bones_file(path: &Path) -> Result<()> {
+    let file = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let data = unwrap_md21(&file)?;
+    ensure!(data.len() >= 0x34, "M2 header is truncated ({} bytes)", data.len());
+    ensure!(&data[..4] == b"MD20", "expected MD21-wrapped or raw MD20 data");
+    let version = read_u32(data, 4)?;
+    ensure!(
+        version == 272,
+        "m2bones-file currently supports Legion MD20 version 272; found version {version}"
+    );
+
+    // MD20 v272 header: animations M2Array at 0x1c, bones M2Array at 0x2c.
+    let (sequence_count, sequence_offset) = read_array(data, 0x1c)?;
+    let (bone_count, bone_offset) = read_array(data, 0x2c)?;
+    ensure!(bone_count <= 4096, "unreasonable bone count: {bone_count}");
+    ensure!(sequence_count <= 4096, "unreasonable sequence count: {sequence_count}");
+    checked_slice(
+        data,
+        sequence_offset,
+        sequence_count
+            .checked_mul(64)
+            .context("sequence table size overflow")?,
+        "sequence table",
+    )?;
+    checked_slice(
+        data,
+        bone_offset,
+        bone_count
+            .checked_mul(88)
+            .context("bone table size overflow")?,
+        "bone table",
+    )?;
+
+    println!(
+        "{} — MD20 version {version}, {} sequence(s), {} bone(s)",
+        path.display(),
+        sequence_count,
+        bone_count
+    );
+    println!("sequences:");
+    for index in 0..sequence_count {
+        let offset = sequence_offset + index * 64;
+        let anim_id = read_u16(data, offset)?;
+        let variation = read_u16(data, offset + 2)?;
+        let duration_ms = read_u32(data, offset + 4)?;
+        println!(
+            "  seq{index}: anim={anim_id} variation={variation} duration={duration_ms} ms ({:.3} s)",
+            duration_ms as f64 / 1000.0
+        );
+    }
+
+    println!();
+    println!("idx  keybone       flags  parent  submesh  name_crc   pivot (WoW axes, Z up)");
+    for index in 0..bone_count {
+        let offset = bone_offset + index * 88;
+        let key_bone = read_i32(data, offset)?;
+        let flags = read_u32(data, offset + 4)?;
+        let parent = read_i16(data, offset + 8)?;
+        let submesh = read_u16(data, offset + 10)?;
+        let name_crc = read_u32(data, offset + 12)?;
+        let pivot = [
+            read_f32(data, offset + 76)?,
+            read_f32(data, offset + 80)?,
+            read_f32(data, offset + 84)?,
+        ];
+        let parent_label = if parent < 0 {
+            "-".to_string()
+        } else if parent as usize >= bone_count {
+            format!("{parent} (OUT OF RANGE)")
+        } else {
+            parent.to_string()
+        };
+        println!(
+            "{index:>3}  {key_bone:>7}  {flags:#010x}  {parent_label:>8}  {submesh:>7}  {name_crc:#010x}  [{:>8.3}, {:>8.3}, {:>8.3}]",
+            pivot[0], pivot[1], pivot[2]
+        );
+
+        for (label, relative, value_stride) in [
+            ("T", 16usize, 12usize),
+            ("R", 36usize, 8usize),
+            ("S", 56usize, 12usize),
+        ] {
+            let tracks = read_v272_track(data, offset + relative, label, value_stride)?;
+            if tracks.iter().any(|track| track.key_count > 0) {
+                let summaries = tracks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, track)| track.key_count > 0)
+                    .map(|(seq, track)| {
+                        let times = if track.times.is_empty() {
+                            "times unavailable".to_string()
+                        } else {
+                            format!(
+                                "{} ms..{} ms",
+                                track.times[0],
+                                track.times[track.times.len() - 1]
+                            )
+                        };
+                        format!("seq{seq}: {} key(s), {times}", track.key_count)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                println!("       {label}: {summaries}");
+            }
+        }
+    }
+    Ok(())
+}
+
+struct V272TrackSequence {
+    key_count: usize,
+    times: Vec<u32>,
+}
+
+fn read_v272_track(
+    data: &[u8],
+    offset: usize,
+    label: &str,
+    value_stride: usize,
+) -> Result<Vec<V272TrackSequence>> {
+    checked_slice(data, offset, 20, &format!("{label} track descriptor"))?;
+    let time_arrays = read_u32(data, offset + 4)? as usize;
+    let time_arrays_offset = read_u32(data, offset + 8)? as usize;
+    let value_arrays = read_u32(data, offset + 12)? as usize;
+    let value_arrays_offset = read_u32(data, offset + 16)? as usize;
+    ensure!(
+        time_arrays <= 4096 && value_arrays <= 4096,
+        "unreasonable nested array count in {label} track"
+    );
+
+    let sequence_count = time_arrays.max(value_arrays);
+    let mut result = Vec::with_capacity(sequence_count);
+    for sequence in 0..sequence_count {
+        let times = if sequence < time_arrays {
+            let inner = time_arrays_offset
+                .checked_add(sequence.checked_mul(8).context("timestamp array offset overflow")?)
+                .context("timestamp array offset overflow")?;
+            let (count, offset) = read_array(data, inner)?;
+            ensure!(count <= 1_000_000, "unreasonable timestamp count: {count}");
+            let bytes = checked_slice(
+                data,
+                offset,
+                count.checked_mul(4).context("timestamp byte size overflow")?,
+                "track timestamps",
+            )?;
+            let mut times = Vec::with_capacity(count);
+            for key in 0..count {
+                times.push(u32::from_le_bytes(
+                    bytes[key * 4..key * 4 + 4].try_into().expect("four-byte timestamp"),
+                ));
+            }
+            times
+        } else {
+            Vec::new()
+        };
+
+        let key_count = if sequence < value_arrays {
+            let inner = value_arrays_offset
+                .checked_add(sequence.checked_mul(8).context("value array offset overflow")?)
+                .context("value array offset overflow")?;
+            let (count, offset) = read_array(data, inner)?;
+            // Translation/scale are C3 vectors; rotations are packed 8-byte quaternions.
+            checked_slice(
+                data,
+                offset,
+                count
+                    .checked_mul(value_stride)
+                    .context("track value byte size overflow")?,
+                "track values",
+            )?;
+            ensure!(
+                times.is_empty() || times.len() == count,
+                "{label} track sequence {sequence} has {} timestamps but {count} values",
+                times.len()
+            );
+            count
+        } else {
+            0
+        };
+        result.push(V272TrackSequence { key_count, times });
+    }
+    Ok(result)
+}
+
+fn unwrap_md21(file: &[u8]) -> Result<&[u8]> {
+    if file.starts_with(b"MD20") {
+        return Ok(file);
+    }
+    ensure!(file.len() >= 8, "file is too short for an MD21 header");
+    ensure!(&file[..4] == b"MD21", "expected MD21 wrapper or raw MD20 file");
+    let payload_len = read_u32(file, 4)? as usize;
+    let end = 8usize
+        .checked_add(payload_len)
+        .context("MD21 payload length overflow")?;
+    ensure!(end <= file.len(), "MD21 payload is truncated");
+    let payload = &file[8..end];
+    ensure!(payload.starts_with(b"MD20"), "MD21 payload does not start with MD20");
+    Ok(payload)
+}
+
+fn read_array(data: &[u8], offset: usize) -> Result<(usize, usize)> {
+    Ok((read_u32(data, offset)? as usize, read_u32(data, offset + 4)? as usize))
+}
+
+fn read_u16(data: &[u8], offset: usize) -> Result<u16> {
+    let bytes = checked_slice(data, offset, 2, "u16")?;
+    Ok(u16::from_le_bytes(bytes.try_into().expect("two-byte integer")))
+}
+
+fn read_i16(data: &[u8], offset: usize) -> Result<i16> {
+    let bytes = checked_slice(data, offset, 2, "i16")?;
+    Ok(i16::from_le_bytes(bytes.try_into().expect("two-byte integer")))
+}
+
+fn read_u32(data: &[u8], offset: usize) -> Result<u32> {
+    let bytes = checked_slice(data, offset, 4, "u32")?;
+    Ok(u32::from_le_bytes(bytes.try_into().expect("four-byte integer")))
+}
+
+fn read_i32(data: &[u8], offset: usize) -> Result<i32> {
+    let bytes = checked_slice(data, offset, 4, "i32")?;
+    Ok(i32::from_le_bytes(bytes.try_into().expect("four-byte integer")))
+}
+
+fn read_f32(data: &[u8], offset: usize) -> Result<f32> {
+    let bytes = checked_slice(data, offset, 4, "f32")?;
+    Ok(f32::from_le_bytes(bytes.try_into().expect("four-byte float")))
+}
+
+fn checked_slice<'a>(
+    data: &'a [u8],
+    offset: usize,
+    length: usize,
+    what: &str,
+) -> Result<&'a [u8]> {
+    let end = offset
+        .checked_add(length)
+        .with_context(|| format!("{what} range overflow"))?;
+    data.get(offset..end).with_context(|| {
+        format!(
+            "{what} out of bounds: offset {offset}, length {length}, file {}",
+            data.len()
+        )
+    })
+}
+
+
+#[cfg(test)]
+mod legion_m2_tests {
+    use super::*;
+
+    #[test]
+    fn unwraps_md21_payload_and_accepts_raw_md20() {
+        let payload = b"MD20\x10\x01\x00\x00";
+        let mut wrapped = b"MD21".to_vec();
+        wrapped.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        wrapped.extend_from_slice(payload);
+
+        assert_eq!(unwrap_md21(&wrapped).unwrap(), payload);
+        assert_eq!(unwrap_md21(payload).unwrap(), payload);
+    }
+
+    #[test]
+    fn rejects_truncated_md21_payload() {
+        let wrapped = b"MD21\x08\x00\x00\x00MD20";
+        assert!(unwrap_md21(wrapped).is_err());
+    }
+
+    #[test]
+    fn reads_nested_v272_track_timestamps() {
+        // Track descriptor: one sequence array for both timestamps and values.
+        let mut data = vec![0u8; 48];
+        data[4..8].copy_from_slice(&1u32.to_le_bytes());
+        data[8..12].copy_from_slice(&20u32.to_le_bytes());
+        data[12..16].copy_from_slice(&1u32.to_le_bytes());
+        data[16..20].copy_from_slice(&28u32.to_le_bytes());
+        // Timestamp array: two u32 keys at byte 36.
+        data[20..24].copy_from_slice(&2u32.to_le_bytes());
+        data[24..28].copy_from_slice(&36u32.to_le_bytes());
+        // Value array: two values at byte 44.
+        data[28..32].copy_from_slice(&2u32.to_le_bytes());
+        data[32..36].copy_from_slice(&44u32.to_le_bytes());
+        data[36..40].copy_from_slice(&0u32.to_le_bytes());
+        data[40..44].copy_from_slice(&667u32.to_le_bytes());
+        data[44..46].copy_from_slice(&[0xaa, 0xbb]);
+
+        let tracks = read_v272_track(&data, 0, "rotation", 1).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].key_count, 2);
+        assert_eq!(tracks[0].times, vec![0, 667]);
+    }
 }

@@ -19,17 +19,19 @@ mod shakecensus;
 mod spellvis;
 mod thudcensus;
 
-/// Read WoW 1.12.1 asset archives (MPQ).
+/// Inspect Vanilla MPQ archives and standalone Legion M2 files.
 #[derive(Parser)]
 #[command(
     name = "benilla-extract",
     version,
     about,
-    allow_negative_numbers = true
+    allow_negative_numbers = true,
+    subcommand_precedence_over_arg = true
 )]
 struct Cli {
     /// A single `.MPQ` file, or a vanilla `Data` directory (opens the full patch chain).
-    path: PathBuf,
+    /// Not required by m2bones-file, which reads a standalone extracted M2 file.
+    path: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -157,6 +159,12 @@ enum Command {
     M2bones {
         /// Internal path to the `.m2` (forward or back slashes accepted).
         internal_path: String,
+    },
+    /// Dump bones and animation tracks from a standalone Legion MD21/MD20 v272 file.
+    #[command(name = "m2bones-file")]
+    M2bonesFile {
+        /// Path to an extracted .m2 file (MD21-wrapped or raw MD20).
+        file: PathBuf,
     },
     /// Dump an M2's render batches as the renderer sees them.
     M2batch {
@@ -572,7 +580,17 @@ fn guild_emblem(v: Vec<i32>) -> Result<benilla_formats::GuildEmblem> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let mut chain = open_chain(&cli.path)?;
+
+    // Legion assets are CASC/MD21 files, not entries in the Vanilla MPQ chain.
+    if let Command::M2bonesFile { file } = &cli.command {
+        return m2dump::m2bones_file(file);
+    }
+
+    let path = cli
+        .path
+        .as_deref()
+        .context("a Vanilla MPQ file or Data directory is required for this command")?;
+    let mut chain = open_chain(path)?;
 
     match cli.command {
         Command::List => {
@@ -700,6 +718,7 @@ fn main() -> Result<()> {
         Command::M2attach { internal_path } => m2dump::m2attach(&mut chain, &internal_path)?,
         Command::M2anim { internal_path } => m2dump::m2anim(&mut chain, &internal_path)?,
         Command::M2bones { internal_path } => m2dump::m2bones(&mut chain, &internal_path)?,
+        Command::M2bonesFile { .. } => unreachable!("handled before opening the MPQ chain"),
         Command::M2batch { internal_path } => m2dump::m2batch(&mut chain, &internal_path)?,
         Command::M2alpha { internal_path } => m2dump::m2alpha(&mut chain, &internal_path)?,
         Command::M2part { internal_path } => m2dump::m2part(&mut chain, &internal_path)?,
@@ -804,4 +823,23 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn m2bones_file_does_not_require_a_mpq_path() {
+        let cli = Cli::try_parse_from([
+            "benilla-extract",
+            "m2bones-file",
+            "legion-data/extracted/spells/example.m2",
+        ])
+        .unwrap();
+
+        assert!(cli.path.is_none());
+        assert!(matches!(cli.command, Command::M2bonesFile { .. }));
+    }
 }
