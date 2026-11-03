@@ -161,6 +161,7 @@ enum Command {
         internal_path: String,
     },
     /// Dump bones and animation tracks from a standalone Legion MD21/MD20 v272 file.
+    #[command(name = "m2bones-file")]
     M2bonesFile {
         /// Path to an extracted .m2 file (MD21-wrapped or raw MD20).
         file: PathBuf,
@@ -822,4 +823,23 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn m2bones_file_does_not_require_a_mpq_path() {
+        let cli = Cli::try_parse_from([
+            "benilla-extract",
+            "m2bones-file",
+            "legion-data/extracted/spells/example.m2",
+        ])
+        .unwrap();
+
+        assert!(cli.path.is_none());
+        assert!(matches!(cli.command, Command::M2bonesFile { .. }));
+    }
 }
