@@ -113,7 +113,20 @@ pub fn to_vanilla(
     out.copy(&src, 0x08, 0x08, 1)?; // name
     out.copy(&src, 0x14, 0x14, 4)?; // global sequences
     out.copy(&src, 0x34, 0x3c, 2)?; // key bone lookup
-    out.copy(&src, 0x3c, 0x44, 48)?; // vertices: the same 48 bytes
+                                    // Vertices: the same 48 bytes, those the skin draws from (an HD body's profile 0 the first
+                                    // 30,000 of 83,000, the rest its lower levels of detail).
+    let (verts, n) = src.records(0x3c, 48)?;
+    let used = Src(skin)
+        .records(4, 2)?
+        .0
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|v| usize::from(u16::from_le_bytes(*v)) + 1)
+        .max()
+        .unwrap_or(0)
+        .min(n);
+    out.array(0x44, used, &verts[..used * 48]);
     out.copy(&src, 0x68, 0x7c, 2)?; // replaceable texture lookup
     out.copy(&src, 0x78, 0x8c, 2)?; // bone lookup
     out.copy(&src, 0x80, 0x94, 2)?; // texture lookup

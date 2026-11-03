@@ -316,7 +316,16 @@ upstream merge. Each step is one pull request or a few.
    moved, so the transcoder reads an HD model as any other; a skeleton's `.anim` keeps its bones'
    keys in an `AFSB` chunk, read as the transcoder reads `AFM2`. The Blood Elf's HD bodies come
    out whole (250 and 243 bones, 19 and 16 roots, the arms' key bones), standing and running as
-   the client's own reader poses them (`an_hd_body_reads_its_skeleton_out_of_its_skel`). **Second part done**: the
+   the client's own reader poses them (`an_hd_body_reads_its_skeleton_out_of_its_skel`).
+   **Second part done**: within 1.12.1's reach (`benilla_legion::fit`). A body keeps the groups
+   1.12.1 draws (`fit::GROUPS`: the Pandaren's, without the cape or the robe's skirt), the body
+   itself, then its hair styles' geosets in their order while the triangles stay within 65,535;
+   a style left out is one `Library::race` no longer offers. Every wide body goes through it (the
+   Pandaren keeps every style, as before), and the transcoder keeps only the model vertices its
+   skin draws (an HD body's profile 0 the first 30,000 of 83,000, the rest its lower levels of
+   detail; the Pandaren's 21,000 of 61,000). The Blood Elf's HD male keeps 9 hair styles of 16
+   (64,269 indices of 120,765), the female 18 of 20 (65,496 of 95,853), both read whole by the
+   client's loader (`an_hd_body_fits_1_12_1s_indices`). **Second part done**: the
    Goblin and the Worgen, the same way (Cataclysm's bodies, the old layout at twice the size;
    race 9, the Goblin, is in 1.12.1's `ChrRaces` but not playable there, so its create entry is
    ours); a Gnome and a Human stand in for them. **Third part done**: the Pandaren. Mists of
