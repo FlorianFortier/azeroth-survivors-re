@@ -1174,6 +1174,28 @@ pub(super) fn simulate_particles(
         } else {
             [[0.0; 3]; 4]
         };
+        let cone_probe_dirs_bevy = if diagnostic.as_deref().is_some_and(|d| d.spell_id == 152_279) {
+            cone_probe_dirs.map(|dir| {
+                let dir = wow_to_bevy(dir);
+                if anchored {
+                    (emit_place.rotation * (emit_place.scale * dir)).normalize_or_zero().to_array()
+                } else {
+                    dir.normalize_or_zero().to_array()
+                }
+            })
+        } else {
+            [[0.0; 3]; 4]
+        };
+        let (root_forward_bevy, root_up_bevy) = water_gt.map_or(
+            ([0.0; 3], [0.0; 3]),
+            |gt| {
+                let (_, rotation, _) = gt.to_scale_rotation_translation();
+                (
+                    (rotation * Vec3::NEG_Z).to_array(),
+                    (rotation * Vec3::Y).to_array(),
+                )
+            },
+        );
 
         // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
         // the parent and child draw commits so the counters describe the complete frame result.
@@ -1204,6 +1226,13 @@ pub(super) fn simulate_particles(
                     area_width = now.area_width,
                     z_source = now.z_source,
                     cone_probe_dirs_wow = ?cone_probe_dirs,
+                    cone_probe_dirs_bevy_world = ?cone_probe_dirs_bevy,
+                    emitter_bone_index = def.bone,
+                    emitter_owner = ?owner,
+                    emitter_position_world = ?emitter_world,
+                    emitter_axis_bevy_world = ?(emit_place.rotation * (emit_place.scale * Vec3::Y)).normalize_or_zero().to_array(),
+                    effect_root_forward_bevy = ?root_forward_bevy,
+                    effect_root_up_bevy = ?root_up_bevy,
                     live_particles = particles.len(),
                     draining = *draining,
                     gated = *gated,
