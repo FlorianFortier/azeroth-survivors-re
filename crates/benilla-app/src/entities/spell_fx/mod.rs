@@ -908,7 +908,14 @@ pub(super) fn attach_spell_fx(
             }
             // Ground-anchored: a world plant, or an instance on the base point (`0x13`) or the unit
             // root. A chest-anchored one keeps its flat quads as geometry (`ProtectionFrom*`).
-            let (root, ground_anchor, resolved_tag) = if planted {
+            let (
+                root,
+                ground_anchor,
+                resolved_tag,
+                attachment_bone,
+                attachment_offset,
+                attachment_model_rotation,
+            ) = if planted {
                 let follow =
                     inst.persistent && spell_has_root_aura(spells.as_deref(), inst.spell_id);
                 let root = commands
@@ -923,29 +930,47 @@ pub(super) fn attach_spell_fx(
                     // Chain-only visibility: the wrapper draws nothing, its children do.
                     .vis_chain_only()
                     .id();
-                (root, true, benilla_formats::WORLD_EFFECT_TAG)
+                (
+                    root,
+                    true,
+                    benilla_formats::WORLD_EFFECT_TAG,
+                    None,
+                    Vec3::ZERO,
+                    None,
+                )
             } else {
                 // `CMissile`'s cascade: the slot's tag, `0xf`, `0x13`, else the unit root.
+                // Keep the selected host bone as well as the tag: the effect root's rotation is
+                // inherited from this anchor because its own local rotation is identity.
                 let point = bones.and_then(|b| {
                     std::iter::once(inst.tag)
                         .chain(ATTACH_FALLBACKS)
                         .find_map(|tag| b.points.get(&tag).copied().map(|p| (tag, p)))
                         .and_then(|(tag, (bone, offset))| {
-                            pose.as_mut()
-                                .and_then(|p| p.anchor_for(&mut commands, unit, bone))
-                                .map(|joint| (tag, joint, offset))
+                            let pose = pose.as_mut()?;
+                            let model_rotation = pose
+                                .model
+                                .get(bone as usize)
+                                .map(|m| m.to_scale_rotation_translation().1);
+                            let joint = pose.anchor_for(&mut commands, unit, bone)?;
+                            Some((tag, bone, joint, offset, model_rotation))
                         })
                 });
                 let ground_anchor = point.is_none_or(|(tag, ..)| tag == 0x13);
                 let resolved_tag = point.map_or(0, |(tag, ..)| tag);
-                let (parent, offset) = point.map_or((unit, Vec3::ZERO), |(_, j, o)| (j, o));
+                let (parent, offset, attachment_bone, model_rotation) = point.map_or(
+                    (unit, Vec3::ZERO, None, None),
+                    |(_, bone, joint, offset, rotation)| {
+                        (joint, offset, Some(bone), rotation)
+                    },
+                );
                 let root = commands
                     .spawn((Transform::from_translation(offset), Visibility::default()))
                     // Chain-only, as above.
                     .vis_chain_only()
                     .id();
                 commands.entity(parent).add_child(root);
-                (root, ground_anchor, resolved_tag)
+                (root, ground_anchor, resolved_tag, attachment_bone, offset, model_rotation)
             };
             // Parts were checked ready above, so this always attaches.
             attach_effect_visuals(
@@ -970,12 +995,26 @@ pub(super) fn attach_spell_fx(
                 None, // an attach-point kit effect opens on its model's own `Stand`
             );
             if inst.spell_id == 152_279 {
+                let unit_rotation = unit_gt.to_scale_rotation_translation().1;
+                let attachment_world_rotation =
+                    attachment_model_rotation.map(|r| unit_rotation * r);
+                let attachment_forward = attachment_world_rotation
+                    .map(|r| (r * Vec3::NEG_Z).to_array());
+                let attachment_up =
+                    attachment_world_rotation.map(|r| (r * Vec3::Y).to_array());
                 debug!(
                     unit = ?unit,
                     spell_id = inst.spell_id,
                     path = %inst.path,
                     requested_tag = inst.tag,
                     resolved_tag,
+                    attachment_bone = ?attachment_bone,
+                    attachment_offset = ?attachment_offset,
+                    attachment_model_rotation = ?attachment_model_rotation,
+                    attachment_world_rotation = ?attachment_world_rotation,
+                    attachment_forward_bevy = ?attachment_forward,
+                    attachment_up_bevy = ?attachment_up,
+                    root_local_rotation = ?Quat::IDENTITY,
                     parts = dm.parts.as_ref().map_or(0, Vec::len),
                     emitters = dm.emitters.len(),
                     ribbons = dm.ribbons.len(),
