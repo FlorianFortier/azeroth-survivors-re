@@ -372,6 +372,14 @@ pub(crate) fn attach_effect_visuals(
                 None => particles::EmitClock::Effect(played_seq),
             },
         );
+        if let (Some(spell_id), Some(emitter_entity)) = (diagnostic_spell_id, spawned) {
+            commands.entity(emitter_entity).insert(
+                particles::ParticleEmitterDiagnostic {
+                    spell_id,
+                    emitter_index,
+                },
+            );
+        }
         if diagnostic_spell_id == Some(152_279) {
             let texture = em.texture.is_some();
             let lifespan = em.def.params.peak_lifespan();
