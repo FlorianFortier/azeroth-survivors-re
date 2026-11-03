@@ -36,7 +36,7 @@
 //! display joins the client's catalog as [`DISPLAY_BASE`] plus its Legion id, its model named
 //! [`display_model_path`].
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use benilla_casc::{Casc, Source};
@@ -116,7 +116,8 @@ pub struct Library {
     dbd: Option<std::path::PathBuf>,
     /// The body models of the races whose texture layout is not the old one ([`crate::layout`]):
     /// their skin coordinates move to 1.12.1's atlas.
-    wide_bodies: HashSet<u32>,
+    /// The wide layout's bodies, each with the geosets it keeps ([`crate::fit::body_geosets`]).
+    wide_bodies: HashMap<u32, BTreeSet<u16>>,
 }
 
 impl Library {
@@ -160,14 +161,30 @@ impl Library {
             classes,
             liquids,
             dbd: dbd.map(Path::to_path_buf),
-            wide_bodies: HashSet::new(),
+            wide_bodies: HashMap::new(),
         };
-        library.wide_bodies = WIDE_RACES
+        let mut wide = HashMap::new();
+        for race in WIDE_RACES
             .iter()
             .filter_map(|&r| library.race(r))
             .filter(|r| r.layout == 2)
-            .flat_map(|r| r.models)
-            .collect();
+        {
+            for (sex, &model) in race.models.iter().enumerate() {
+                // Its hair styles' geosets, in their order.
+                let mut styles: Vec<(u8, u32)> = race
+                    .hair
+                    .iter()
+                    .filter(|((s, _), _)| usize::from(*s) == sex)
+                    .map(|&((_, style), g)| (style, g))
+                    .collect();
+                styles.sort();
+                let hair: Vec<u32> = styles.into_iter().map(|(_, g)| g).collect();
+                if let Ok(kept) = library.body_fit(model, &hair) {
+                    wide.insert(model, kept);
+                }
+            }
+        }
+        library.wide_bodies = wide;
         Ok(library)
     }
 
@@ -211,12 +228,13 @@ impl Library {
         // An item's model, wherever the client looks for it.
         let base = path.rsplit('/').next().unwrap_or(path);
         // A character body, every geoset kept for the client's own selection; a wide layout's
-        // only those of 1.12.1's groups it can hold ([`WIDE_GROUPS`]).
+        // only those it can hold ([`crate::fit`]).
         if let Some(rest) = base.strip_prefix("legion_char_") {
             return Some(
                 match rest.strip_suffix(".m2").and_then(|r| r.parse::<u32>().ok()) {
-                    Some(file) if self.wide_bodies.contains(&file) => {
-                        self.transcode(file, |_| None, |id| WIDE_GROUPS.contains(&(id / 100)), true)
+                    Some(file) if self.wide_bodies.contains_key(&file) => {
+                        let kept = &self.wide_bodies[&file];
+                        self.transcode(file, |_| None, |id| kept.contains(&id), true)
                     }
                     Some(file) => self.transcode(file, |_| None, |_| true, false),
                     None => Err(Error::Format(format!("no character model at {path}"))),
@@ -272,14 +290,35 @@ impl Library {
             || base.starts_with("legion_char_")
     }
 
-    /// Playable race `id` in its pre-HD body; none without the definitions.
+    /// Playable race `id` in its pre-HD body; none without the definitions. A wide body's hair
+    /// styles are those it keeps ([`crate::fit`]).
     pub fn race(&self, id: u8) -> Option<crate::races::LegionRace> {
         let (races, items) = (self.races.as_ref()?, self.items.as_ref()?);
-        races.race(
+        let mut race = races.race(
             id,
             |m| items.textures.get(&m).copied().unwrap_or(0),
             |d| self.display(d).map_or(0, |d| d.model_file),
-        )
+        )?;
+        let models = race.models;
+        race.hair.retain(|&((sex, _), g)| {
+            let kept = models
+                .get(usize::from(sex))
+                .and_then(|m| self.wide_bodies.get(m));
+            kept.is_none_or(|k| g == 0 || u16::try_from(g).is_ok_and(|g| k.contains(&g)))
+        });
+        Some(race)
+    }
+
+    /// The geosets body `file` keeps within 1.12.1's reach, `hair` its styles' geosets in their
+    /// order ([`crate::fit::body_geosets`]).
+    pub fn body_fit(&self, file: u32, hair: &[u32]) -> Result<BTreeSet<u16>> {
+        let chunks = md21::split(&self.casc.read_id(file)?)?;
+        let skin = chunks
+            .skins
+            .first()
+            .ok_or_else(|| Error::Format(format!("model {file} names no skin")))?;
+        let skin = crate::skin::parse(&self.casc.read_id(*skin)?)?;
+        Ok(crate::fit::body_geosets(&skin, hair))
     }
 
     /// A map's file at `path`: its WDT, or a tile written as one 1.12.1 ADT
@@ -620,10 +659,6 @@ fn liquid_kinds<S: Source>(casc: &Casc<S>, dir: &Path) -> Result<HashMap<u16, (u
 /// The races whose body texture layout [`Library::open`] checks: Legion's playable races past
 /// 1.12.1's and the Burning Crusade's.
 const WIDE_RACES: [u8; 5] = [9, 22, 24, 25, 26];
-
-/// The geoset groups a wide layout's body keeps: 1.12.1's, but the robe's skirt (13) and the
-/// cape (15). A Pandaren's every geoset passes 1.12.1's 65535 triangle indices; these fit.
-const WIDE_GROUPS: [u16; 13] = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17];
 
 /// A DB2 table from the install, typed by its definition in `dir`.
 pub fn table<S: Source>(casc: &Casc<S>, dir: &Path, name: &str) -> Result<Table> {

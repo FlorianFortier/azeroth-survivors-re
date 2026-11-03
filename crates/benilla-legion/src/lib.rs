@@ -22,6 +22,7 @@ pub mod classes;
 pub mod db2;
 pub mod dbd;
 pub mod display;
+pub mod fit;
 pub mod layout;
 pub mod library;
 pub mod lights;

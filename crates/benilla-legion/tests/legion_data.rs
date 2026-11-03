@@ -868,3 +868,75 @@ fn valsharah_takes_its_zones_light() {
     );
     assert!(noon(3064) > noon(global));
 }
+
+#[test]
+#[ignore = "needs a Legion install and WoWDBDefs' definitions: LEGION_URL, LEGION_CACHE, LEGION_DBD"]
+fn an_hd_body_fits_1_12_1s_indices() {
+    let source: AnySource = Box::new(Remote {
+        url: std::env::var("LEGION_URL").expect("LEGION_URL"),
+        cache: PathBuf::from(std::env::var("LEGION_CACHE").expect("LEGION_CACHE")),
+    });
+    let dbd = PathBuf::from(std::env::var("LEGION_DBD").expect("LEGION_DBD"));
+    let library = Library::open(source, Some(&dbd)).unwrap();
+    let casc = casc();
+    let race = library.race(10).unwrap();
+    // The Blood Elf's HD bodies, male and female.
+    for (sex, file) in [(0u8, 1100087u32), (1, 1100258)] {
+        let mut styles: Vec<(u8, u32)> = race
+            .hair
+            .iter()
+            .filter(|((s, _), _)| *s == sex)
+            .map(|&((_, style), g)| (style, g))
+            .collect();
+        styles.sort();
+        let hair: Vec<u32> = styles.iter().map(|s| s.1).collect();
+        let kept = library.body_fit(file, &hair).unwrap();
+
+        let chunks = md21::split(&casc.read_id(file).unwrap()).unwrap();
+        let skel =
+            benilla_legion::skel::parse(&casc.read_id(chunks.skel.unwrap()).unwrap()).unwrap();
+        let md20 = benilla_legion::skel::merge(&chunks.md20, &skel).unwrap();
+        let skin = casc.read_id(chunks.skins[0]).unwrap();
+        let parsed = skin::parse(&skin).unwrap();
+        let indices: u32 = parsed
+            .sections
+            .iter()
+            .filter(|s| kept.contains(&s.id))
+            .map(|s| u32::from(s.index_count))
+            .sum();
+        let styles_kept = hair
+            .iter()
+            .filter(|&&g| g == 0 || u16::try_from(g).is_ok_and(|g| kept.contains(&g)))
+            .count();
+        println!(
+            "{file}: {} of {} indices, {styles_kept} of {} hair styles",
+            indices,
+            parsed.indices.len(),
+            hair.len()
+        );
+        assert!(indices <= benilla_legion::fit::MAX_INDICES);
+        assert!(styles_kept >= hair.len() / 3, "{styles_kept} styles");
+        // The body, and every group 1.12.1 draws that the model has: hands, feet, ears, sleeves,
+        // legs and the rest, every variant of each.
+        assert!(kept.contains(&0));
+        for g in benilla_legion::fit::GROUPS.iter().filter(|&&g| g != 0) {
+            for s in parsed.sections.iter().filter(|s| s.id / 100 == *g) {
+                assert!(kept.contains(&s.id), "{}", s.id);
+            }
+        }
+
+        // It transcodes whole, and the client draws it from the skin's vertices alone.
+        let vanilla = transcode::to_vanilla(
+            &md20,
+            &skin,
+            &[],
+            |id| kept.contains(&id),
+            &Default::default(),
+        )
+        .unwrap();
+        let m = benilla_m2::parse_m2(&mut Cursor::new(&vanilla[..])).unwrap();
+        assert_eq!(m.model().vertices.len(), parsed.vertices.len());
+        let draws = benilla_formats::parse_m2_render_submeshes(&vanilla, "", &[]).unwrap();
+        assert!(draws.len() > 20, "{} draws", draws.len());
+    }
+}
