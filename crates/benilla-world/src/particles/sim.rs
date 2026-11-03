@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use avian3d::prelude::SpatialQuery;
 use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
 use bevy::camera::primitives::{Frustum, Sphere as CullSphere};
@@ -30,10 +28,9 @@ struct StepEnv {
 }
 
 /// Throttle one emitter's diagnostic output to its first frame and then twice per second.
-fn diagnostic_due(last_log: &mut HashMap<Entity, f32>, entity: Entity, age: f32) -> bool {
-    let last = last_log.entry(entity).or_insert(-1.0);
-    if *last < 0.0 || age - *last >= 0.5 {
-        *last = age;
+fn diagnostic_due(diagnostic: &mut super::ParticleEmitterDiagnostic, age: f32) -> bool {
+    if diagnostic.last_log_age < 0.0 || age - diagnostic.last_log_age >= 0.5 {
+        diagnostic.last_log_age = age;
         true
     } else {
         false
@@ -419,7 +416,7 @@ pub(super) fn simulate_particles(
             Option<&RenderLayers>,
             Option<&EffectLightOverride>,
             Option<&crate::interior::EmitterLitBy>,
-            Option<&super::ParticleEmitterDiagnostic>,
+            Option<&mut super::ParticleEmitterDiagnostic>,
         ),
         Without<WorldCamera>,
     >,
@@ -442,12 +439,7 @@ pub(super) fn simulate_particles(
     // A hosted emitter's sequence: its host's live `AnimationPlayer` slot and clip time.
     hosts: Query<(&AnimationPlayer, &benilla_assets::ModelAnimations)>,
     mut dumps: super::dumps::Dumps,
-    mut diagnostic_log_age: Local<HashMap<Entity, f32>>,
 ) {
-    // Bound stale entries across many short one-shot spell casts.
-    if diagnostic_log_age.len() > 1024 {
-        diagnostic_log_age.clear();
-    }
     let Ok((world_cam, cam_tf, frustum, camera, projection, cam_local)) = cam.single() else {
         return;
     };
@@ -484,7 +476,7 @@ pub(super) fn simulate_particles(
         layers,
         light_override,
         lit_by,
-        diagnostic,
+        mut diagnostic,
     ) in &mut emitters
     {
         // The camera the quads face, the LOD measures from and the draw targets: a booth-layered
@@ -499,8 +491,8 @@ pub(super) fn simulate_particles(
             emitter.frozen,
             emitter.draining,
         ) {
-            if let Some(diag) = diagnostic.filter(|_| {
-                diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+            if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
+                diagnostic_due(*diag, emitter.age)
             }) {
                 debug!(
                     spell_id = diag.spell_id,
@@ -563,8 +555,8 @@ pub(super) fn simulate_particles(
                 gates.room_admits(f),
             );
             if !in_set {
-                if let Some(diag) = diagnostic.filter(|_| {
-                    diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+                if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
+                    diagnostic_due(*diag, emitter.age)
                 }) {
                     debug!(
                         spell_id = diag.spell_id,
@@ -608,8 +600,8 @@ pub(super) fn simulate_particles(
             if let Some(at) = subject {
                 if owner_hidden || !crate::view::within_farclip(farclip, cam_pos, cam_fwd, at, 0.0)
                 {
-                    if let Some(diag) = diagnostic.filter(|_| {
-                        diagnostic_due(&mut diagnostic_log_age, entity, emitter.age)
+                    if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
+                        diagnostic_due(*diag, emitter.age)
                     }) {
                         debug!(
                             spell_id = diag.spell_id,
@@ -1173,8 +1165,8 @@ pub(super) fn simulate_particles(
 
         // Targeted, low-rate probe for explicitly tagged spell emitters. Keep it after both
         // the parent and child draw commits so the counters describe the complete frame result.
-        if let Some(diag) = diagnostic.filter(|_| {
-            diagnostic_due(&mut diagnostic_log_age, entity, *age)
+        if let Some(diag) = diagnostic.as_deref_mut().filter(|diag| {
+            diagnostic_due(*diag, *age)
         }) {
                 debug!(
                     spell_id = diag.spell_id,
