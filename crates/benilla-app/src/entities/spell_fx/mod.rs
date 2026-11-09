@@ -549,7 +549,12 @@ struct FxInstance {
     /// The self-termination deadline on `time.elapsed_secs()`, or a reaped instance's `Decay` end.
     expires: Option<f32>,
     /// Virtual time when this one-shot first entered the pending asset-load state.
+    /// Cleared when the model successfully attaches.
     pending_started: Option<f32>,
+    /// Virtual time when the model was attached to its host.
+    attached_at: Option<f32>,
+    /// Sequence span selected as the one-shot lifetime after attachment.
+    sequence_span: Option<f32>,
     /// Reaped and playing its `Decay` out (`0x6141f0`). A reap or replace cannot reach it, as the
     /// reference has moved it to its pending-destroy list.
     decaying: bool,
@@ -695,6 +700,8 @@ pub(super) fn resolve_spell_fx(
                             root: None,
                             expires: None,
                             pending_started: None,
+                            attached_at: None,
+                            sequence_span: None,
                             decaying: false,
                         });
                     }
@@ -834,17 +841,33 @@ pub(super) fn attach_spell_fx(
             if let Some(expires) = inst.expires {
                 if now >= expires {
                     if inst.spell_id == 152_279 {
-                        warn!(
-                            unit = ?unit,
-                            spell_id = inst.spell_id,
-                            path = %inst.path,
-                            pending_started_at = ?inst.pending_started,
-                            expired_at = now,
-                            pending_elapsed = inst.pending_started.map(|started| now - started),
-                            configured_pending_timeout = PENDING_TIMEOUT,
-                            deadline = expires,
-                            "spell fx: Breath of Sindragosa expired before its model attached"
-                        );
+                        if let Some(root) = inst.root {
+                            debug!(
+                                unit = ?unit,
+                                spell_id = inst.spell_id,
+                                path = %inst.path,
+                                root = ?root,
+                                attached_at = ?inst.attached_at,
+                                expired_at = now,
+                                lifetime_after_attach = inst.attached_at.map(|at| now - at),
+                                sequence_span = inst.sequence_span,
+                                deadline = expires,
+                                decaying = inst.decaying,
+                                "spell fx: Breath of Sindragosa one-shot expired after model attachment"
+                            );
+                        } else {
+                            warn!(
+                                unit = ?unit,
+                                spell_id = inst.spell_id,
+                                path = %inst.path,
+                                pending_started_at = ?inst.pending_started,
+                                expired_at = now,
+                                pending_elapsed = inst.pending_started.map(|started| now - started),
+                                configured_pending_timeout = PENDING_TIMEOUT,
+                                deadline = expires,
+                                "spell fx: Breath of Sindragosa expired while waiting for model attachment"
+                            );
+                        }
                     }
                     if let Some(root) = inst.root {
                         // The `0x6203e0` teardown: the particles outlive the flash.
@@ -1058,11 +1081,16 @@ pub(super) fn attach_spell_fx(
                 );
             }
             inst.root = Some(root);
+            inst.attached_at = Some(now);
+            // Pending timeout data is no longer relevant once the model is attached. Its
+            // deadline is replaced by the one-shot's authored sequence lifetime below.
+            inst.pending_started = None;
             if !inst.persistent {
                 // One pass of sequence 0, from the raw sequence table: a sequence with no bone
                 // keys builds no clip (the eat/drink tankard). A looping one counts as one pass;
                 // the reference's loop boundary is untraced, but its tankard ends with the drink.
                 let span = dm.first_seq_span.unwrap_or(FALLBACK_SPAN);
+                inst.sequence_span = Some(span);
                 inst.expires = Some(now + span);
             }
             if benilla_assets::trace::enabled() {
@@ -1158,6 +1186,8 @@ mod tests {
             root: Some(root),
             expires: None,
             pending_started: None,
+            attached_at: None,
+            sequence_span: None,
             decaying: false,
         }
     }
@@ -1421,6 +1451,8 @@ mod tests {
                         root: None,
                         expires: None,
                         pending_started: None,
+                        attached_at: None,
+                        sequence_span: None,
                         decaying: false,
                     }],
                 },
