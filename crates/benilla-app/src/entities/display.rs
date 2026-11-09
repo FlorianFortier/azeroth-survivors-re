@@ -284,6 +284,14 @@ pub(super) fn empty_display() -> DisplayModel {
 
 /// Build a display's spawn parts once its asset and render forms are ready, filling a creature skin
 /// slot from the display's variation (`<dir>\<name>.blp`); until then `parts` stays `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuildPartsStatus {
+    WaitingForMaterials,
+    WaitingForAsset,
+    WaitingForForms,
+    Built(usize),
+}
+
 pub(super) fn build_parts(
     dm: &mut DisplayModel,
     m2s: &Assets<M2Model>,
@@ -296,9 +304,9 @@ pub(super) fn build_parts(
     uv: &mut benilla_world::model_render::EntityUvLane<'_>,
     // Only a GameObject builds the hull collider.
     gameobject: bool,
-) {
+) -> BuildPartsStatus {
     if !mats.ready() {
-        return; // no shared light buffer yet; retry next frame
+        return BuildPartsStatus::WaitingForMaterials; // retry next frame
     }
     let mut emitters = Vec::new();
     let mut ribbons = Vec::new();
@@ -324,12 +332,12 @@ pub(super) fn build_parts(
     let parts = match &dm.handle {
         ModelHandle::M2(h) => {
             let Some(model) = m2s.get(h) else {
-                return; // still loading
+                return BuildPartsStatus::WaitingForAsset; // still loading
             };
             // Every M2 lane can rig, so both forms are requested; static instances and billboard
             // cards draw the static one.
             if !forms.require_rigged(h, 0) {
-                return; // forms still building
+                return BuildPartsStatus::WaitingForForms; // forms still building
             }
             emitters = model.emitters.clone();
             ribbons = model.ribbons.clone();
@@ -425,11 +433,11 @@ pub(super) fn build_parts(
         }
         ModelHandle::Wmo(h) => {
             let Some(model) = wmos.get(h) else {
-                return;
+                return BuildPartsStatus::WaitingForAsset;
             };
             // WMO-display GameObjects never skin: static forms only.
             if !forms.require_static(h, 0) {
-                return;
+                return BuildPartsStatus::WaitingForForms;
             }
             if gameobject {
                 collider = model.collision.as_ref().and_then(model_local_collider);
@@ -499,6 +507,7 @@ pub(super) fn build_parts(
     dm.stand_box_z_local = stand_box_z_local;
     dm.bake_center_local = bake_center_local;
     dm.terrain_tilt = terrain_tilt;
+    BuildPartsStatus::Built(dm.parts.as_ref().map_or(0, Vec::len))
 }
 
 /// A model-local trimesh collider from the raw collision hull, through `wow_to_bevy` like the
