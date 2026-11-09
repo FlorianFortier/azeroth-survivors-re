@@ -1164,7 +1164,9 @@ fn update_display_models(
                         ),
                         ModelHandle::None => (None, None, false),
                     };
-                    let milestone = format!("{path}:{status:?}");
+                    let milestone = format!(
+                        "{path}:{status:?}:{load_state:?}:{dependency_state:?}:{asset_present}"
+                    );
                     if fx.diagnostic_states.insert(milestone) {
                         debug!(
                             path,
