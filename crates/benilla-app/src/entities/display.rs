@@ -282,8 +282,6 @@ pub(super) fn empty_display() -> DisplayModel {
     }
 }
 
-/// Build a display's spawn parts once its asset and render forms are ready, filling a creature skin
-/// slot from the display's variation (`<dir>\<name>.blp`); until then `parts` stays `None`.
 /// Why a display's parts have or have not been built on this frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuildPartsStatus {
@@ -293,6 +291,8 @@ pub(crate) enum BuildPartsStatus {
     Built(usize),
 }
 
+/// Build a display's spawn parts once its asset and render forms are ready, filling a creature skin
+/// slot from its directory's variation; until then `parts` stays `None`.
 pub(super) fn build_parts(
     dm: &mut DisplayModel,
     m2s: &Assets<M2Model>,
