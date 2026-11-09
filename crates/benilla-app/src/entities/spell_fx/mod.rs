@@ -156,6 +156,17 @@ pub(crate) struct EffectHost {
     pub parent: Option<Entity>,
 }
 
+/// Breath of Sindragosa's Legion M2s author their Plane emitter axis along WoW +Z (up).
+/// In Bevy this is +Y; the spell's cone must leave the chest toward the character's forward
+/// (-Z in the effect's attachment frame). Rotate only this effect instance's local frame.
+fn effect_root_local_rotation(spell_id: u32) -> Quat {
+    if spell_id == 152_279 {
+        Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+    } else {
+        Quat::IDENTITY
+    }
+}
+
 /// Attach one effect model's visuals to `root`, for every effect consumer. Part meshes go unculled,
 /// since a bind-pose bound is wrong for a billboarded subtree; a `ground_anchor` instance's flat
 /// ground quads become projected decals ([`crate::ground_fx`]). Returns `false` while the model's
@@ -1009,8 +1020,16 @@ pub(super) fn attach_spell_fx(
                         (joint, offset, Some(bone), rotation)
                     },
                 );
+                let root_local_rotation = effect_root_local_rotation(inst.spell_id);
                 let root = commands
-                    .spawn((Transform::from_translation(offset), Visibility::default()))
+                    .spawn((
+                        Transform {
+                            translation: offset,
+                            rotation: root_local_rotation,
+                            scale: Vec3::ONE,
+                        },
+                        Visibility::default(),
+                    ))
                     // Chain-only, as above.
                     .vis_chain_only()
                     .id();
@@ -1071,7 +1090,7 @@ pub(super) fn attach_spell_fx(
                     attachment_world_rotation = ?attachment_world_rotation,
                     attachment_forward_bevy = ?attachment_forward,
                     attachment_up_bevy = ?attachment_up,
-                    root_local_rotation = ?Quat::IDENTITY,
+                    root_local_rotation = ?effect_root_local_rotation(inst.spell_id),
                     parts = dm.parts.as_ref().map_or(0, Vec::len),
                     emitters = dm.emitters.len(),
                     ribbons = dm.ribbons.len(),
@@ -1172,6 +1191,21 @@ mod tests {
     use super::*;
     use bevy::asset::AssetPlugin;
     use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+
+    #[test]
+    fn breath_of_sindragosa_rotates_m2_up_axis_to_character_forward() {
+        let rotation = effect_root_local_rotation(152_279);
+        let emitted_axis_bevy = rotation * Vec3::Y;
+        assert!(
+            emitted_axis_bevy.distance(Vec3::NEG_Z) < 1e-5,
+            "M2 +Z / Bevy +Y must point along the attached character's local forward (-Z)"
+        );
+        assert_eq!(
+            effect_root_local_rotation(13033),
+            Quat::IDENTITY,
+            "other spell effects must retain their authored orientation"
+        );
+    }
 
     /// One spawned instance of Ice Barrier's state model.
     fn instance(root: Entity, persistent: bool) -> FxInstance {
