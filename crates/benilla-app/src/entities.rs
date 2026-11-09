@@ -1204,15 +1204,15 @@ fn update_display_models(
     }
 }
 
+fn is_breath_of_sindragosa_m2(path: &str) -> bool {
+    path.ends_with("948165.m2") || path.ends_with("948167.m2")
+}
+
 /// Write a unit part's animated colour alpha into its `MeshTag` alpha field, the dimming factor of
 /// the per-batch `A = instanceAlpha × colourAlpha × weight` (`0x707680`); the `A ≤ 0` cull is the
 /// `Visibility` authority's. Written verbatim, never multiplied in, after the interior classifier;
 /// a part under an appear or despawn fade is `apply_render_fade`'s, which folds the factor in.
 #[allow(clippy::type_complexity)]
-fn is_breath_of_sindragosa_m2(path: &str) -> bool {
-    path.ends_with("948165.m2") || path.ends_with("948167.m2")
-}
-
 fn apply_unit_mat_alpha(
     mut parts: Query<
         (
