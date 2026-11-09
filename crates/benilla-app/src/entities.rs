@@ -446,6 +446,7 @@ fn evict_display_caches(
     );
     composites.clear();
     fx.models.clear();
+    fx.diagnostic_states.clear();
     if let Some(mut c) = creatures {
         c.models.clear();
     }
