@@ -46,6 +46,8 @@ const PENDING_TIMEOUT: f32 = 10.0;
 #[derive(Resource, Default)]
 pub(crate) struct SpellFx {
     pub(crate) models: HashMap<String, DisplayModel>,
+    /// Build-status milestones already logged; prevents per-frame debug spam.
+    pub(crate) diagnostic_states: HashSet<String>,
 }
 
 /// Get-or-insert this path's cache entry and start its load: the only way to reach
@@ -546,6 +548,8 @@ struct FxInstance {
     root: Option<Entity>,
     /// The self-termination deadline on `time.elapsed_secs()`, or a reaped instance's `Decay` end.
     expires: Option<f32>,
+    /// Virtual time when this one-shot first entered the pending asset-load state.
+    pending_started: Option<f32>,
     /// Reaped and playing its `Decay` out (`0x6141f0`). A reap or replace cannot reach it, as the
     /// reference has moved it to its pending-destroy list.
     decaying: bool,
@@ -690,6 +694,7 @@ pub(super) fn resolve_spell_fx(
                             path: path.clone(),
                             root: None,
                             expires: None,
+                            pending_started: None,
                             decaying: false,
                         });
                     }
@@ -833,6 +838,11 @@ pub(super) fn attach_spell_fx(
                             unit = ?unit,
                             spell_id = inst.spell_id,
                             path = %inst.path,
+                            pending_started_at = ?inst.pending_started,
+                            expired_at = now,
+                            pending_elapsed = inst.pending_started.map(|started| now - started),
+                            configured_pending_timeout = PENDING_TIMEOUT,
+                            deadline = expires,
                             "spell fx: Breath of Sindragosa expired before its model attached"
                         );
                     }
@@ -879,7 +889,19 @@ pub(super) fn attach_spell_fx(
             }
             // Pending: unspawnable flashes time out; a spawn sets the real span.
             if !inst.persistent && inst.expires.is_none() {
+                inst.pending_started = Some(now);
                 inst.expires = Some(now + PENDING_TIMEOUT);
+                if inst.spell_id == 152_279 {
+                    debug!(
+                        unit = ?unit,
+                        spell_id = inst.spell_id,
+                        path = %inst.path,
+                        pending_started_at = now,
+                        pending_timeout = PENDING_TIMEOUT,
+                        pending_deadline = now + PENDING_TIMEOUT,
+                        "spell fx: Breath of Sindragosa pending timeout armed"
+                    );
+                }
             }
             ensure_model(&mut fx, &asset_server, &inst.path);
             let Some(dm) = fx.models.get(&inst.path) else {
@@ -995,6 +1017,18 @@ pub(super) fn attach_spell_fx(
                 None, // an attach-point kit effect opens on its model's own `Stand`
             );
             if inst.spell_id == 152_279 {
+                if let Some(started) = inst.pending_started {
+                    debug!(
+                        unit = ?unit,
+                        spell_id = inst.spell_id,
+                        path = %inst.path,
+                        pending_started_at = started,
+                        attached_at = now,
+                        load_to_attach_elapsed = now - started,
+                        pending_deadline = inst.expires,
+                        "spell fx: Breath of Sindragosa model load completed"
+                    );
+                }
                 let unit_rotation = unit_gt.to_scale_rotation_translation().1;
                 let attachment_world_rotation =
                     attachment_model_rotation.map(|r| unit_rotation * r);
@@ -1123,6 +1157,7 @@ mod tests {
             path: "Spells\\IceShield_State.mdx".into(),
             root: Some(root),
             expires: None,
+            pending_started: None,
             decaying: false,
         }
     }
@@ -1385,6 +1420,7 @@ mod tests {
                         path: PATH.to_string(),
                         root: None,
                         expires: None,
+                        pending_started: None,
                         decaying: false,
                     }],
                 },
