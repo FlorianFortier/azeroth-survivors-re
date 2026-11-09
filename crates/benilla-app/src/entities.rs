@@ -21,7 +21,7 @@ use benilla_world::schedule::WorldStage;
 pub(crate) mod display;
 use display::{
     build_parts, empty_display, empty_shell, new_creature_display, new_gameobject_display,
-    DisplayModel, EntityPart, ModelHandle,
+    BuildPartsStatus, DisplayModel, EntityPart, ModelHandle,
 };
 
 /// Attaching a visual to each net entity: skeleton, animation, character geosets and skin, fade.
@@ -1118,21 +1118,52 @@ fn update_display_models(
         }
     }
 
-    // Spell-effect models, keyed by model path.
+    // Spell-effect models, keyed by path. Trace the two Legion M2s used by Breath of Sindragosa
+    // so an unfinished display can be attributed to asset loading, materials, or rigged forms.
     if spell_fx.as_deref().is_some_and(|f| unbuilt(&f.models)) {
         if let Some(fx) = spell_fx.as_deref_mut() {
-            for dm in fx.models.values_mut() {
-                if dm.parts.is_none() {
-                    build_parts(
-                        dm,
-                        m2s,
-                        wmos,
-                        &mut forms,
-                        &asset_server,
-                        &mut mats,
-                        &mut uv,
-                        false, // gameobject: effects, unit lighting, no collider
-                    );
+            for (path, dm) in fx.models.iter_mut() {
+                if dm.parts.is_some() {
+                    continue;
+                }
+                let status = build_parts(
+                    dm,
+                    m2s,
+                    wmos,
+                    &mut forms,
+                    &asset_server,
+                    &mut mats,
+                    &mut uv,
+                    false,
+                );
+                if is_breath_of_sindragosa_m2(path) {
+                    let (load_state, dependency_state, asset_present) = match &dm.handle {
+                        ModelHandle::M2(handle) => (
+                            asset_server.get_load_state(handle.id()),
+                            asset_server.get_recursive_dependency_load_state(handle.id()),
+                            m2s.get(handle).is_some(),
+                        ),
+                        ModelHandle::Wmo(handle) => (
+                            asset_server.get_load_state(handle.id()),
+                            asset_server.get_recursive_dependency_load_state(handle.id()),
+                            wmos.get(handle).is_some(),
+                        ),
+                        ModelHandle::None => (None, None, false),
+                    };
+                    let milestone = format!("{path}:{status:?}");
+                    if fx.diagnostic_states.insert(milestone) {
+                        debug!(
+                            path,
+                            build_status = ?status,
+                            load_state = ?load_state,
+                            dependency_load_state = ?dependency_state,
+                            asset_present,
+                            parts_built = dm.parts.is_some(),
+                            parts_count = dm.parts.as_ref().map_or(0, Vec::len),
+                            materials_ready = mats.ready(),
+                            "spell fx: Breath of Sindragosa asset build"
+                        );
+                    }
                 }
             }
         }
@@ -1164,6 +1195,10 @@ fn update_display_models(
 /// `Visibility` authority's. Written verbatim, never multiplied in, after the interior classifier;
 /// a part under an appear or despawn fade is `apply_render_fade`'s, which folds the factor in.
 #[allow(clippy::type_complexity)]
+fn is_breath_of_sindragosa_m2(path: &str) -> bool {
+    path.ends_with("948165.m2") || path.ends_with("948167.m2")
+}
+
 fn apply_unit_mat_alpha(
     mut parts: Query<
         (
