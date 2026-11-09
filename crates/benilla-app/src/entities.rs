@@ -949,6 +949,19 @@ fn update_display_models(
     stable_booth: Option<Res<crate::portrait::StableBooth>>,
 ) {
     if !mats.ready() {
+        if let Some(fx) = spell_fx.as_deref_mut() {
+            for path in fx.models.keys().filter(|path| is_breath_of_sindragosa_m2(path)) {
+                if fx
+                    .diagnostic_states
+                    .insert(format!("{path}:GlobalMaterialsNotReady"))
+                {
+                    debug!(
+                        path,
+                        "spell fx: Breath of Sindragosa asset build waiting for global material system"
+                    );
+                }
+            }
+        }
         return; // no lighting yet → no materials to build
     }
     let (m2s, wmos) = (&model_assets.0, &model_assets.1);
