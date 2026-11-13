@@ -704,22 +704,22 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
             tile_cols: tiles.1,
             head_tail: bytes[e + 0x2c],
             timing: EmitTiming::bake(
-                &read_raw_track(bytes, e + 0xdc, 4, le_f32),
-                &read_raw_track(bytes, e + 0x1dc, 1, |b, o| f32::from(b[o] != 0)),
+                &read_raw_track(bytes, e + track(0xdc, 6), 4, layout, le_f32),
+                &read_raw_track(bytes, e + tail(0x1dc), 1, layout, |b, o| f32::from(b[o] != 0)),
                 &seq_slots,
                 &gseq,
             ),
             params: EmitParams::bake(
                 [
-                    &read_raw_track(bytes, e + 0x34, 4, le_f32),  // speed
-                    &read_raw_track(bytes, e + 0x50, 4, le_f32),  // speedVar
-                    &read_raw_track(bytes, e + 0x6c, 4, le_f32),  // latitude
-                    &read_raw_track(bytes, e + 0x88, 4, le_f32),  // longitude
-                    &read_raw_track(bytes, e + 0xa4, 4, le_f32),  // gravity
-                    &read_raw_track(bytes, e + 0xc0, 4, le_f32),  // lifespan
-                    &read_raw_track(bytes, e + 0xf8, 4, le_f32),  // areaLength
-                    &read_raw_track(bytes, e + 0x114, 4, le_f32), // areaWidth
-                    &read_raw_track(bytes, e + 0x130, 4, le_f32), // zSource
+                    &read_raw_track(bytes, e + track(0x34, 0), 4, layout, le_f32),  // speed
+                    &read_raw_track(bytes, e + track(0x50, 1), 4, layout, le_f32),  // speedVar
+                    &read_raw_track(bytes, e + track(0x6c, 2), 4, layout, le_f32),  // latitude
+                    &read_raw_track(bytes, e + track(0x88, 3), 4, layout, le_f32),  // longitude
+                    &read_raw_track(bytes, e + track(0xa4, 4), 4, layout, le_f32),  // gravity
+                    &read_raw_track(bytes, e + track(0xc0, 5), 4, layout, le_f32),  // lifespan
+                    &read_raw_track(bytes, e + track(0xf8, 7), 4, layout, le_f32),  // areaLength
+                    &read_raw_track(bytes, e + track(0x114, 8), 4, layout, le_f32), // areaWidth
+                    &read_raw_track(bytes, e + track(0x130, 9), 4, layout, le_f32), // zSource
                 ],
                 &seq_slots,
                 &gseq,
