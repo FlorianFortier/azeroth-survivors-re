@@ -387,7 +387,7 @@ impl ParticleEmitterDef {
 }
 
 const VANILLA_EMITTER_STRIDE: usize = 0x1f8;
-const POST_WOTLK_EMITTER_STRIDE: usize = 0x1a0;
+const POST_WOTLK_EMITTER_STRIDE: usize = 0x1d0;
 const VANILLA_TRACK_STRIDE: usize = 0x1c;
 const POST_WOTLK_TRACK_STRIDE: usize = 0x14;
 const VANILLA_HDR_COUNT: usize = 0x13c;
@@ -606,6 +606,189 @@ fn particle_texture_names(bytes: &[u8], version: u32, layout: ParticleM2Layout) 
         .collect()
 }
 
+/// A constant scalar track used when a post-WotLK emitter stores a static value instead
+/// of an animated M2Track.
+fn constant_particle_track(value: f32) -> M2ScalarTrack {
+    M2ScalarTrack {
+        interp: 0,
+        gseq: 0xffff,
+        ranges: Vec::new(),
+        keys: vec![(0, value)],
+    }
+}
+
+/// Read the post-WotLK fixed-layout particle records (v264-v272). These records use a different
+/// emitter header and ten 20-byte animation blocks; they are not a compacted v256 record.
+fn parse_post_wotlk_particle_emitters(
+    bytes: &[u8],
+    layout: ParticleM2Layout,
+    textures: &[Option<String>],
+) -> Result<Vec<ParticleEmitterDef>> {
+    let count = le_u32(bytes, layout.emitter_count_offset) as usize;
+    let base = le_u32(bytes, layout.emitter_pointer_offset) as usize;
+    let records_bytes = count
+        .checked_mul(layout.emitter_stride)
+        .context("post-WotLK particle emitter table size overflow")?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    if count > 256 || base.checked_add(records_bytes).is_none_or(|end| end > bytes.len()) {
+        anyhow::bail!(
+            "invalid post-WotLK particle emitter table: count={count}, offset={base:#x}, stride={:#x}, file_len={:#x}",
+            layout.emitter_stride,
+            bytes.len()
+        );
+    }
+
+    let mut seq_slots: Vec<SeqSlot> = {
+        let n = le_u32(bytes, 0x1c) as usize;
+        let offset = le_u32(bytes, 0x20) as usize;
+        (0..n)
+            .map_while(|i| {
+                let e = offset + i * layout.sequence_stride;
+                (e + layout.sequence_stride <= bytes.len()).then(|| SeqSlot {
+                    index: i,
+                    band: (le_u32(bytes, e + 4), le_u32(bytes, e + 8)),
+                    looping: le_u32(bytes, e + 0x10) & 1 == 0,
+                })
+            })
+            .collect()
+    };
+    if seq_slots.is_empty() {
+        seq_slots.push(SeqSlot {
+            index: 0,
+            band: (0, u32::MAX),
+            looping: true,
+        });
+    }
+    let gseq: Vec<u32> = {
+        let n = le_u32(bytes, 0x14) as usize;
+        let offset = le_u32(bytes, 0x18) as usize;
+        (0..n)
+            .map_while(|i| (offset + i * 4 + 4 <= bytes.len()).then(|| le_u32(bytes, offset + i * 4)))
+            .collect()
+    };
+
+    let mut out = Vec::with_capacity(count);
+    for index in 0..count {
+        let e = base + index * layout.emitter_stride;
+        // v264+ M2ParticleEmitter:
+        // id 0x00, flags 0x04, position 0x08, bone 0x14, texture 0x16,
+        // model filename 0x18, parent/geometry metadata 0x20/0x22,
+        // blend/type/particle/head-tail 0x24..0x27, texture tiles M2Array 0x28.
+        let flags = le_u32(bytes, e + 4);
+        let position = le_vec3(bytes, e + 8);
+        let bone = le_u16(bytes, e + 0x14);
+        let texture_index = le_u16(bytes, e + 0x16) as usize;
+        let texture = textures.get(texture_index).cloned().flatten();
+        let geometry_count = le_u32(bytes, e + 0x18) as usize;
+        let geometry_offset = le_u32(bytes, e + 0x1c) as usize;
+        let geometry_model = geometry_offset
+            .checked_add(geometry_count)
+            .filter(|&end| geometry_count >= 2 && end <= bytes.len())
+            .map(|end| {
+                let _ = end;
+                String::from_utf8_lossy(&bytes[geometry_offset..geometry_offset + geometry_count])
+                    .trim_end_matches('\0')
+                    .to_string()
+            })
+            .filter(|name| !name.is_empty());
+
+        let blend_byte = bytes[e + 0x24];
+        let shape = shape_of(u16::from(bytes[e + 0x25]));
+        let head_tail = bytes[e + 0x27];
+
+        // The ten post-WotLK animation blocks are 20-byte M2Tracks (no ranges).
+        let speed_anim = read_raw_track(bytes, e + 0x108, 4, layout, le_f32);
+        let mut speed_anim = speed_anim;
+        if speed_anim.keys.is_empty() {
+            speed_anim = constant_particle_track(le_f32(bytes, e + 0x40));
+        }
+        let rate_anim = read_raw_track(bytes, e + 0x11c, 4, layout, le_f32);
+        let mut rate_anim = rate_anim;
+        if rate_anim.keys.is_empty() {
+            rate_anim = constant_particle_track(le_f32(bytes, e + 0x34));
+        }
+        let z_source_anim = read_raw_track(bytes, e + 0x1bc, 4, layout, le_f32);
+
+        let static_track = |offset| constant_particle_track(le_f32(bytes, e + offset));
+        let zero_track = constant_particle_track(0.0);
+        let params = EmitParams::bake(
+            [
+                &speed_anim,
+                &static_track(0xc0), // speed variation
+                &static_track(0x9c), // vertical range / cone half-angle
+                &static_track(0x90), // horizontal range / azimuth
+                &static_track(0xa8), // gravity
+                &static_track(0x30), // particle lifespan
+                &static_track(0x38), // emission area length
+                &static_track(0x3c), // emission area width
+                if z_source_anim.keys.is_empty() {
+                    &zero_track
+                } else {
+                    &z_source_anim
+                },
+            ],
+            &seq_slots,
+            &gseq,
+        );
+        let timing = EmitTiming::bake(&rate_anim, &M2ScalarTrack::default(), &seq_slots, &gseq);
+
+        // These over-life fields are not part of the v264+ emitter record at the v256 offsets.
+        // Keep a neutral ramp until the separate color/alpha/size animation blocks are mapped.
+        let cells = CellRamp::new(0, 0);
+        let color = [
+            le_f32(bytes, e + 0xe4),
+            le_f32(bytes, e + 0xe8),
+            le_f32(bytes, e + 0xec),
+            1.0,
+        ];
+        let initial_size = le_f32(bytes, e + 0x78);
+        let over_life = OverLife {
+            mid: 0.5,
+            color: [color; 3],
+            scale: [initial_size; 3],
+            head_cells: [cells; 2],
+            tail_cells: [cells; 2],
+            repeat: [1.0; 2],
+        };
+
+        out.push(ParticleEmitterDef {
+            flags,
+            position,
+            bone,
+            shape,
+            spline: None,
+            geometry_model,
+            recursion_model: None,
+            blend: blend_of(blend_byte),
+            lit: lit_of(flags, blend_byte),
+            texture,
+            tile_rows: 1,
+            tile_cols: 1,
+            head_tail,
+            timing,
+            params,
+            drag: 0.0,
+            tail_time: 0.0,
+            angular_velocity_min: [0.0; 3],
+            angular_velocity_max: [0.0; 3],
+            inherit_scale: 0.0,
+            follow_speed1: 0.0,
+            follow_scale1: 0.0,
+            follow_speed2: 0.0,
+            follow_scale2: 0.0,
+            twinkle_speed: 0.0,
+            twinkle_percent: 0.0,
+            twinkle_min: 1.0,
+            twinkle_max: 1.0,
+            spin: le_f32(bytes, e + 0xcc),
+            over_life,
+        });
+    }
+    Ok(out)
+}
+
 /// The vanilla M2's particle emitters, textures resolved through `benilla-m2`'s textures table;
 /// empty for a model with none or a file that is not MD20.
 pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef>> {
@@ -615,6 +798,9 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
     let version = le_u32(bytes, 4);
     let layout = ParticleM2Layout::for_version(version)?;
     let textures = particle_texture_names(bytes, version, layout);
+    if !layout.has_track_ranges {
+        return parse_post_wotlk_particle_emitters(bytes, layout, &textures);
+    }
     let count = le_u32(bytes, layout.emitter_count_offset) as usize;
     let base = le_u32(bytes, layout.emitter_pointer_offset) as usize;
     let records_bytes = count
