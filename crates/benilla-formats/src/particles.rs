@@ -437,20 +437,7 @@ impl ParticleM2Layout {
         }
     }
 
-    /// Convert a v256 file offset to this version's offset. `tracks_before` counts compacted
-    /// M2Track records preceding the field; fields before the first track pass zero.
-    fn offset(self, vanilla_offset: usize, tracks_before: usize) -> usize {
-        vanilla_offset - (VANILLA_TRACK_STRIDE - self.track_stride) * tracks_before
-    }
 
-    fn track_offset(self, vanilla_offset: usize, track_index: usize) -> usize {
-        self.offset(vanilla_offset, track_index)
-    }
-
-    /// Fixed fields following the ten emission parameter tracks.
-    fn tail_offset(self, vanilla_offset: usize) -> usize {
-        self.offset(vanilla_offset, 10)
-    }
 }
 
 fn le_u16(b: &[u8], o: usize) -> u16 {
@@ -860,8 +847,8 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let e = base + i * layout.emitter_stride;
-        let track = |legacy_offset, index| layout.track_offset(legacy_offset, index);
-        let tail = |legacy_offset| layout.tail_offset(legacy_offset);
+        let track = |legacy_offset, _index| legacy_offset;
+        let tail = |legacy_offset| legacy_offset;
         let tex_index = le_u16(bytes, e + 0x16) as usize;
         let texture = textures.get(tex_index).cloned().flatten();
         let shape = shape_of(le_u16(bytes, e + 0x2a));
@@ -1005,16 +992,12 @@ mod tests {
 
         let post_wotlk = ParticleM2Layout::for_version(272).unwrap();
         assert_eq!(post_wotlk.track_stride, 0x14);
-        assert_eq!(post_wotlk.emitter_stride, 0x1a0);
+        assert_eq!(post_wotlk.emitter_stride, 0x1d0);
         assert_eq!(post_wotlk.sequence_stride, 0x40);
         assert_eq!(post_wotlk.emitter_count_offset, 0x128);
         assert_eq!(post_wotlk.emitter_pointer_offset, 0x12c);
         assert_eq!(post_wotlk.texture_count_offset, 0x50);
         assert_eq!(post_wotlk.texture_pointer_offset, 0x54);
-        assert_eq!(post_wotlk.track_offset(0x6c, 2), 0x5c);
-        assert_eq!(post_wotlk.track_offset(0xdc, 6), 0xac);
-        assert_eq!(post_wotlk.tail_offset(0x14c), 0xfc);
-        assert_eq!(post_wotlk.tail_offset(0x1dc), 0x18c);
         assert!(ParticleM2Layout::for_version(273).is_err());
     }
 
@@ -1065,11 +1048,17 @@ mod tests {
         put_u32(&mut bytes, 4, 272);
         put_u32(&mut bytes, POST_WOTLK_HDR_COUNT, 1);
         put_u32(&mut bytes, POST_WOTLK_HDR_PTR, base as u32);
+        bytes[base + 0x24] = 2; // alpha blend
+        bytes[base + 0x25] = 2; // sphere emitter type (byte, not the v256 u16 field)
+        put_f32(&mut bytes, base + 0x90, 0.3); // horizontal range
+        put_f32(&mut bytes, base + 0x9c, 0.4); // vertical range
 
         let emitters = parse_m2_particle_emitters(&bytes).expect("parse v272 emitters");
         assert_eq!(emitters.len(), 1);
-        assert_eq!(emitters[0].shape, ParticleShape::Plane);
-        assert_eq!(emitters[0].params.sample(None, 0.0, 0.0).vertical_range, 0.0);
+        assert_eq!(emitters[0].shape, ParticleShape::Sphere);
+        let params = emitters[0].params.sample(None, 0.0, 0.0);
+        assert!((params.horizontal_range - 0.3).abs() < f32::EPSILON);
+        assert!((params.vertical_range - 0.4).abs() < f32::EPSILON);
     }
 
     #[test]
