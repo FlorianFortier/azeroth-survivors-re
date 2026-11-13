@@ -386,9 +386,58 @@ impl ParticleEmitterDef {
     }
 }
 
-const STRIDE: usize = 0x1f8;
+const VANILLA_EMITTER_STRIDE: usize = 0x1f8;
+const POST_WOTLK_EMITTER_STRIDE: usize = 0x1a0;
+const VANILLA_TRACK_STRIDE: usize = 0x1c;
+const POST_WOTLK_TRACK_STRIDE: usize = 0x14;
 const HDR_COUNT: usize = 0x13c;
 const HDR_PTR: usize = 0x140;
+
+/// The particle record layout changes at M2 v264: animation tracks lose their per-sequence
+/// ranges (28 -> 20 bytes), and sequence records shrink from 0x44 to 0x40 bytes. The eleven
+/// particle tracks therefore compact the fixed tail of the record by 8 bytes each.
+#[derive(Debug, Clone, Copy)]
+struct ParticleM2Layout {
+    track_stride: usize,
+    emitter_stride: usize,
+    sequence_stride: usize,
+    has_track_ranges: bool,
+}
+
+impl ParticleM2Layout {
+    fn for_version(version: u32) -> Result<Self> {
+        match version {
+            256..=263 => Ok(Self {
+                track_stride: VANILLA_TRACK_STRIDE,
+                emitter_stride: VANILLA_EMITTER_STRIDE,
+                sequence_stride: 0x44,
+                has_track_ranges: true,
+            }),
+            264..=272 => Ok(Self {
+                track_stride: POST_WOTLK_TRACK_STRIDE,
+                emitter_stride: POST_WOTLK_EMITTER_STRIDE,
+                sequence_stride: 0x40,
+                has_track_ranges: false,
+            }),
+            _ => anyhow::bail!("unsupported particle M2 version {version}"),
+        }
+    }
+
+    /// Convert a v256 file offset to this version's offset. `tracks_before` counts compacted
+    /// M2Track records preceding the field; fields before the first track pass zero.
+    fn offset(self, vanilla_offset: usize, tracks_before: usize) -> usize {
+        vanilla_offset - (VANILLA_TRACK_STRIDE - self.track_stride) * tracks_before
+    }
+
+    fn track_offset(self, vanilla_offset: usize, track_index: usize) -> usize {
+        self.offset(vanilla_offset, track_index)
+    }
+
+    /// Fixed fields following the ten emission parameter tracks.
+    fn tail_offset(self, vanilla_offset: usize) -> usize {
+        self.offset(vanilla_offset, 10)
+    }
+}
 
 fn le_u16(b: &[u8], o: usize) -> u16 {
     u16::from_le_bytes([b[o], b[o + 1]])
