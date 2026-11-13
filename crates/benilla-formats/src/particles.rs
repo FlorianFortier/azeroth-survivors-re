@@ -543,32 +543,64 @@ fn shape_of(v: u16) -> ParticleShape {
     }
 }
 
+/// Resolve M2 texture filenames. benilla-m2 currently parses only v256-v263; the later
+/// header omits the playable-animation array, moving the texture table from 0x5c to 0x50.
+fn particle_texture_names(bytes: &[u8], version: u32) -> Vec<Option<String>> {
+    if version <= 263 {
+        return match parse_m2(&mut Cursor::new(bytes)) {
+            Ok(fmt) => fmt
+                .model()
+                .textures
+                .iter()
+                .map(|texture| {
+                    let name = texture
+                        .filename
+                        .string
+                        .to_string_lossy()
+                        .trim_end_matches('\0')
+                        .to_string();
+                    (!name.is_empty()).then_some(name)
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+    }
+
+    let (count, base) = (
+        le_u32(bytes, 0x50) as usize,
+        le_u32(bytes, 0x54) as usize,
+    );
+    if count > 4096
+        || base
+            .checked_add(count.saturating_mul(16))
+            .is_none_or(|end| end > bytes.len())
+    {
+        return Vec::new();
+    }
+    (0..count)
+        .map(|index| {
+            let entry = base + index * 16;
+            let name_len = le_u32(bytes, entry + 8) as usize;
+            let name_offset = le_u32(bytes, entry + 12) as usize;
+            let end = name_offset.checked_add(name_len)?;
+            let raw = bytes.get(name_offset..end)?;
+            let name = String::from_utf8_lossy(raw)
+                .trim_end_matches('\0')
+                .to_string();
+            (!name.is_empty()).then_some(name)
+        })
+        .collect()
+}
+
 /// The vanilla M2's particle emitters, textures resolved through `benilla-m2`'s textures table;
 /// empty for a model with none or a file that is not MD20.
 pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef>> {
-    let textures: Vec<Option<String>> = match parse_m2(&mut Cursor::new(bytes)) {
-        Ok(fmt) => fmt
-            .model()
-            .textures
-            .iter()
-            .map(|t| {
-                let f = t
-                    .filename
-                    .string
-                    .to_string_lossy()
-                    .trim_end_matches('\0')
-                    .to_string();
-                (!f.is_empty()).then_some(f)
-            })
-            .collect(),
-        Err(_) => Vec::new(),
-    };
-
     if bytes.len() < HDR_PTR + 4 || &bytes[..4] != b"MD20" {
         return Ok(Vec::new());
     }
     let version = le_u32(bytes, 4);
     let layout = ParticleM2Layout::for_version(version)?;
+    let textures = particle_texture_names(bytes, version);
     let count = le_u32(bytes, HDR_COUNT) as usize;
     let base = le_u32(bytes, HDR_PTR) as usize;
     let records_bytes = count
