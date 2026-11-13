@@ -783,6 +783,17 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
     }
     let version = le_u32(bytes, 4);
     let layout = ParticleM2Layout::for_version(version)?;
+    let header_end = layout
+        .emitter_pointer_offset
+        .max(layout.texture_pointer_offset)
+        .checked_add(4)
+        .context("M2 header size overflow")?;
+    if bytes.len() < header_end {
+        anyhow::bail!(
+            "truncated M2 v{version} header: need {header_end:#x} bytes, found {:#x}",
+            bytes.len()
+        );
+    }
     let textures = particle_texture_names(bytes, version, layout);
     if !layout.has_track_ranges {
         return parse_post_wotlk_particle_emitters(bytes, layout, &textures);
