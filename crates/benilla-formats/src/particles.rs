@@ -559,8 +559,8 @@ fn shape_of(v: u16) -> ParticleShape {
 
 /// Resolve M2 texture filenames. benilla-m2 currently parses only v256-v263; the later
 /// header omits the playable-animation array, moving the texture table from 0x5c to 0x50.
-fn particle_texture_names(bytes: &[u8], version: u32) -> Vec<Option<String>> {
-    if version <= 263 {
+fn particle_texture_names(bytes: &[u8], version: u32, layout: ParticleM2Layout) -> Vec<Option<String>> {
+    if layout.has_track_ranges {
         return match parse_m2(&mut Cursor::new(bytes)) {
             Ok(fmt) => fmt
                 .model()
@@ -581,8 +581,8 @@ fn particle_texture_names(bytes: &[u8], version: u32) -> Vec<Option<String>> {
     }
 
     let (count, base) = (
-        le_u32(bytes, ParticleM2Layout::for_version(version).map_or(0x50, |l| l.texture_count_offset)) as usize,
-        le_u32(bytes, ParticleM2Layout::for_version(version).map_or(0x54, |l| l.texture_pointer_offset)) as usize,
+        le_u32(bytes, layout.texture_count_offset) as usize,
+        le_u32(bytes, layout.texture_pointer_offset) as usize,
     );
     if count > 4096
         || base
@@ -614,7 +614,7 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
     }
     let version = le_u32(bytes, 4);
     let layout = ParticleM2Layout::for_version(version)?;
-    let textures = particle_texture_names(bytes, version);
+    let textures = particle_texture_names(bytes, version, layout);
     let count = le_u32(bytes, layout.emitter_count_offset) as usize;
     let base = le_u32(bytes, layout.emitter_pointer_offset) as usize;
     let records_bytes = count
@@ -830,6 +830,21 @@ mod tests {
         assert_eq!(post_wotlk.tail_offset(0x14c), 0xfc);
         assert_eq!(post_wotlk.tail_offset(0x1dc), 0x18c);
         assert!(ParticleM2Layout::for_version(273).is_err());
+    }
+
+    #[test]
+    fn post_wotlk_texture_names_use_the_compacted_header() {
+        let layout = ParticleM2Layout::for_version(272).unwrap();
+        let mut bytes = vec![0u8; 0xb0];
+        put_u32(&mut bytes, layout.texture_count_offset, 1);
+        put_u32(&mut bytes, layout.texture_pointer_offset, 0x70);
+        put_u32(&mut bytes, 0x78, 13); // filename byte count
+        put_u32(&mut bytes, 0x7c, 0x90); // filename offset
+        bytes[0x90..0x9d].copy_from_slice(b"breath.blp\0");
+        assert_eq!(
+            particle_texture_names(&bytes, 272, layout),
+            vec![Some("breath.blp".to_string())]
+        );
     }
 
     #[test]
