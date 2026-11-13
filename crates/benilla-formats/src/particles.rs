@@ -838,9 +838,9 @@ mod tests {
         let mut bytes = vec![0u8; 0xb0];
         put_u32(&mut bytes, layout.texture_count_offset, 1);
         put_u32(&mut bytes, layout.texture_pointer_offset, 0x70);
-        put_u32(&mut bytes, 0x78, 13); // filename byte count
+        put_u32(&mut bytes, 0x78, 11); // filename byte count
         put_u32(&mut bytes, 0x7c, 0x90); // filename offset
-        bytes[0x90..0x9d].copy_from_slice(b"breath.blp\0");
+        bytes[0x90..0x9b].copy_from_slice(b"breath.blp\0");
         assert_eq!(
             particle_texture_names(&bytes, 272, layout),
             vec![Some("breath.blp".to_string())]
