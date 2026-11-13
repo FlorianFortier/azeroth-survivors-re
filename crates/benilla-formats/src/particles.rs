@@ -395,9 +395,9 @@ const VANILLA_HDR_PTR: usize = 0x140;
 const POST_WOTLK_HDR_COUNT: usize = 0x128;
 const POST_WOTLK_HDR_PTR: usize = 0x12c;
 
-/// The particle record layout changes at M2 v264: animation tracks lose their per-sequence
-/// ranges (28 -> 20 bytes), and sequence records shrink from 0x44 to 0x40 bytes. The eleven
-/// particle tracks therefore compact the fixed tail of the record by 8 bytes each.
+/// The particle record layout changes at M2 v264: tracks lose their per-sequence ranges
+/// (28 -> 20 bytes), sequence records shrink (0x44 -> 0x40), and the emitter record uses the
+/// post-WotLK field order/offsets rather than a compacted v256 record.
 #[derive(Debug, Clone, Copy)]
 struct ParticleM2Layout {
     track_stride: usize,
