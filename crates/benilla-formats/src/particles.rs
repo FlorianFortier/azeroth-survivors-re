@@ -567,10 +567,22 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
     if bytes.len() < HDR_PTR + 4 || &bytes[..4] != b"MD20" {
         return Ok(Vec::new());
     }
+    let version = le_u32(bytes, 4);
+    let layout = ParticleM2Layout::for_version(version)?;
     let count = le_u32(bytes, HDR_COUNT) as usize;
     let base = le_u32(bytes, HDR_PTR) as usize;
-    if count == 0 || count > 256 || base + count * STRIDE > bytes.len() {
+    let records_bytes = count
+        .checked_mul(layout.emitter_stride)
+        .context("particle emitter table size overflow")?;
+    if count == 0 {
         return Ok(Vec::new());
+    }
+    if count > 256 || base.checked_add(records_bytes).is_none_or(|end| end > bytes.len()) {
+        anyhow::bail!(
+            "invalid M2 v{version} particle emitter table: count={count}, offset={base:#x}, stride={:#x}, file_len={:#x}",
+            layout.emitter_stride,
+            bytes.len()
+        );
     }
 
     // Each sequence's band and loop flag (flags bit 0 clear loops); a model with none gets one
@@ -579,8 +591,8 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
         let (n, o) = (le_u32(bytes, 0x1c) as usize, le_u32(bytes, 0x20) as usize);
         (0..n)
             .map_while(|i| {
-                let e = o + i * 0x44;
-                (e + 0x44 <= bytes.len()).then(|| SeqSlot {
+                let e = o + i * layout.sequence_stride;
+                (e + layout.sequence_stride <= bytes.len()).then(|| SeqSlot {
                     index: i,
                     band: (le_u32(bytes, e + 0x04), le_u32(bytes, e + 0x08)),
                     looping: le_u32(bytes, e + 0x10) & 1 == 0,
@@ -615,7 +627,9 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
 
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
-        let e = base + i * STRIDE;
+        let e = base + i * layout.emitter_stride;
+        let track = |legacy_offset, index| layout.track_offset(legacy_offset, index);
+        let tail = |legacy_offset| layout.tail_offset(legacy_offset);
         let tex_index = le_u16(bytes, e + 0x16) as usize;
         let texture = textures.get(tex_index).cloned().flatten();
         let shape = shape_of(le_u16(bytes, e + 0x2a));
