@@ -5,7 +5,7 @@
 
 use std::io::Cursor;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use benilla_m2::{parse_m2, M2ScalarTrack};
 
 use crate::emit_timing::{EmitParams, EmitTiming};
