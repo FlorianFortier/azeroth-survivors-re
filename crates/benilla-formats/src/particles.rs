@@ -390,8 +390,10 @@ const VANILLA_EMITTER_STRIDE: usize = 0x1f8;
 const POST_WOTLK_EMITTER_STRIDE: usize = 0x1a0;
 const VANILLA_TRACK_STRIDE: usize = 0x1c;
 const POST_WOTLK_TRACK_STRIDE: usize = 0x14;
-const HDR_COUNT: usize = 0x13c;
-const HDR_PTR: usize = 0x140;
+const VANILLA_HDR_COUNT: usize = 0x13c;
+const VANILLA_HDR_PTR: usize = 0x140;
+const POST_WOTLK_HDR_COUNT: usize = 0x128;
+const POST_WOTLK_HDR_PTR: usize = 0x12c;
 
 /// The particle record layout changes at M2 v264: animation tracks lose their per-sequence
 /// ranges (28 -> 20 bytes), and sequence records shrink from 0x44 to 0x40 bytes. The eleven
@@ -401,6 +403,10 @@ struct ParticleM2Layout {
     track_stride: usize,
     emitter_stride: usize,
     sequence_stride: usize,
+    emitter_count_offset: usize,
+    emitter_pointer_offset: usize,
+    texture_count_offset: usize,
+    texture_pointer_offset: usize,
     has_track_ranges: bool,
 }
 
@@ -411,12 +417,20 @@ impl ParticleM2Layout {
                 track_stride: VANILLA_TRACK_STRIDE,
                 emitter_stride: VANILLA_EMITTER_STRIDE,
                 sequence_stride: 0x44,
+                emitter_count_offset: VANILLA_HDR_COUNT,
+                emitter_pointer_offset: VANILLA_HDR_PTR,
+                texture_count_offset: 0x5c,
+                texture_pointer_offset: 0x60,
                 has_track_ranges: true,
             }),
             264..=272 => Ok(Self {
                 track_stride: POST_WOTLK_TRACK_STRIDE,
                 emitter_stride: POST_WOTLK_EMITTER_STRIDE,
                 sequence_stride: 0x40,
+                emitter_count_offset: POST_WOTLK_HDR_COUNT,
+                emitter_pointer_offset: POST_WOTLK_HDR_PTR,
+                texture_count_offset: 0x50,
+                texture_pointer_offset: 0x54,
                 has_track_ranges: false,
             }),
             _ => anyhow::bail!("unsupported particle M2 version {version}"),
@@ -567,8 +581,8 @@ fn particle_texture_names(bytes: &[u8], version: u32) -> Vec<Option<String>> {
     }
 
     let (count, base) = (
-        le_u32(bytes, 0x50) as usize,
-        le_u32(bytes, 0x54) as usize,
+        le_u32(bytes, ParticleM2Layout::for_version(version).map_or(0x50, |l| l.texture_count_offset)) as usize,
+        le_u32(bytes, ParticleM2Layout::for_version(version).map_or(0x54, |l| l.texture_pointer_offset)) as usize,
     );
     if count > 4096
         || base
@@ -595,14 +609,14 @@ fn particle_texture_names(bytes: &[u8], version: u32) -> Vec<Option<String>> {
 /// The vanilla M2's particle emitters, textures resolved through `benilla-m2`'s textures table;
 /// empty for a model with none or a file that is not MD20.
 pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef>> {
-    if bytes.len() < HDR_PTR + 4 || &bytes[..4] != b"MD20" {
+    if bytes.len() < 0x34 || &bytes[..4] != b"MD20" {
         return Ok(Vec::new());
     }
     let version = le_u32(bytes, 4);
     let layout = ParticleM2Layout::for_version(version)?;
     let textures = particle_texture_names(bytes, version);
-    let count = le_u32(bytes, HDR_COUNT) as usize;
-    let base = le_u32(bytes, HDR_PTR) as usize;
+    let count = le_u32(bytes, layout.emitter_count_offset) as usize;
+    let base = le_u32(bytes, layout.emitter_pointer_offset) as usize;
     let records_bytes = count
         .checked_mul(layout.emitter_stride)
         .context("particle emitter table size overflow")?;
@@ -798,6 +812,8 @@ mod tests {
         assert_eq!(vanilla.track_stride, 0x1c);
         assert_eq!(vanilla.emitter_stride, 0x1f8);
         assert_eq!(vanilla.sequence_stride, 0x44);
+        assert_eq!(vanilla.emitter_count_offset, 0x13c);
+        assert_eq!(vanilla.emitter_pointer_offset, 0x140);
         assert_eq!(vanilla.track_offset(0x6c, 2), 0x6c);
         assert_eq!(vanilla.tail_offset(0x14c), 0x14c);
 
@@ -805,6 +821,10 @@ mod tests {
         assert_eq!(post_wotlk.track_stride, 0x14);
         assert_eq!(post_wotlk.emitter_stride, 0x1a0);
         assert_eq!(post_wotlk.sequence_stride, 0x40);
+        assert_eq!(post_wotlk.emitter_count_offset, 0x128);
+        assert_eq!(post_wotlk.emitter_pointer_offset, 0x12c);
+        assert_eq!(post_wotlk.texture_count_offset, 0x50);
+        assert_eq!(post_wotlk.texture_pointer_offset, 0x54);
         assert_eq!(post_wotlk.track_offset(0x6c, 2), 0x5c);
         assert_eq!(post_wotlk.track_offset(0xdc, 6), 0xac);
         assert_eq!(post_wotlk.tail_offset(0x14c), 0xfc);
@@ -842,8 +862,8 @@ mod tests {
         let mut bytes = vec![0u8; base + POST_WOTLK_EMITTER_STRIDE];
         bytes[..4].copy_from_slice(b"MD20");
         put_u32(&mut bytes, 4, 272);
-        put_u32(&mut bytes, HDR_COUNT, 1);
-        put_u32(&mut bytes, HDR_PTR, base as u32);
+        put_u32(&mut bytes, POST_WOTLK_HDR_COUNT, 1);
+        put_u32(&mut bytes, POST_WOTLK_HDR_PTR, base as u32);
 
         let emitters = parse_m2_particle_emitters(&bytes).expect("parse v272 emitters");
         assert_eq!(emitters.len(), 1);
