@@ -649,8 +649,8 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
         let recursion_model = model_path(0x20);
         let spline = (shape == ParticleShape::Spline)
             .then(|| {
-                let q = le_u32(bytes, e + 0x1d4) as usize;
-                let ofs = le_u32(bytes, e + 0x1d8) as usize;
+                let q = le_u32(bytes, e + tail(0x1d4)) as usize;
+                let ofs = le_u32(bytes, e + tail(0x1d8)) as usize;
                 let n = 3 * (q / 3) + 1;
                 if q < 3 || ofs + n * 12 > bytes.len() {
                     return None;
@@ -663,30 +663,30 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
             _ => (1, 1),
         };
         let over_life = OverLife {
-            mid: le_f32(bytes, e + 0x14c),
+            mid: le_f32(bytes, e + tail(0x14c)),
             color: [
-                color_key(e + 0x150),
-                color_key(e + 0x154),
-                color_key(e + 0x158),
+                color_key(e + tail(0x150)),
+                color_key(e + tail(0x154)),
+                color_key(e + tail(0x158)),
             ],
             scale: [
-                le_f32(bytes, e + 0x15c),
-                le_f32(bytes, e + 0x160),
-                le_f32(bytes, e + 0x164),
+                le_f32(bytes, e + tail(0x15c)),
+                le_f32(bytes, e + tail(0x160)),
+                le_f32(bytes, e + tail(0x164)),
             ],
             // Ten u16s at +0x168..+0x17b (`0x70ebd0`), a repeat count after each head pair, not
             // the eight wowdev's `*UVAnim` names imply.
             head_cells: [
-                CellRamp::new(le_u16(bytes, e + 0x168), le_u16(bytes, e + 0x16a)),
-                CellRamp::new(le_u16(bytes, e + 0x16e), le_u16(bytes, e + 0x170)),
+                CellRamp::new(le_u16(bytes, e + tail(0x168)), le_u16(bytes, e + tail(0x16a))),
+                CellRamp::new(le_u16(bytes, e + tail(0x16e)), le_u16(bytes, e + tail(0x170))),
             ],
             tail_cells: [
-                CellRamp::new(le_u16(bytes, e + 0x174), le_u16(bytes, e + 0x176)),
-                CellRamp::new(le_u16(bytes, e + 0x178), le_u16(bytes, e + 0x17a)),
+                CellRamp::new(le_u16(bytes, e + tail(0x174)), le_u16(bytes, e + tail(0x176))),
+                CellRamp::new(le_u16(bytes, e + tail(0x178)), le_u16(bytes, e + tail(0x17a))),
             ],
             repeat: [
-                f32::from(le_u16(bytes, e + 0x16c)),
-                f32::from(le_u16(bytes, e + 0x172)),
+                f32::from(le_u16(bytes, e + tail(0x16c))),
+                f32::from(le_u16(bytes, e + tail(0x172))),
             ],
         };
         out.push(ParticleEmitterDef {
@@ -724,20 +724,20 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
                 &seq_slots,
                 &gseq,
             ),
-            drag: le_f32(bytes, e + 0x194),
-            tail_time: le_f32(bytes, e + 0x17c),
-            angular_velocity_min: le_vec3(bytes, e + 0x19c),
-            angular_velocity_max: le_vec3(bytes, e + 0x1a8),
-            inherit_scale: le_f32(bytes, e + 0x190),
-            follow_speed1: le_f32(bytes, e + 0x1c4),
-            follow_scale1: le_f32(bytes, e + 0x1c8),
-            follow_speed2: le_f32(bytes, e + 0x1cc),
-            follow_scale2: le_f32(bytes, e + 0x1d0),
-            twinkle_speed: le_f32(bytes, e + 0x180),
-            twinkle_percent: le_f32(bytes, e + 0x184),
-            twinkle_min: le_f32(bytes, e + 0x188),
-            twinkle_max: le_f32(bytes, e + 0x18c),
-            spin: le_f32(bytes, e + 0x198),
+            drag: le_f32(bytes, e + tail(0x194)),
+            tail_time: le_f32(bytes, e + tail(0x17c)),
+            angular_velocity_min: le_vec3(bytes, e + tail(0x19c)),
+            angular_velocity_max: le_vec3(bytes, e + tail(0x1a8)),
+            inherit_scale: le_f32(bytes, e + tail(0x190)),
+            follow_speed1: le_f32(bytes, e + tail(0x1c4)),
+            follow_scale1: le_f32(bytes, e + tail(0x1c8)),
+            follow_speed2: le_f32(bytes, e + tail(0x1cc)),
+            follow_scale2: le_f32(bytes, e + tail(0x1d0)),
+            twinkle_speed: le_f32(bytes, e + tail(0x180)),
+            twinkle_percent: le_f32(bytes, e + tail(0x184)),
+            twinkle_min: le_f32(bytes, e + tail(0x188)),
+            twinkle_max: le_f32(bytes, e + tail(0x18c)),
+            spin: le_f32(bytes, e + tail(0x198)),
             over_life,
         });
     }
