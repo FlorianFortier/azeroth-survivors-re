@@ -1,7 +1,7 @@
-//! Vanilla (MD20 v256) M2 particle emitters, read from raw bytes because `benilla-m2` skips them:
-//! fixed 0x1f8-byte records (array at MD20+0x13c/+0x140) at the reference loader's offsets
-//! (`0x70ebd0`). Rate and enabled bake one loop per sequence into [`EmitTiming`], since the
-//! reference samples both in the playing sequence's key window (`0x713d50`).
+//! MD20 M2 particle emitters, read from raw bytes because `benilla-m2` skips them:
+//! versioned fixed-size records (array at MD20+0x13c/+0x140) at the reference loader's offsets
+//! (`0x70ebd0`). v256-v263 tracks include ranges; v264-v272 tracks omit them and compact
+//! sequence/record layouts. Rate and enabled bake one loop per sequence into [`EmitTiming`].
 
 use std::io::Cursor;
 
@@ -747,6 +747,77 @@ pub fn parse_m2_particle_emitters(bytes: &[u8]) -> Result<Vec<ParticleEmitterDef
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
+        bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_f32(bytes: &mut [u8], offset: usize, value: f32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    #[test]
+    fn post_wotlk_particle_layout_compacts_tracks_and_sequence_records() {
+        let vanilla = ParticleM2Layout::for_version(256).unwrap();
+        assert_eq!(vanilla.track_stride, 0x1c);
+        assert_eq!(vanilla.emitter_stride, 0x1f8);
+        assert_eq!(vanilla.sequence_stride, 0x44);
+        assert_eq!(vanilla.track_offset(0x6c, 2), 0x6c);
+        assert_eq!(vanilla.tail_offset(0x14c), 0x14c);
+
+        let post_wotlk = ParticleM2Layout::for_version(272).unwrap();
+        assert_eq!(post_wotlk.track_stride, 0x14);
+        assert_eq!(post_wotlk.emitter_stride, 0x1a0);
+        assert_eq!(post_wotlk.sequence_stride, 0x40);
+        assert_eq!(post_wotlk.track_offset(0x6c, 2), 0x5c);
+        assert_eq!(post_wotlk.track_offset(0xdc, 6), 0xac);
+        assert_eq!(post_wotlk.tail_offset(0x14c), 0xfc);
+        assert_eq!(post_wotlk.tail_offset(0x1dc), 0x18c);
+        assert!(ParticleM2Layout::for_version(273).is_err());
+    }
+
+    #[test]
+    fn post_wotlk_particle_track_reads_timestamps_without_ranges() {
+        let layout = ParticleM2Layout::for_version(272).unwrap();
+        let mut bytes = vec![0u8; 64];
+        put_u16(&mut bytes, 0, 1); // linear interpolation
+        put_u16(&mut bytes, 2, u16::MAX); // no global sequence
+        put_u32(&mut bytes, 4, 2); // timestamp count
+        put_u32(&mut bytes, 8, 32); // timestamps offset
+        put_u32(&mut bytes, 12, 2); // value count
+        put_u32(&mut bytes, 16, 40); // values offset
+        put_u32(&mut bytes, 32, 0);
+        put_u32(&mut bytes, 36, 100);
+        put_f32(&mut bytes, 40, 0.0);
+        put_f32(&mut bytes, 44, 30.0);
+
+        let parsed = read_raw_track(&bytes, 0, 4, layout, le_f32);
+        assert_eq!(parsed.interp, 1);
+        assert_eq!(parsed.gseq, u16::MAX);
+        assert!(parsed.ranges.is_empty());
+        assert_eq!(parsed.keys, vec![(0, 0.0), (100, 30.0)]);
+    }
+
+    #[test]
+    fn post_wotlk_emitter_table_uses_compacted_record_stride() {
+        // Minimal version-272 MD20 with one particle emitter. The record has no optional
+        // sequence/data arrays; this checks the emitter-array stride and compact tail offsets.
+        let base = 0x150;
+        let mut bytes = vec![0u8; base + POST_WOTLK_EMITTER_STRIDE];
+        bytes[..4].copy_from_slice(b"MD20");
+        put_u32(&mut bytes, 4, 272);
+        put_u32(&mut bytes, HDR_COUNT, 1);
+        put_u32(&mut bytes, HDR_PTR, base as u32);
+
+        let emitters = parse_m2_particle_emitters(&bytes).expect("parse v272 emitters");
+        assert_eq!(emitters.len(), 1);
+        assert_eq!(emitters[0].shape, ParticleShape::Plane);
+        assert_eq!(emitters[0].params.sample(None, 0.0, 0.0).vertical_range, 0.0);
+    }
 
     #[test]
     fn bit_one_is_the_unlit_flag_and_mod_blends_never_light() {
