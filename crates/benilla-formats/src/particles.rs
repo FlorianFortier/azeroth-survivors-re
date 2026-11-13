@@ -458,33 +458,52 @@ fn read_raw_track(
     b: &[u8],
     track: usize,
     elem: usize,
+    layout: ParticleM2Layout,
     read: impl Fn(&[u8], usize) -> f32,
 ) -> M2ScalarTrack {
     let mut out = M2ScalarTrack {
         gseq: 0xffff,
         ..M2ScalarTrack::default()
     };
-    if track + 0x1c > b.len() {
+    if track.checked_add(layout.track_stride).is_none_or(|end| end > b.len()) {
         return out;
     }
     out.interp = le_u16(b, track);
     out.gseq = le_u16(b, track + 2);
-    let (rn, ro) = (le_u32(b, track + 4) as usize, le_u32(b, track + 8) as usize);
-    let (tn, to) = (
-        le_u32(b, track + 0x0c) as usize,
-        le_u32(b, track + 0x10) as usize,
-    );
-    let (vn, vo) = (
-        le_u32(b, track + 0x14) as usize,
-        le_u32(b, track + 0x18) as usize,
-    );
-    if ro + rn * 8 <= b.len() {
-        out.ranges = (0..rn)
-            .map(|i| (le_u32(b, ro + i * 8), le_u32(b, ro + i * 8 + 4)))
-            .collect();
-    }
+    let (tn, to, vn, vo) = if layout.has_track_ranges {
+        let (rn, ro) = (le_u32(b, track + 4) as usize, le_u32(b, track + 8) as usize);
+        let (tn, to) = (
+            le_u32(b, track + 0x0c) as usize,
+            le_u32(b, track + 0x10) as usize,
+        );
+        let (vn, vo) = (
+            le_u32(b, track + 0x14) as usize,
+            le_u32(b, track + 0x18) as usize,
+        );
+        if ro.checked_add(rn.saturating_mul(8)).is_some_and(|end| end <= b.len()) {
+            out.ranges = (0..rn)
+                .map(|i| (le_u32(b, ro + i * 8), le_u32(b, ro + i * 8 + 4)))
+                .collect();
+        }
+        (tn, to, vn, vo)
+    } else {
+        // WotLK and later removed M2Track::ranges: timestamps and values immediately follow
+        // interpolation/global-sequence in the 20-byte record.
+        let (tn, to) = (
+            le_u32(b, track + 4) as usize,
+            le_u32(b, track + 8) as usize,
+        );
+        let (vn, vo) = (
+            le_u32(b, track + 0x0c) as usize,
+            le_u32(b, track + 0x10) as usize,
+        );
+        (tn, to, vn, vo)
+    };
     let n = tn.min(vn);
-    if n > 0 && to + n * 4 <= b.len() && vo + n * elem <= b.len() {
+    if n > 0
+        && to.checked_add(n.saturating_mul(4)).is_some_and(|end| end <= b.len())
+        && vo.checked_add(n.saturating_mul(elem)).is_some_and(|end| end <= b.len())
+    {
         out.keys = (0..n)
             .map(|i| (le_u32(b, to + i * 4), read(b, vo + i * elem)))
             .collect();
