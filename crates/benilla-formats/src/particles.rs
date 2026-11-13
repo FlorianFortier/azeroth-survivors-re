@@ -673,8 +673,7 @@ fn parse_post_wotlk_particle_emitters(
         let geometry_model = geometry_offset
             .checked_add(geometry_count)
             .filter(|&end| geometry_count >= 2 && end <= bytes.len())
-            .map(|end| {
-                let _ = end;
+            .map(|_| {
                 String::from_utf8_lossy(&bytes[geometry_offset..geometry_offset + geometry_count])
                     .trim_end_matches('\0')
                     .to_string()
@@ -980,7 +979,7 @@ mod tests {
     }
 
     #[test]
-    fn post_wotlk_particle_layout_compacts_tracks_and_sequence_records() {
+    fn post_wotlk_particle_layout_uses_versioned_headers_and_track_records() {
         let vanilla = ParticleM2Layout::for_version(256).unwrap();
         assert_eq!(vanilla.track_stride, 0x1c);
         assert_eq!(vanilla.emitter_stride, 0x1f8);
@@ -1039,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn post_wotlk_emitter_table_uses_compacted_record_stride() {
+    fn post_wotlk_emitter_table_uses_native_record_layout() {
         // Minimal version-272 MD20 with one particle emitter. The record has no optional
         // sequence/data arrays; this checks the emitter-array stride and compact tail offsets.
         let base = 0x150;
